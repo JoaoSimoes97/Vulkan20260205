@@ -2,7 +2,6 @@
 #include "vulkan_utils.h"
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <stdexcept>
 #include <SDL3/SDL_stdinc.h>
 
@@ -222,7 +221,7 @@ void VulkanApp::CreateVulkanInstance() {
         .ppEnabledExtensionNames = pExtensionNames,         /* Names from SDL (surface, platform). */
     };
 
-    VkResult result = vkCreateInstance(&stCreateInfo, nullptr, &this->pVulkanInstance);
+    const auto result = vkCreateInstance(&stCreateInfo, nullptr, &this->pVulkanInstance);
     if (result != VK_SUCCESS) {
         VulkanUtils::LogErr("vkCreateInstance failed: {}", static_cast<int>(result));
         throw std::runtime_error("Failed to create Vulkan instance");
@@ -240,7 +239,7 @@ void VulkanApp::CheckInstanceExtensionsAvailable(const char* const* pExtensionNa
     for (uint32_t i = static_cast<uint32_t>(0); i < lExtensionCount; ++i) {
         const char* pName = pExtensionNames[i];
         bool bFound = static_cast<bool>(false);
-        for (const VkExtensionProperties& stProp : vecAvailableExtensions) {
+        for (const auto& stProp : vecAvailableExtensions) {
             if (std::strcmp(pName, stProp.extensionName) == static_cast<int>(0)) {
                 bFound = static_cast<bool>(true);
                 break;
@@ -274,14 +273,16 @@ void VulkanApp::GetPhysicalDevice() {
 
     /* Filled by vkGetPhysicalDeviceProperties per device (name, type, limits). */
     VkPhysicalDeviceProperties stPhysicalDeviceProperties = {};
-    for (const VkPhysicalDevice& pPhysicalDevice : vecPhysicalDevices) {
+    VkPhysicalDeviceProperties stBestDeviceProperties = {};
+    for (const auto& pPhysicalDevice : vecPhysicalDevices) {
         vkGetPhysicalDeviceProperties(pPhysicalDevice, &stPhysicalDeviceProperties);
 
-        uint32_t lScore = this->RatePhysicalDeviceSuitability(pPhysicalDevice, stPhysicalDeviceProperties);
+        const uint32_t lScore = this->RatePhysicalDeviceSuitability(pPhysicalDevice, stPhysicalDeviceProperties);
         VulkanUtils::LogInfo("Physical device: {} - Score: {}", stPhysicalDeviceProperties.deviceName, lScore);
         if (lScore > lBestScore) {
             lBestScore = lScore;
             pBestPhysicalDevice = pPhysicalDevice;
+            stBestDeviceProperties = stPhysicalDeviceProperties;
         }
     }
 
@@ -294,13 +295,10 @@ void VulkanApp::GetPhysicalDevice() {
     this->stMainDevice.pPhysicalDevice = pBestPhysicalDevice;
     this->GetQueueFamilies(pBestPhysicalDevice);
 
-    vkGetPhysicalDeviceProperties(pBestPhysicalDevice, &stPhysicalDeviceProperties);
-    VulkanUtils::LogInfo("Best physical device: {} - Score: {}", stPhysicalDeviceProperties.deviceName, lBestScore);
+    VulkanUtils::LogInfo("Best physical device: {} - Score: {}", stBestDeviceProperties.deviceName, lBestScore);
 }
 
 uint32_t VulkanApp::RatePhysicalDeviceSuitability(VkPhysicalDevice pPhysicalDevice, const VkPhysicalDeviceProperties& stProperties) {
-    (void)stProperties;
-
     /* Require a graphics queue family; otherwise device is unsuitable. */
     QueueFamilyIndices stIndices = this->FindQueueFamilyIndices(pPhysicalDevice);
     if (stIndices.graphicsFamily == QUEUE_FAMILY_IGNORED) {
@@ -350,7 +348,7 @@ QueueFamilyIndices VulkanApp::FindQueueFamilyIndices(VkPhysicalDevice pPhysicalD
     vkGetPhysicalDeviceQueueFamilyProperties(pPhysicalDevice, &lQueueFamilyCount, vecQueueFamilyProperties.data());
 
     for (uint32_t i = static_cast<uint32_t>(0); i < lQueueFamilyCount; ++i) {
-        const VkQueueFamilyProperties& stProp = vecQueueFamilyProperties[i];  /* queueFlags, queueCount, etc. */
+        const auto& stProp = vecQueueFamilyProperties[i];  /* queueFlags, queueCount, etc. */
         if ((stProp.queueFlags & VK_QUEUE_GRAPHICS_BIT) != static_cast<VkQueueFlags>(0)) {
             stIndices.graphicsFamily = i;
             break;
@@ -411,7 +409,7 @@ void VulkanApp::CreateLogicalDevice() {
         .pEnabledFeatures = &stDeviceFeatures,
     };
 
-    VkResult result = vkCreateDevice(
+    const auto result = vkCreateDevice(
         this->stMainDevice.pPhysicalDevice,
         &stCreateInfo,
         nullptr,

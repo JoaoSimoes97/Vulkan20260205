@@ -1,6 +1,6 @@
 # Cross-Platform Vulkan Application
 
-A simple cross-platform Vulkan application that renders a red triangle. This project is designed to work on Linux, Windows, and macOS with automated setup scripts.
+A cross-platform Vulkan application (SDL3 window, Vulkan 1.4 instance, physical/logical device; swapchain and triangle rendering to be added). Designed to work on Linux, Windows, and macOS with automated setup scripts.
 
 **Vulkan everywhere, one codebase:** On **Linux** and **Windows** we use **native Vulkan drivers** (NVIDIA, AMD, Intel). On **macOS** (and iOS if you port) the Vulkan SDK uses **MoltenVK** (Vulkan → Metal). Same Vulkan API everywhere.
 
@@ -211,15 +211,10 @@ sudo dnf install -y \
 
 ### Automated Build (Recommended)
 
-- **Linux/macOS**: `./build.sh`
-- **Windows**: `build.bat`
+- **Linux/macOS**: `scripts/linux/build.sh --debug` or `--release`
+- **Windows**: `scripts\windows\build.bat --debug` or `--release`
 
-The build script will:
-- Check dependencies
-- Create build directory
-- Configure CMake
-- Compile shaders automatically
-- Build the project
+You must pass `--debug` or `--release`. The script creates `build/Debug` or `build/Release`, configures CMake, compiles shaders, and builds. Run the app from `install/Debug/bin/VulkanApp` or `install/Release/bin/VulkanApp`.
 
 ### Manual Build
 
@@ -227,42 +222,31 @@ The build script will:
 
 ```bash
 # Check dependencies (optional)
-./check_dependencies.sh
+scripts/linux/check_dependencies.sh
 
-# Create build directory
-mkdir build
-cd build
-
-# Configure (CMake will auto-compile shaders if glslc is found)
-cmake ..
-
-# Build
+# Debug build
+mkdir -p build/Debug && cd build/Debug
+cmake ../.. -DCMAKE_BUILD_TYPE=Debug
 make -j$(nproc)
+# Run from project root: ./install/Debug/bin/VulkanApp
 
-# Run
-./VulkanApp
+# Or Release: build/Release, install/Release/bin/VulkanApp
 ```
 
 #### Windows
 
 ```cmd
 REM Check dependencies (optional)
-check_dependencies.bat
+scripts\windows\check_dependencies.bat
 
-REM Create build directory
-mkdir build
-cd build
+REM Debug build
+mkdir build\Debug
+cd build\Debug
+cmake ..\.. -DCMAKE_BUILD_TYPE=Debug -G "Visual Studio 17 2022" -A x64
+REM or MinGW: cmake ..\.. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Debug
+cmake --build . --config Debug
 
-REM Configure (specify your generator)
-cmake .. -G "Visual Studio 17 2022"
-REM or for MinGW:
-REM cmake .. -G "MinGW Makefiles"
-
-REM Build
-cmake --build . --config Release
-
-REM Run
-.\Release\VulkanApp.exe
+REM Run from project root: install\Debug\bin\VulkanApp.exe
 ```
 
 ## Shader Compilation
@@ -293,30 +277,37 @@ glslc shaders\frag.frag -o shaders\frag.spv
 
 ```
 VulkanProjects/
-├── CMakeLists.txt              # CMake build configuration (auto-compiles shaders)
-├── setup_linux.sh              # Linux dependency installer
-├── setup_windows.bat           # Windows dependency checker
+├── CMakeLists.txt              # CMake build configuration (C++23, auto-compiles shaders)
 ├── setup.sh                    # Master setup script (auto-detects OS)
-├── build.sh                    # Automated build script (Linux/macOS)
-├── build.bat                   # Automated build script (Windows)
-├── check_dependencies.sh       # Dependency checker (Linux/macOS)
-├── check_dependencies.bat       # Dependency checker (Windows)
-├── compile_shaders.sh          # Shader compiler (Linux/macOS)
-├── compile_shaders.bat         # Shader compiler (Windows)
 ├── README.md                   # This file
-├── .gitignore                  # Git ignore file
+├── .gitignore
+├── docs/                       # Documentation index and guides
+│   ├── README.md               # Doc index and quick links
+│   ├── GITHUB_PUBLISH.md       # How to publish this repo to GitHub
+│   ├── guidelines/             # Coding guidelines
+│   ├── vulkan/                 # Tutorial order, swapchain, version support
+│   ├── platforms/              # Android, iOS
+│   └── future-ideas/
 ├── include/
 │   ├── vulkan_app.h            # Main application class header
-│   └── vulkan_utils.h          # Utility functions header
+│   └── vulkan_utils.h          # Logging and Vulkan helpers
 ├── src/
 │   ├── main.cpp                # Entry point
-│   ├── vulkan_app.cpp          # Main application implementation
-│   └── vulkan_utils.cpp        # Utility functions implementation
-└── shaders/
-    ├── vert.vert               # Vertex shader (GLSL source)
-    └── frag.frag               # Fragment shader (GLSL source)
-    # .spv files are generated automatically during build
+│   ├── vulkan_app.cpp          # Application implementation (instance, device, window)
+│   └── vulkan_utils.cpp        # Utility stubs
+├── shaders/
+│   ├── vert.vert               # Vertex shader (GLSL source)
+│   └── frag.frag               # Fragment shader (GLSL source)
+├── scripts/
+│   ├── linux/                  # build.sh, setup_linux.sh, check_dependencies.sh, etc.
+│   ├── windows/                # build.bat, setup_windows.bat, etc.
+│   └── macos/                  # setup_macos.sh
+└── platforms/
+    ├── android/                # Android scaffold and README
+    └── ios/                    # iOS scaffold and README
 ```
+
+Build output: `build/Debug`, `build/Release`, `install/Debug`, `install/Release`.
 
 ## Platforms: Vulkan vs MoltenVK
 
@@ -332,18 +323,24 @@ So: **Linux and Windows have no MoltenVK cost** — we use the system Vulkan dri
 
 - ✅ **Cross-platform support** (Linux, Windows, macOS)
 - ✅ **Vulkan everywhere** (native on Linux/Windows; MoltenVK on macOS)
-- ✅ **Automated setup scripts** for easy installation
-- ✅ **Automatic shader compilation** during build
-- ✅ **Dependency checking** before building
-- ✅ **Vulkan 1.0 API** with modern C++17
-- ✅ **SDL3** for cross-platform windowing (Linux, Windows, macOS; same API for Android/iOS)
-- ✅ **Validation layers** (optional, enabled in debug builds)
-- ✅ **Window state in real time**: resize, minimize, maximize, restore, display change, fullscreen enter/leave — all handled in the event loop; Vulkan must recreate swapchain and skip rendering when minimized. See [docs/vulkan/swapchain-rebuild-cases.md](docs/vulkan/swapchain-rebuild-cases.md) and `vulkan_app.h` for all rebuild cases (including Vulkan `VK_ERROR_OUT_OF_DATE_KHR` / device lost).
-- ✅ **Simple triangle rendering** as a starting point
+- ✅ **Vulkan 1.4** requested at instance creation; see [docs/vulkan/version-support.md](docs/vulkan/version-support.md) for version notes
+- ✅ **C++23** with SDL3 for windowing and Vulkan surface
+- ✅ **Automated setup and build scripts** (setup.sh, scripts/linux/build.sh, scripts/windows/build.bat)
+- ✅ **Automatic shader compilation** during CMake build
+- ✅ **Dependency checking** (check_dependencies.sh / .bat)
+- ✅ **Logging** (VulkanUtils::LogTrace/LogInfo/LogErr etc.; level-based, colored in terminal)
+- ✅ **Physical device selection** (queue family check, device type scoring)
+- ✅ **Logical device** with graphics queue
+- ✅ **Window state** handled in the event loop (resize, minimize, maximize, fullscreen, etc.); see [docs/vulkan/swapchain-rebuild-cases.md](docs/vulkan/swapchain-rebuild-cases.md). Swapchain and draw loop to be added.
+- 🔲 **Swapchain, render pass, pipeline, draw** — follow [docs/vulkan/tutorial-order.md](docs/vulkan/tutorial-order.md)
 
 ### Code style
 
-Naming, comments, and class style follow [docs/guidelines/coding-guidelines.md](docs/guidelines/coding-guidelines.md): camelCase, single-line comments (except function/module descriptions), `this->` in classes, optional type prefix for variables (`p`, `n`, `b`). Full doc index: [docs/README.md](docs/README.md).
+Naming, comments, and style follow [docs/guidelines/coding-guidelines.md](docs/guidelines/coding-guidelines.md): **PascalCase** for functions, **type prefixes** for variables (`p`, `l`, `b`, `st`, etc.), explicit comparisons (no `!`), explicit casts for literals. Prefer `auto` for range-for and when the type is obvious; use `const` and small optimizations (e.g. caching to avoid redundant API calls) where appropriate. Full doc index: [docs/README.md](docs/README.md).
+
+### Repository
+
+To publish or clone from GitHub, see [docs/GITHUB_PUBLISH.md](docs/GITHUB_PUBLISH.md).
 
 ## Troubleshooting
 
@@ -392,20 +389,18 @@ If automatic shader compilation fails:
 
 1. **Check dependencies**: Run `check_dependencies.sh` or `check_dependencies.bat`
 2. **Clean build**: Delete `build/` directory and rebuild
-3. **Check compiler**: Ensure a C++17 compatible compiler is installed
+3. **Check compiler**: Ensure a C++23 compatible compiler is installed
 
 ## Portable Development
 
-This project is designed to be portable. To set up on a new machine:
+To set up on a new machine:
 
-1. **Clone/copy the project** to the new machine
-2. **Run the appropriate setup script**:
-   - Linux: `./setup_linux.sh`
-   - Windows: `setup_windows.bat`
-3. **Build**: `./build.sh` or `build.bat`
-4. **Run**: `./build/VulkanApp` or `build\Release\VulkanApp.exe`
+1. **Clone the project** (or copy it) to the new machine.
+2. **Run the setup script** for your OS: `./setup.sh` (Linux/macOS) or `scripts\windows\setup_windows.bat` (Windows).
+3. **Build**: `scripts/linux/build.sh --debug` (or `--release`) on Linux/macOS; `scripts\windows\build.bat --debug` (or `--release`) on Windows.
+4. **Run**: `./install/Debug/bin/VulkanApp` or `install\Debug\bin\VulkanApp.exe` (or the Release path).
 
-All dependencies are managed through package managers or the setup scripts, making it easy to set up on any supported platform.
+See [docs/GITHUB_PUBLISH.md](docs/GITHUB_PUBLISH.md) for pushing this repo to GitHub.
 
 ## Next Steps
 
