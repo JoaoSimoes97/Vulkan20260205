@@ -8,6 +8,7 @@ install/
 
 # CMake
 CMakeCache.txt
+compile_commands.json
 CMakeFiles/
 cmake_install.cmake
 Makefile

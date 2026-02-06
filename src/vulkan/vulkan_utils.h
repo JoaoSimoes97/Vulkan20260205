@@ -128,6 +128,8 @@ namespace VulkanUtils {
 
     /* Helper functions. */
     std::vector<char> ReadFile(const std::string& sFilename);
+    bool CheckValidationLayerSupport();
+    void PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& stCreateInfo);
     VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
                                           const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
                                           const VkAllocationCallbacks* pAllocator,

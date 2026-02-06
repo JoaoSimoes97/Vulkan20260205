@@ -53,3 +53,23 @@
 - **Magic numbers**: Prefer named constants (e.g. `constexpr int WINDOW_WIDTH = 800;`).
 - **Error handling**: Prefer exceptions for fatal errors; log before throwing.
 - **Scope**: Prefer the narrowest scope (e.g. declare loop variables in the loop).
+
+## Vulkan
+
+Validation layer setup: [docs/vulkan/validation-layers.md](../vulkan/validation-layers.md).
+
+## Commit messages
+
+- **Short**: One concise line (about 50–72 chars); optional second line for detail.
+- **Imperative**: Start with a verb, e.g. "Add …", "Fix …", "Refactor …" (not "Added" or "Fixes").
+- **Optional prefix**: `feat:`, `fix:`, `refactor:`, `docs:` etc. for scope (e.g. `feat(vulkan): add validation layers`).
+
+## Git
+
+- **One logical change per commit**: Easier to review and revert.
+- **Docs**: Update README or relevant docs when adding features, changing setup, or changing behaviour users rely on.
+
+## C++ style (additional)
+
+- **auto**: Prefer `auto` for range-for and when the type is obvious from context; keeps names consistent with type prefixes.
+- **Avoid redundant API calls**: Cache results when you would otherwise call the same Vulkan (or other) API again with the same inputs in the same scope.
