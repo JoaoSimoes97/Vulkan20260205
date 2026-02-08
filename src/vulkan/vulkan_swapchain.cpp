@@ -2,6 +2,7 @@
 #include "vulkan_config.h"
 #include "vulkan_utils.h"
 #include <algorithm>
+#include <sstream>
 #include <stdexcept>
 
 namespace {
@@ -23,17 +24,27 @@ VkSurfaceFormatKHR ChooseSurfaceFormat(VkPhysicalDevice physicalDevice, VkSurfac
         ? static_cast<VkColorSpaceKHR>(VK_COLOR_SPACE_MAX_ENUM_KHR)
         : ColorSpaceFromString(sPreferredColorSpaceStr);
 
-    if (ePreferredFormat != VK_FORMAT_UNDEFINED || ePreferredColorSpace != static_cast<VkColorSpaceKHR>(VK_COLOR_SPACE_MAX_ENUM_KHR)) {
+    if ((ePreferredFormat != VK_FORMAT_UNDEFINED) || (ePreferredColorSpace != static_cast<VkColorSpaceKHR>(VK_COLOR_SPACE_MAX_ENUM_KHR))) {
         for (const auto& stFmt : vecFormats) {
-            bool bFormatMatch = (ePreferredFormat == VK_FORMAT_UNDEFINED || stFmt.format == ePreferredFormat);
-            bool bSpaceMatch = (ePreferredColorSpace == static_cast<VkColorSpaceKHR>(VK_COLOR_SPACE_MAX_ENUM_KHR) || stFmt.colorSpace == ePreferredColorSpace);
-            if (bFormatMatch == true && bSpaceMatch == true)
+            bool bFormatMatch = ((ePreferredFormat == VK_FORMAT_UNDEFINED) || (stFmt.format == ePreferredFormat));
+            bool bSpaceMatch = ((ePreferredColorSpace == static_cast<VkColorSpaceKHR>(VK_COLOR_SPACE_MAX_ENUM_KHR)) || (stFmt.colorSpace == ePreferredColorSpace));
+            if ((bFormatMatch == true) && (bSpaceMatch == true))
                 return stFmt;
         }
+        std::ostringstream stmSupported;
+        for (size_t z = static_cast<size_t>(0); z < vecFormats.size(); ++z) {
+            if (z > static_cast<size_t>(0)) stmSupported << ", ";
+            stmSupported << FormatToString(vecFormats[z].format) << "+" << ColorSpaceToString(vecFormats[z].colorSpace);
+        }
+        VulkanUtils::LogErr("Requested format '{}' color space '{}' is not supported. Supported: {}. Adjust config and restart.",
+            sPreferredFormatStr.empty() == true ? "(driver default)" : sPreferredFormatStr,
+            sPreferredColorSpaceStr.empty() == true ? "(driver default)" : sPreferredColorSpaceStr,
+            stmSupported.str());
+        throw std::runtime_error("Requested surface format/color space not supported");
     }
-    /* Fallback: prefer B8G8R8A8_SRGB + SRGB_NONLINEAR, else first available */
+    /* Driver default: prefer B8G8R8A8_SRGB + SRGB_NONLINEAR, else first available */
     for (const auto& stFmt : vecFormats) {
-        if (stFmt.format == VK_FORMAT_B8G8R8A8_SRGB && stFmt.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        if ((stFmt.format == VK_FORMAT_B8G8R8A8_SRGB) && (stFmt.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR))
             return stFmt;
     }
     return vecFormats[0];
@@ -54,7 +65,14 @@ VkPresentModeKHR ChoosePresentMode(VkPhysicalDevice physicalDevice, VkSurfaceKHR
         if (eMode == ePreferred)
             return eMode;
     }
-    return VK_PRESENT_MODE_FIFO_KHR;
+    std::ostringstream stmSupported;
+    for (size_t z = static_cast<size_t>(0); z < vecModes.size(); ++z) {
+        if (z > static_cast<size_t>(0)) stmSupported << ", ";
+        stmSupported << PresentModeToString(vecModes[z]);
+    }
+    VulkanUtils::LogErr("Requested present mode '{}' is not supported. Supported: {}. Adjust config and restart.",
+        PresentModeToString(ePreferred), stmSupported.str());
+    throw std::runtime_error("Requested present mode not supported");
 }
 
 VkExtent2D ChooseExtent(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
@@ -76,7 +94,7 @@ VkExtent2D ChooseExtent(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
 void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
                              const QueueFamilyIndices& queueFamilyIndices, const VulkanConfig& stConfig) {
     VulkanUtils::LogTrace("VulkanSwapchain::Create");
-    if (device == VK_NULL_HANDLE || physicalDevice == VK_NULL_HANDLE || surface == VK_NULL_HANDLE) {
+    if ((device == VK_NULL_HANDLE) || (physicalDevice == VK_NULL_HANDLE) || (surface == VK_NULL_HANDLE)) {
         VulkanUtils::LogErr("VulkanSwapchain::Create: invalid device/surface");
         throw std::runtime_error("VulkanSwapchain::Create: invalid device/surface");
     }
@@ -95,7 +113,7 @@ void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, V
     VkSurfaceCapabilitiesKHR stCaps = {};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &stCaps);
     uint32_t lImageCount = stCaps.minImageCount + static_cast<uint32_t>(1);
-    if (stCaps.maxImageCount > 0 && lImageCount > stCaps.maxImageCount)
+    if ((stCaps.maxImageCount > 0) && (lImageCount > stCaps.maxImageCount))
         lImageCount = stCaps.maxImageCount;
 
     uint32_t lPresentFamily = (queueFamilyIndices.presentFamily != QUEUE_FAMILY_IGNORED)

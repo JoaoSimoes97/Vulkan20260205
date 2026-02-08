@@ -47,6 +47,7 @@
 ## Other
 
 - **Comparisons**: No use of logical NOT (`!`) in conditions; use explicit comparisons (e.g. `== false`, `== nullptr`, `== 0`, `== VK_FALSE`). Example: `if (ptr == nullptr)` instead of `if (!ptr)`; `if (SDL_Init(...) == false)` instead of `if (!SDL_Init(...))`.
+- **Compound conditions**: Wrap every comparison in parentheses when using `&&` or `||`. Example: `(a != VK_NULL_HANDLE) || (b == 0)` instead of `a != VK_NULL_HANDLE || b == 0`; `(x == true) && (y == true)` instead of `x == true && y == true`.
 - **Immediates / literals (all definitions)**: Every definition that uses a literal value must use an explicit cast. This includes all variable and constant initializers. Examples: `bool b = static_cast<bool>(true);`, `int i = static_cast<int>(800);`, `float f = static_cast<float>(1.0);`, `T* p = static_cast<T*>(nullptr);`. No bare literals like `= true`, `= 800`, `= 1.0f`, or `= nullptr`; always cast. Same for arguments passed to APIs.
 - **Const correctness**: Use `const` for parameters and methods that do not modify state.
 - **Magic numbers**: Prefer named constants (e.g. `constexpr int WINDOW_WIDTH = 800;`).

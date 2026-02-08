@@ -30,13 +30,12 @@ The app is split into modules so it stays maintainable and can grow (multiple ca
 
 ## Config and JSON file (all options runtime-applicable)
 
-Config is **always** loaded from a file. Default values live in code only: `GetDefaultConfig()` in `config_loader.cpp`.
+Config uses **two files**: a read-only default and a user config that can be updated.
 
-- **On startup:** The app calls `LoadConfigFromFileOrCreate("config.json")`. The path is relative to the current working directory.
-- **If the file exists:** It is loaded and used.
-- **If the file does not exist:** A `config.json` file is created from `GetDefaultConfig()`, a log message is emitted (*"Config file not found at \"config.json\"; created from defaults. Edit the file and restart to change settings."*), and those defaults are used. The user can edit the new file before the next run.
+- **default.json** (`config/default.json`): Single source of default values. Created once by the app if missing; **never overwritten**. Do not edit for normal use.
+- **config.json** (`config/config.json`): User config. Created from default if missing; can be updated by the app. Edit this to change settings.
 
-There is no separate example file; the only source of default values is `GetDefaultConfig()`.
+**On startup:** The app calls `LoadConfigFromFileOrCreate("config/config.json", "config/default.json")`. Paths are relative to the current working directory. User config is **merged over** default (missing keys in user = value from default). If the driver does not support a requested option (e.g. present mode or surface format), the app **fails with a clear log message**; the user adjusts config and restarts (no silent fallback).
 
 **JSON structure** (see `config_loader.h`). Uses **nlohmann/json**.
 

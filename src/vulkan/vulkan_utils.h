@@ -81,7 +81,7 @@ namespace VulkanUtils {
             eLevel == LogLevel::Debug ? LOG_COLOR_DEBUG :
             eLevel == LogLevel::Info  ? LOG_COLOR_INFO  :
             eLevel == LogLevel::Warn  ? LOG_COLOR_WARN  : LOG_COLOR_ERROR;
-        if (eLevel == LogLevel::Error || eLevel == LogLevel::Warn)
+        if ((eLevel == LogLevel::Error) || (eLevel == LogLevel::Warn))
             std::println(std::cerr, "{}{}{} {}", pColor, pTag, LOG_COLOR_RESET, sMsg);
         else
             std::println("{}{}{} {}", pColor, pTag, LOG_COLOR_RESET, sMsg);

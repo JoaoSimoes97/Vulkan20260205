@@ -1,1 +1,13 @@
-{"swapchain":{"preferred_color_space":"SRGB_NONLINEAR","preferred_format":"B8G8R8A8_SRGB","present_mode":"fifo"},"window":{"fullscreen":false,"height":600,"title":"Vulkan App","width":800}}
+{
+  "swapchain": {
+    "preferred_color_space": "SRGB_NONLINEAR",
+    "preferred_format": "B8G8R8A8_SRGB",
+    "present_mode": "fifo"
+  },
+  "window": {
+    "fullscreen": false,
+    "height": 600,
+    "title": "Vulkan App",
+    "width": 800
+  }
+}

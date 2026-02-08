@@ -27,7 +27,7 @@ void VulkanInstance::CheckExtensionsAvailable(const char* const* pExtensionNames
 
 void VulkanInstance::Create(const char* const* pExtensionNames, uint32_t extensionCount) {
     VulkanUtils::LogTrace("CreateVulkanInstance");
-    if (pExtensionNames == nullptr || extensionCount == 0) {
+    if ((pExtensionNames == nullptr) || (extensionCount == 0)) {
         VulkanUtils::LogErr("No Vulkan instance extensions provided");
         throw std::runtime_error("No Vulkan instance extensions provided");
     }

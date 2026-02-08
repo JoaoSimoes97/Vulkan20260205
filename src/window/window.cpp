@@ -49,7 +49,7 @@ void Window::CreateSurface(VkInstance instance) {
 }
 
 void Window::DestroySurface(VkInstance instance) {
-    if (this->m_surface != VK_NULL_HANDLE && instance != VK_NULL_HANDLE) {
+    if ((this->m_surface != VK_NULL_HANDLE) && (instance != VK_NULL_HANDLE)) {
         vkDestroySurfaceKHR(instance, this->m_surface, nullptr);
         this->m_surface = VK_NULL_HANDLE;
     }
@@ -72,7 +72,7 @@ void Window::SetFullscreen(bool bFullscreen) {
 }
 
 void Window::SetTitle(const char* pTitle) {
-    if (this->m_pWindow != nullptr && pTitle != nullptr)
+    if ((this->m_pWindow != nullptr) && (pTitle != nullptr))
         SDL_SetWindowTitle(this->m_pWindow, pTitle);
 }
 

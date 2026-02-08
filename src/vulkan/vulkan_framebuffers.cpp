@@ -5,7 +5,7 @@
 void VulkanFramebuffers::Create(VkDevice device, VkRenderPass renderPass,
                                 const std::vector<VkImageView>& imageViews, VkExtent2D extent) {
     VulkanUtils::LogTrace("VulkanFramebuffers::Create");
-    if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || imageViews.empty()) {
+    if ((device == VK_NULL_HANDLE) || (renderPass == VK_NULL_HANDLE) || (imageViews.empty() == true)) {
         VulkanUtils::LogErr("VulkanFramebuffers::Create: invalid device/renderPass/imageViews");
         throw std::runtime_error("VulkanFramebuffers::Create: invalid parameters");
     }

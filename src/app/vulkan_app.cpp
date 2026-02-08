@@ -4,14 +4,15 @@
 #include <SDL3/SDL_stdinc.h>
 #include <stdexcept>
 
-/* Config file path: relative to current working directory (run from repo root or install dir). */
-static const char* CONFIG_PATH = "config/config.json";
+/* Config paths: default (immutable, created once) and user (mutable). Relative to CWD (run from repo root or install dir). */
+static const char* CONFIG_PATH_USER   = "config/config.json";
+static const char* CONFIG_PATH_DEFAULT = "config/default.json";
 
 /* --- Lifecycle --- */
 
 VulkanApp::VulkanApp() {
     VulkanUtils::LogTrace("VulkanApp constructor");
-    this->m_config = LoadConfigFromFileOrCreate(CONFIG_PATH);
+    this->m_config = LoadConfigFromFileOrCreate(CONFIG_PATH_USER, CONFIG_PATH_DEFAULT);
     this->InitWindow();
     this->InitVulkan();
 }
@@ -32,7 +33,7 @@ void VulkanApp::InitVulkan() {
 
     uint32_t lExtensionCount = static_cast<uint32_t>(0);
     const char* const* pExtensionNames = SDL_Vulkan_GetInstanceExtensions(&lExtensionCount);
-    if (pExtensionNames == nullptr || lExtensionCount == 0) {
+    if ((pExtensionNames == nullptr) || (lExtensionCount == 0)) {
         VulkanUtils::LogErr("SDL_Vulkan_GetInstanceExtensions failed or returned no extensions");
         throw std::runtime_error("SDL_Vulkan_GetInstanceExtensions failed");
     }
@@ -96,7 +97,7 @@ void VulkanApp::ApplyConfig(const VulkanConfig& stNewConfig) {
         uint32_t lCurrentW = static_cast<uint32_t>(0);
         uint32_t lCurrentH = static_cast<uint32_t>(0);
         this->m_pWindow->GetDrawableSize(&lCurrentW, &lCurrentH);
-        if (this->m_config.lWidth != lCurrentW || this->m_config.lHeight != lCurrentH)
+        if ((this->m_config.lWidth != lCurrentW) || (this->m_config.lHeight != lCurrentH))
             this->m_pWindow->SetSize(this->m_config.lWidth, this->m_config.lHeight);
         this->m_pWindow->SetFullscreen(this->m_config.bFullscreen);
         if (this->m_config.sWindowTitle.empty() == false)
@@ -111,7 +112,7 @@ void VulkanApp::Cleanup() {
     this->m_renderPass.Destroy();
     this->m_swapchain.Destroy();
     this->m_device.Destroy();
-    if (this->m_pWindow != nullptr && this->m_instance.IsValid() == true)
+    if ((this->m_pWindow != nullptr) && (this->m_instance.IsValid() == true))
         this->m_pWindow->DestroySurface(this->m_instance.Get());
     this->m_instance.Destroy();
     this->m_pWindow.reset();
