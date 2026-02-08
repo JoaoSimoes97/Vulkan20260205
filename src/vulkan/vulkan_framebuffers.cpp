@@ -12,19 +12,19 @@ void VulkanFramebuffers::Create(VkDevice device, VkRenderPass renderPass,
     m_device = device;
     m_framebuffers.resize(imageViews.size());
 
-    for (size_t i = 0; i < imageViews.size(); ++i) {
+    for (size_t zIdx = static_cast<size_t>(0); zIdx < imageViews.size(); ++zIdx) {
         VkFramebufferCreateInfo fbInfo = {
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0,
             .renderPass = renderPass,
             .attachmentCount = 1,
-            .pAttachments = &imageViews[i],
+            .pAttachments = &imageViews[zIdx],
             .width = extent.width,
             .height = extent.height,
             .layers = 1,
         };
-        VkResult result = vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_framebuffers[i]);
+        VkResult result = vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_framebuffers[zIdx]);
         if (result != VK_SUCCESS) {
             VulkanUtils::LogErr("vkCreateFramebuffer failed: {}", static_cast<int>(result));
             throw std::runtime_error("Failed to create framebuffer");

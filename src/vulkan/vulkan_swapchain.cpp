@@ -32,9 +32,9 @@ VkSurfaceFormatKHR ChooseSurfaceFormat(VkPhysicalDevice physicalDevice, VkSurfac
                 return stFmt;
         }
         std::ostringstream stmSupported;
-        for (size_t z = static_cast<size_t>(0); z < vecFormats.size(); ++z) {
-            if (z > static_cast<size_t>(0)) stmSupported << ", ";
-            stmSupported << FormatToString(vecFormats[z].format) << "+" << ColorSpaceToString(vecFormats[z].colorSpace);
+        for (size_t zIdx = static_cast<size_t>(0); zIdx < vecFormats.size(); ++zIdx) {
+            if (zIdx > static_cast<size_t>(0)) stmSupported << ", ";
+            stmSupported << FormatToString(vecFormats[zIdx].format) << "+" << ColorSpaceToString(vecFormats[zIdx].colorSpace);
         }
         VulkanUtils::LogErr("Requested format '{}' color space '{}' is not supported. Supported: {}. Adjust config and restart.",
             sPreferredFormatStr.empty() == true ? "(driver default)" : sPreferredFormatStr,
@@ -66,9 +66,9 @@ VkPresentModeKHR ChoosePresentMode(VkPhysicalDevice physicalDevice, VkSurfaceKHR
             return eMode;
     }
     std::ostringstream stmSupported;
-    for (size_t z = static_cast<size_t>(0); z < vecModes.size(); ++z) {
-        if (z > static_cast<size_t>(0)) stmSupported << ", ";
-        stmSupported << PresentModeToString(vecModes[z]);
+    for (size_t zIdx = static_cast<size_t>(0); zIdx < vecModes.size(); ++zIdx) {
+        if (zIdx > static_cast<size_t>(0)) stmSupported << ", ";
+        stmSupported << PresentModeToString(vecModes[zIdx]);
     }
     VulkanUtils::LogErr("Requested present mode '{}' is not supported. Supported: {}. Adjust config and restart.",
         PresentModeToString(ePreferred), stmSupported.str());

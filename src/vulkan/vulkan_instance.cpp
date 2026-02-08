@@ -9,8 +9,8 @@ void VulkanInstance::CheckExtensionsAvailable(const char* const* pExtensionNames
     vkEnumerateInstanceExtensionProperties(nullptr, &availableCount, nullptr);
     std::vector<VkExtensionProperties> available(availableCount);
     vkEnumerateInstanceExtensionProperties(nullptr, &availableCount, available.data());
-    for (uint32_t i = 0; i < extensionCount; ++i) {
-        const char* pName = pExtensionNames[i];
+    for (uint32_t lIdx = static_cast<uint32_t>(0); lIdx < extensionCount; ++lIdx) {
+        const char* pName = pExtensionNames[lIdx];
         bool bFound = false;
         for (const auto& prop : available) {
             if (std::strcmp(pName, prop.extensionName) == 0) {

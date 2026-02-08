@@ -14,14 +14,14 @@ QueueFamilyIndices VulkanDevice::FindQueueFamilyIndices(VkPhysicalDevice physica
     std::vector<VkQueueFamilyProperties> props(queueFamilyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, props.data());
 
-    for (uint32_t i = 0; i < queueFamilyCount; ++i) {
-        if ((props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0)
-            indices.graphicsFamily = i;
+    for (uint32_t lIdx = static_cast<uint32_t>(0); lIdx < queueFamilyCount; ++lIdx) {
+        if ((props[lIdx].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0)
+            indices.graphicsFamily = lIdx;
         if (surface != VK_NULL_HANDLE) {
             VkBool32 presentSupport = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, &presentSupport);
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, lIdx, surface, &presentSupport);
             if (presentSupport == VK_TRUE)
-                indices.presentFamily = i;
+                indices.presentFamily = lIdx;
         }
     }
     return indices;
