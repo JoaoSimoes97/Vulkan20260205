@@ -15,9 +15,9 @@ if ! command -v brew &> /dev/null; then
     exit 1
 fi
 
-echo "Project setup: Vulkan (MoltenVK), SDL3 (window/input), CMake."
-echo "Installing Vulkan (MoltenVK), SDL3, CMake..."
-brew install molten-vk sdl3 cmake
+echo "Project setup: Vulkan (MoltenVK), SDL3 (window/input), nlohmann-json (config), CMake."
+echo "Installing Vulkan (MoltenVK), SDL3, nlohmann-json, CMake..."
+brew install molten-vk sdl3 nlohmann-json cmake
 
 echo ""
 echo "=========================================="

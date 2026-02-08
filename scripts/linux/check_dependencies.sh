@@ -71,6 +71,21 @@ else
     WARNINGS=$((WARNINGS + 1))
 fi
 
+# Check for nlohmann/json (required for config)
+if pkg-config --exists nlohmann_json 2>/dev/null; then
+    JSON_VERSION=$(pkg-config --modversion nlohmann_json 2>/dev/null || true)
+    echo "[OK] nlohmann-json: ${JSON_VERSION:-found}"
+elif [ -f /usr/include/nlohmann/json.hpp ] || [ -f /usr/local/include/nlohmann/json.hpp ]; then
+    echo "[OK] nlohmann-json headers found"
+else
+    echo "[ERROR] nlohmann-json not found!"
+    echo "        Install: sudo pacman -S nlohmann-json (Arch)"
+    echo "                 sudo apt-get install nlohmann-json3-dev (Debian/Ubuntu)"
+    echo "                 sudo dnf install nlohmann-json-devel (Fedora)"
+    echo "                 sudo zypper install nlohmann-json-devel (openSUSE)"
+    ERRORS=$((ERRORS + 1))
+fi
+
 # Check for validation layers (optional)
 if [ -d /usr/share/vulkan/explicit_layer.d ] || [ -d /usr/local/share/vulkan/explicit_layer.d ]; then
     if ls /usr/share/vulkan/explicit_layer.d/*validation* 2>/dev/null | grep -q . || \

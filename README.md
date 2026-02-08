@@ -32,9 +32,9 @@ You build **for** each platform **on** that platform (Linux on Linux, Windows on
 
 | Platform | Install this (once) | Then |
 |----------|---------------------|------|
-| **Windows** | [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows), [CMake](https://cmake.org/download/), Visual Studio 2022 (or MinGW) with C++ | Run `scripts\windows\setup_windows.bat`, then build |
-| **Linux** | Vulkan + SDL3 + CMake + gcc (e.g. `./setup.sh` or `scripts/linux/setup_linux.sh`) | Run `./setup.sh`, then build |
-| **macOS** | MoltenVK + SDL3 + CMake (e.g. `./setup.sh` or `brew install molten-vk sdl3 cmake`) | Run `./setup.sh` on a Mac, then build |
+| **Windows** | [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows), [CMake](https://cmake.org/download/), Visual Studio 2022 (or MinGW), **nlohmann-json** (vcpkg) | Run `scripts\windows\setup_windows.bat`, then build |
+| **Linux** | Vulkan + SDL3 + **nlohmann-json** + CMake + gcc (e.g. `./setup.sh` or `scripts/linux/setup_linux.sh`) | Run `./setup.sh`, then build |
+| **macOS** | MoltenVK + SDL3 + **nlohmann-json** + CMake (e.g. `./setup.sh` or `brew install molten-vk sdl3 nlohmann-json cmake`) | Run `./setup.sh` on a Mac, then build |
 | **Android** | [Android Studio](https://developer.android.com/studio) + NDK, or NDK + CMake; Vulkan headers/lib for Android | See [docs/platforms/android.md](docs/platforms/android.md) |
 | **iOS** | Xcode (Mac), MoltenVK for iOS, CMake for iOS or Xcode project | See [docs/platforms/ios.md](docs/platforms/ios.md) |
 
@@ -48,6 +48,7 @@ Running the project setup (e.g. `./setup.sh` on Linux/macOS or `scripts\windows\
 |-----------|---------|
 | **Vulkan** (SDK / drivers + headers) | Graphics API and shader compilation (glslc) |
 | **SDL3** | Window, input, and Vulkan surface on all platforms (required; install via package manager or let CMake fetch on first build) |
+| **nlohmann-json** | JSON config file (required; must be installed — see Manual Setup per OS) |
 | **CMake** + C++ compiler | Build system and toolchain |
 
 SDL3 is part of the project setup: on Linux/macOS the setup script installs it; on Windows you can install it via vcpkg or let CMake fetch it when you run the first build.
@@ -108,7 +109,7 @@ On macOS we use the Vulkan SDK, which uses **MoltenVK** (Vulkan → Metal). Same
    ```bash
    ./setup.sh        # auto-detects macOS and runs scripts/macos/setup_macos.sh
    ```
-   Or manually: `brew install molten-vk sdl3 cmake`
+   Or manually: `brew install molten-vk sdl3 nlohmann-json cmake`
 
 2. **Build the project** (you must pass `--debug` or `--release`):
    ```bash
@@ -134,7 +135,7 @@ The project includes automated setup scripts that handle dependency installation
 
 ### Manual Setup
 
-#### Linux (Arch/CachyOS)
+#### Linux (Arch / CachyOS)
 
 ```bash
 sudo pacman -S --needed \
@@ -143,13 +144,14 @@ sudo pacman -S --needed \
     vulkan-icd-loader \
     vulkan-validation-layers \
     sdl3 \
+    nlohmann-json \
     cmake \
     make \
     gcc \
     base-devel
 ```
 
-#### Linux (Ubuntu/Debian)
+#### Linux (Ubuntu / Debian)
 
 ```bash
 sudo apt-get update
@@ -158,12 +160,13 @@ sudo apt-get install -y \
     vulkan-tools \
     vulkan-validationlayers \
     libsdl3-dev \
+    nlohmann-json3-dev \
     cmake \
     build-essential \
     g++
 ```
 
-#### Linux (Fedora/RHEL)
+#### Linux (Fedora / RHEL)
 
 ```bash
 sudo dnf install -y \
@@ -171,6 +174,21 @@ sudo dnf install -y \
     vulkan-loader \
     vulkan-validation-layers \
     sdl3-devel \
+    nlohmann-json-devel \
+    cmake \
+    gcc-c++ \
+    make
+```
+
+#### Linux (openSUSE)
+
+```bash
+sudo zypper install -y \
+    vulkan-devel \
+    vulkan-loader \
+    vulkan-validation-layers \
+    libSDL3-devel \
+    nlohmann-json-devel \
     cmake \
     gcc-c++ \
     make
@@ -196,15 +214,19 @@ sudo dnf install -y \
    - **Option A**: Let CMake fetch SDL3 on first build (FetchContent).
    - **Option B**: Install via vcpkg: `vcpkg install sdl3`
 
+5. **nlohmann-json** (required for config file):
+   - Install via vcpkg: `vcpkg install nlohmann-json`
+   - Configure CMake with vcpkg toolchain, e.g. `-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake`
+
 #### macOS
 
-1. **Install Vulkan SDK**:
+1. **Install Vulkan SDK** (for MoltenVK):
    - Download from: https://vulkan.lunarg.com/sdk/home#mac
-   - Follow installation instructions
+   - Or use Homebrew: `brew install molten-vk`
 
 2. **Install dependencies via Homebrew**:
    ```bash
-   brew install sdl3 cmake
+   brew install molten-vk sdl3 nlohmann-json cmake
    ```
 
 ## Building the Project

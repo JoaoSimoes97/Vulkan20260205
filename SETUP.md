@@ -61,7 +61,8 @@ build\Release\VulkanApp.exe
 
 ### Linux
 - Vulkan SDK (development packages)
-- GLFW (windowing library)
+- SDL3 (windowing; or fetched by CMake)
+- nlohmann-json (config; install per distro — see README)
 - CMake (build system)
 - GCC/G++ (C++ compiler)
 - Vulkan validation layers (optional, for debugging)
@@ -70,7 +71,11 @@ build\Release\VulkanApp.exe
 - Vulkan SDK (manual installation required)
 - CMake (manual installation required)
 - Visual Studio or MinGW (C++ compiler)
-- GLFW (auto-downloaded by CMake)
+- nlohmann-json (vcpkg install nlohmann-json)
+- SDL3 (vcpkg or fetched by CMake)
+
+### macOS
+- MoltenVK, SDL3, nlohmann-json, CMake (e.g. brew install molten-vk sdl3 nlohmann-json cmake)
 
 ## Troubleshooting
 

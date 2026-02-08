@@ -5,4 +5,4 @@
 
 namespace VulkanUtils {
 
-} /* namespace VulkanUtils */
+}

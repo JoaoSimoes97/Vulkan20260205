@@ -78,16 +78,19 @@ echo.
 
 REM Check for SDL3 (required; part of project setup)
 echo Checking for SDL3 (required for window/input)...
-echo [INFO] SDL3 is part of project setup.
-echo        - If not installed: CMake will fetch SDL3 on first build (FetchContent).
-echo        - Or install now via vcpkg: vcpkg install sdl3
+echo [INFO] SDL3: CMake will fetch via FetchContent if missing, or install via vcpkg: vcpkg install sdl3
+echo.
+
+echo Checking for nlohmann-json (required for config)...
+echo [INFO] nlohmann-json is required. Install via vcpkg: vcpkg install nlohmann-json
+echo        Configure CMake with: -DCMAKE_TOOLCHAIN_FILE=^<vcpkg_path^>\scripts\buildsystems\vcpkg.cmake
 echo.
 
 echo ==========================================
 echo Project setup check complete!
 echo ==========================================
 echo.
-echo Setup includes: Vulkan SDK, CMake, C++ compiler, SDL3 (fetched by CMake if missing).
+echo Required: Vulkan SDK, CMake, C++ compiler, nlohmann-json (vcpkg), SDL3 (vcpkg or FetchContent).
 echo.
 echo Next steps:
 echo 1. Build project (pass --debug or --release):

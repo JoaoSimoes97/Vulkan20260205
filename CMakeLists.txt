@@ -39,27 +39,53 @@ if(NOT SDL3_FOUND)
 endif()
 find_package(Vulkan REQUIRED)
 
+# JSON config: nlohmann/json (required; must be installed — see README for per-OS package names)
+find_package(nlohmann_json 3.11 REQUIRED)
+
 # Vulkan: Linux/Windows use native drivers (no MoltenVK). macOS uses Vulkan SDK which uses MoltenVK (Vulkan → Metal).
 # Same Vulkan code everywhere; zero cost on Linux/Windows.
 if(APPLE)
     message(STATUS "Apple: Vulkan via MoltenVK (Vulkan SDK on macOS)")
 endif()
 
-# Include directories
-include_directories(${CMAKE_SOURCE_DIR}/include)
+# Include directories: one per module (Option B — header + source in same folder)
+include_directories(${CMAKE_SOURCE_DIR}/src)
+include_directories(${CMAKE_SOURCE_DIR}/src/app)
+include_directories(${CMAKE_SOURCE_DIR}/src/config)
+include_directories(${CMAKE_SOURCE_DIR}/src/window)
+include_directories(${CMAKE_SOURCE_DIR}/src/vulkan)
 include_directories(${Vulkan_INCLUDE_DIRS})
 
-# Source files
+# Source files (Option B: one subfolder per module)
 set(SOURCES
     src/main.cpp
-    src/vulkan_app.cpp
-    src/vulkan_utils.cpp
+    src/app/vulkan_app.cpp
+    src/config/vulkan_config.cpp
+    src/config/config_loader.cpp
+    src/window/window.cpp
+    src/vulkan/vulkan_utils.cpp
+    src/vulkan/vulkan_instance.cpp
+    src/vulkan/vulkan_device.cpp
+    src/vulkan/vulkan_swapchain.cpp
+    src/vulkan/vulkan_render_pass.cpp
+    src/vulkan/vulkan_pipeline.cpp
+    src/vulkan/vulkan_framebuffers.cpp
 )
 
-# Header files
+# Header files (same layout)
 set(HEADERS
-    include/vulkan_app.h
-    include/vulkan_utils.h
+    src/app/vulkan_app.h
+    src/config/vulkan_config.h
+    src/config/config_loader.h
+    src/window/window.h
+    src/vulkan/vulkan_types.h
+    src/vulkan/vulkan_utils.h
+    src/vulkan/vulkan_instance.h
+    src/vulkan/vulkan_device.h
+    src/vulkan/vulkan_swapchain.h
+    src/vulkan/vulkan_render_pass.h
+    src/vulkan/vulkan_pipeline.h
+    src/vulkan/vulkan_framebuffers.h
 )
 
 # Create executable
@@ -67,7 +93,11 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
 # Set include directories for the target
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/app
+    ${CMAKE_SOURCE_DIR}/src/config
+    ${CMAKE_SOURCE_DIR}/src/window
+    ${CMAKE_SOURCE_DIR}/src/vulkan
     ${Vulkan_INCLUDE_DIRS}
 )
 
@@ -75,6 +105,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME}
     SDL3::SDL3
     ${Vulkan_LIBRARIES}
+    nlohmann_json::nlohmann_json
 )
 
 # Platform-specific linking
@@ -159,8 +190,10 @@ add_custom_target(install_local
     COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/bin
     COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/shaders
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/config
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${INSTALL_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_BINARY_DIR}/shaders ${INSTALL_DIR}/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config ${INSTALL_DIR}/config
     DEPENDS ${PROJECT_NAME} compile_shaders
 )
 

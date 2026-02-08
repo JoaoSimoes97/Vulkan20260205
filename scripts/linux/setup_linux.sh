@@ -13,7 +13,7 @@ echo "=========================================="
 echo "Vulkan App - Linux Setup"
 echo "=========================================="
 echo ""
-echo "This installs: Vulkan (headers, loader, validation), SDL3 (window/input), CMake, build tools."
+echo "This installs: Vulkan (headers, loader, validation), SDL3 (window/input), nlohmann-json (config), CMake, build tools."
 echo ""
 
 # Detect Linux distribution
@@ -38,6 +38,7 @@ install_arch() {
         vulkan-icd-loader \
         vulkan-validation-layers \
         sdl3 \
+        nlohmann-json \
         cmake \
         make \
         gcc \
@@ -53,6 +54,7 @@ install_debian() {
         vulkan-tools \
         vulkan-validationlayers \
         libsdl3-dev \
+        nlohmann-json3-dev \
         cmake \
         build-essential \
         g++
@@ -66,6 +68,7 @@ install_fedora() {
         vulkan-loader \
         vulkan-validation-layers \
         SDL3-devel \
+        nlohmann-json-devel \
         cmake \
         gcc-c++ \
         make
@@ -79,6 +82,7 @@ install_opensuse() {
         vulkan-loader \
         vulkan-validation-layers \
         libSDL3-devel \
+        nlohmann-json-devel \
         cmake \
         gcc-c++ \
         make
@@ -110,6 +114,7 @@ case "$DISTRO" in
             echo "Please install the following packages manually:"
             echo "  - Vulkan SDK/development packages"
             echo "  - SDL3 development packages"
+            echo "  - nlohmann-json development packages"
             echo "  - CMake"
             echo "  - C++ compiler (gcc/g++)"
             exit 1

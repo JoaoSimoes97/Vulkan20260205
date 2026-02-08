@@ -64,8 +64,13 @@ if %errorLevel% equ 0 (
 echo.
 
 REM Check for SDL3 (CMake will fetch if not found)
-echo [INFO] SDL3 will be fetched by CMake if not found
-echo        Or install via vcpkg: vcpkg install sdl3
+echo [INFO] SDL3: CMake will fetch if not found, or install via vcpkg: vcpkg install sdl3
+
+echo.
+
+REM nlohmann-json is required (no fetch fallback)
+echo [INFO] nlohmann-json is required. Install via vcpkg: vcpkg install nlohmann-json
+echo        Configure CMake with: -DCMAKE_TOOLCHAIN_FILE=<vcpkg_path>\scripts\buildsystems\vcpkg.cmake
 
 echo.
 echo ==========================================
