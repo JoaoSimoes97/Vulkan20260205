@@ -5,6 +5,7 @@
 #include <sstream>
 #include <stdexcept>
 
+/* Helpers: surface format, present mode, extent selection. */
 namespace {
 
 VkSurfaceFormatKHR ChooseSurfaceFormat(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
@@ -77,15 +78,23 @@ VkPresentModeKHR ChoosePresentMode(VkPhysicalDevice physicalDevice, VkSurfaceKHR
 
 VkExtent2D ChooseExtent(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
                         uint32_t lRequestedWidth, uint32_t lRequestedHeight) {
+    /* Surface capability limits (min/max extent, current extent). */
     VkSurfaceCapabilitiesKHR stCaps = {};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &stCaps);
 
     if (stCaps.currentExtent.width != UINT32_MAX) {
+        VulkanUtils::LogWarn("Swapchain extent forced to driver current extent {}x{} (requested {}x{}).",
+            stCaps.currentExtent.width, stCaps.currentExtent.height, lRequestedWidth, lRequestedHeight);
         return stCaps.currentExtent;
     }
+    /* Requested size; will be clamped to driver min/max if needed. */
     VkExtent2D stExtent = { lRequestedWidth, lRequestedHeight };
     stExtent.width = std::clamp(stExtent.width, stCaps.minImageExtent.width, stCaps.maxImageExtent.width);
     stExtent.height = std::clamp(stExtent.height, stCaps.minImageExtent.height, stCaps.maxImageExtent.height);
+    if ((stExtent.width != lRequestedWidth) || (stExtent.height != lRequestedHeight)) {
+        VulkanUtils::LogWarn("Swapchain extent clamped from {}x{} to {}x{} (driver min/max).",
+            lRequestedWidth, lRequestedHeight, stExtent.width, stExtent.height);
+    }
     return stExtent;
 }
 
@@ -110,12 +119,16 @@ void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, V
     this->m_extent = ChooseExtent(physicalDevice, surface, stConfig.lWidth, stConfig.lHeight);
     this->m_imageFormat = stSurfaceFormat.format;
 
+    /* Surface caps for image count limits and transform. */
     VkSurfaceCapabilitiesKHR stCaps = {};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &stCaps);
     uint32_t lImageCount = stCaps.minImageCount + static_cast<uint32_t>(1);
-    if ((stCaps.maxImageCount > 0) && (lImageCount > stCaps.maxImageCount))
+    if ((stCaps.maxImageCount > 0) && (lImageCount > stCaps.maxImageCount)) {
+        VulkanUtils::LogWarn("Swapchain image count clamped from {} to maxImageCount {} (driver limit).", lImageCount, stCaps.maxImageCount);
         lImageCount = stCaps.maxImageCount;
+    }
 
+    /* Use present queue if distinct from graphics; else same queue for both. */
     uint32_t lPresentFamily = (queueFamilyIndices.presentFamily != QUEUE_FAMILY_IGNORED)
                              ? queueFamilyIndices.presentFamily
                              : queueFamilyIndices.graphicsFamily;
@@ -124,24 +137,24 @@ void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, V
     uint32_t lQueueFamilyIndexCount = (bSameQueue == true) ? static_cast<uint32_t>(1) : static_cast<uint32_t>(2);
 
     VkSwapchainCreateInfoKHR stCreateInfo = {
-        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-        .pNext = static_cast<void*>(nullptr),
-        .flags = 0,
-        .surface = surface,
-        .minImageCount = lImageCount,
-        .imageFormat = stSurfaceFormat.format,
-        .imageColorSpace = stSurfaceFormat.colorSpace,
-        .imageExtent = this->m_extent,
-        .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-        .imageSharingMode = (bSameQueue == true) ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT,
-        .queueFamilyIndexCount = lQueueFamilyIndexCount,
-        .pQueueFamilyIndices = lQueueFamilyIndicesArray,
-        .preTransform = stCaps.currentTransform,
-        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        .presentMode = ePresentMode,
-        .clipped = VK_TRUE,
-        .oldSwapchain = VK_NULL_HANDLE,
+        .sType                 = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,                                   /* KHR swapchain create. */
+        .pNext                 = static_cast<void*>(nullptr),                                                   /* No extension chain. */
+        .flags                 = 0,                                                                             /* No create flags. */
+        .surface               = surface,                                                                       /* Target presentation surface. */
+        .minImageCount         = lImageCount,                                                                   /* Desired image count (clamped to caps). */
+        .imageFormat           = stSurfaceFormat.format,                                                        /* Chosen surface format. */
+        .imageColorSpace       = stSurfaceFormat.colorSpace,                                                    /* Chosen color space. */
+        .imageExtent           = this->m_extent,                                                                /* Swapchain image dimensions. */
+        .imageArrayLayers      = 1,                                                                             /* Single layer (2D). */
+        .imageUsage            = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,                                           /* Render to and present. */
+        .imageSharingMode      = (bSameQueue == true) ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT, /* Exclusive if same queue family. */
+        .queueFamilyIndexCount = lQueueFamilyIndexCount,                                                        /* 1 or 2 families. */
+        .pQueueFamilyIndices   = lQueueFamilyIndicesArray,                                                      /* Graphics and optionally present. */
+        .preTransform          = stCaps.currentTransform,                                                       /* Use surface current transform. */
+        .compositeAlpha        = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,                                             /* Opaque (no alpha). */
+        .presentMode           = ePresentMode,                                                                  /* Config preferred or driver default. */
+        .clipped               = VK_TRUE,                                                                       /* Allow clipping for better performance. */
+        .oldSwapchain          = VK_NULL_HANDLE,                                                                /* New swapchain (not recreation). */
     };
 
     VkResult result = vkCreateSwapchainKHR(this->m_device, &stCreateInfo, nullptr, &this->m_swapchain);
@@ -161,20 +174,20 @@ void VulkanSwapchain::CreateImageViews() {
     this->m_imageViews.resize(this->m_images.size());
     for (size_t zIdx = static_cast<size_t>(0); zIdx < this->m_images.size(); ++zIdx) {
         VkImageViewCreateInfo stViewInfo = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .pNext = static_cast<void*>(nullptr),
-            .flags = 0,
-            .image = this->m_images[zIdx],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = this->m_imageFormat,
-            .components = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
-                            VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY },
+            .sType   = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,                                    /* Image view create struct. */
+            .pNext   = static_cast<void*>(nullptr),                                                 /* No extension chain. */
+            .flags   = 0,                                                                           /* No flags. */
+            .image   = this->m_images[zIdx],                                                        /* Swapchain image for this index. */
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,                                                      /* 2D color target. */
+            .format  = this->m_imageFormat,                                                         /* Match swapchain format. */
+            .components = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,     /* Identity swizzle. */
+                            VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY },   /* Identity swizzle. */
             .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
+                .aspectMask      = VK_IMAGE_ASPECT_COLOR_BIT,                                       /* Color aspect. */
+                .baseMipLevel    = 0,                                                               /* First mip. */
+                .levelCount      = 1,                                                               /* Single mip level. */
+                .baseArrayLayer  = 0,                                                               /* First layer. */
+                .layerCount      = 1,                                                               /* Single array layer. */
             },
         };
         VkResult result = vkCreateImageView(this->m_device, &stViewInfo, nullptr, &this->m_imageViews[zIdx]);

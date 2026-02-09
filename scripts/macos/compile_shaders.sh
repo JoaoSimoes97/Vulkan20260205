@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Script to compile GLSL shaders to SPIR-V (organized under scripts/linux)
-# Requires glslc (from Vulkan SDK) or glslangValidator
+# Script to compile GLSL shaders to SPIR-V on macOS (organized under scripts/macos)
+# Uses same layout as Linux/Windows: input shaders/source/, output build/shaders/
+# Requires glslc (from Vulkan SDK / MoltenVK) or glslangValidator
 
 set -e
 
@@ -22,11 +23,11 @@ elif command -v glslangValidator &> /dev/null; then
     echo "Using glslangValidator compiler"
 else
     echo "Error: Neither glslc nor glslangValidator found!"
-    echo "Please install the Vulkan SDK"
+    echo "Please install the Vulkan SDK (or MoltenVK) and add the Bin directory to your PATH"
     exit 1
 fi
 
-# Compile vertex shader
+# Compile vertex and fragment shaders
 if [ "$COMPILER" = "glslc" ]; then
     glslc "$SHADER_SOURCE_DIR/vert.vert" -o "$OUTPUT_DIR/vert.spv"
     glslc "$SHADER_SOURCE_DIR/frag.frag" -o "$OUTPUT_DIR/frag.spv"
@@ -36,4 +37,3 @@ else
 fi
 
 echo "Shaders compiled successfully!"
-

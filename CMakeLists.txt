@@ -52,6 +52,8 @@ endif()
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${CMAKE_SOURCE_DIR}/src/app)
 include_directories(${CMAKE_SOURCE_DIR}/src/config)
+include_directories(${CMAKE_SOURCE_DIR}/src/managers)
+include_directories(${CMAKE_SOURCE_DIR}/src/thread)
 include_directories(${CMAKE_SOURCE_DIR}/src/window)
 include_directories(${CMAKE_SOURCE_DIR}/src/vulkan)
 include_directories(${Vulkan_INCLUDE_DIRS})
@@ -62,6 +64,7 @@ set(SOURCES
     src/app/vulkan_app.cpp
     src/config/vulkan_config.cpp
     src/config/config_loader.cpp
+    src/thread/job_queue.cpp
     src/window/window.cpp
     src/vulkan/vulkan_utils.cpp
     src/vulkan/vulkan_instance.cpp
@@ -70,6 +73,8 @@ set(SOURCES
     src/vulkan/vulkan_render_pass.cpp
     src/vulkan/vulkan_pipeline.cpp
     src/vulkan/vulkan_framebuffers.cpp
+    src/vulkan/vulkan_shader_manager.cpp
+    src/managers/pipeline_manager.cpp
 )
 
 # Header files (same layout)
@@ -77,6 +82,9 @@ set(HEADERS
     src/app/vulkan_app.h
     src/config/vulkan_config.h
     src/config/config_loader.h
+    src/managers/managers.h
+    src/managers/pipeline_manager.h
+    src/thread/job_queue.h
     src/window/window.h
     src/vulkan/vulkan_types.h
     src/vulkan/vulkan_utils.h
@@ -86,6 +94,7 @@ set(HEADERS
     src/vulkan/vulkan_render_pass.h
     src/vulkan/vulkan_pipeline.h
     src/vulkan/vulkan_framebuffers.h
+    src/vulkan/vulkan_shader_manager.h
 )
 
 # Create executable
@@ -96,6 +105,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/app
     ${CMAKE_SOURCE_DIR}/src/config
+    ${CMAKE_SOURCE_DIR}/src/managers
+    ${CMAKE_SOURCE_DIR}/src/thread
     ${CMAKE_SOURCE_DIR}/src/window
     ${CMAKE_SOURCE_DIR}/src/vulkan
     ${Vulkan_INCLUDE_DIRS}
@@ -135,50 +146,50 @@ elseif(UNIX)
     target_link_libraries(${PROJECT_NAME} ${CMAKE_DL_LIBS} pthread)
 endif()
 
-# Auto-compile shaders
+# Shaders: source in shaders/source/, compiled output in build/shaders/
+set(SHADERS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/shaders/source)
+set(SHADERS_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
+
 find_program(GLSLC glslc)
 find_program(GLSLANGVALIDATOR glslangValidator)
 
 if(GLSLC)
-    message(STATUS "Found glslc, will auto-compile shaders")
+    message(STATUS "Found glslc, will auto-compile shaders (source: shaders/source/ -> build/shaders/)")
     add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/shaders/vert.spv
-        COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/shaders/vert.vert -o ${CMAKE_BINARY_DIR}/shaders/vert.spv
-        DEPENDS ${CMAKE_SOURCE_DIR}/shaders/vert.vert
+        OUTPUT ${SHADERS_OUTPUT_DIR}/vert.spv
+        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/vert.vert -o ${SHADERS_OUTPUT_DIR}/vert.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/vert.vert
         COMMENT "Compiling vertex shader"
     )
     add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/shaders/frag.spv
-        COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/shaders/frag.frag -o ${CMAKE_BINARY_DIR}/shaders/frag.spv
-        DEPENDS ${CMAKE_SOURCE_DIR}/shaders/frag.frag
+        OUTPUT ${SHADERS_OUTPUT_DIR}/frag.spv
+        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/frag.frag -o ${SHADERS_OUTPUT_DIR}/frag.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/frag.frag
         COMMENT "Compiling fragment shader"
     )
 elseif(GLSLANGVALIDATOR)
-    message(STATUS "Found glslangValidator, will auto-compile shaders")
+    message(STATUS "Found glslangValidator, will auto-compile shaders (source: shaders/source/ -> build/shaders/)")
     add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/shaders/vert.spv
-        COMMAND ${GLSLANGVALIDATOR} -V ${CMAKE_SOURCE_DIR}/shaders/vert.vert -o ${CMAKE_BINARY_DIR}/shaders/vert.spv
-        DEPENDS ${CMAKE_SOURCE_DIR}/shaders/vert.vert
+        OUTPUT ${SHADERS_OUTPUT_DIR}/vert.spv
+        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/vert.vert -o ${SHADERS_OUTPUT_DIR}/vert.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/vert.vert
         COMMENT "Compiling vertex shader"
     )
     add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/shaders/frag.spv
-        COMMAND ${GLSLANGVALIDATOR} -V ${CMAKE_SOURCE_DIR}/shaders/frag.frag -o ${CMAKE_BINARY_DIR}/shaders/frag.spv
-        DEPENDS ${CMAKE_SOURCE_DIR}/shaders/frag.frag
+        OUTPUT ${SHADERS_OUTPUT_DIR}/frag.spv
+        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/frag.frag -o ${SHADERS_OUTPUT_DIR}/frag.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/frag.frag
         COMMENT "Compiling fragment shader"
     )
 else()
     message(WARNING "No shader compiler found (glslc or glslangValidator). Shaders must be compiled manually.")
-    # Copy shaders directory anyway
-    file(COPY ${CMAKE_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})
+    file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 endif()
 
-# Create shaders directory in build folder
-file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/shaders)
+file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 
-# Add shader compilation as a custom target
 add_custom_target(compile_shaders ALL
-    DEPENDS ${CMAKE_BINARY_DIR}/shaders/vert.spv ${CMAKE_BINARY_DIR}/shaders/frag.spv
+    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv
 )
 
 # Local install/bundle: output folder (e.g. install/Debug, install/Release)
@@ -192,7 +203,7 @@ add_custom_target(install_local
     COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/shaders
     COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/config
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${INSTALL_DIR}/bin/
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_BINARY_DIR}/shaders ${INSTALL_DIR}/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${SHADERS_OUTPUT_DIR} ${INSTALL_DIR}/shaders
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config ${INSTALL_DIR}/config
     DEPENDS ${PROJECT_NAME} compile_shaders
 )

@@ -34,24 +34,24 @@ void VulkanInstance::Create(const char* const* pExtensionNames, uint32_t extensi
     CheckExtensionsAvailable(pExtensionNames, extensionCount);
 
     VkApplicationInfo appInfo = {
-        .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pNext = nullptr,
-        .pApplicationName = "Custom Vulkan App",
-        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
-        .pEngineName = "Custom Vulkan Engine",
-        .engineVersion = VK_MAKE_VERSION(1, 0, 0),
-        .apiVersion = VK_API_VERSION_1_4,
+        .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,   /* Application info struct. */
+        .pNext              = nullptr,                              /* No extension chain. */
+        .pApplicationName   = "Custom Vulkan App",                  /* App name for driver/debug. */
+        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),             /* App version. */
+        .pEngineName        = "Custom Vulkan Engine",               /* Engine name. */
+        .engineVersion      = VK_MAKE_VERSION(1, 0, 0),             /* Engine version. */
+        .apiVersion         = VK_API_VERSION_1_4,                   /* Requested Vulkan API version. */
     };
 
     VkInstanceCreateInfo createInfo = {
-        .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .pApplicationInfo = &appInfo,
-        .enabledLayerCount = 0,
-        .ppEnabledLayerNames = nullptr,
-        .enabledExtensionCount = extensionCount,
-        .ppEnabledExtensionNames = pExtensionNames,
+        .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,  /* Instance create. */
+        .pNext                   = nullptr,                                 /* No extension chain. */
+        .flags                   = 0,                                       /* No create flags. */
+        .pApplicationInfo        = &appInfo,                                /* App/engine/API version. */
+        .enabledLayerCount       = 0,                                       /* No validation or other layers. */
+        .ppEnabledLayerNames     = nullptr,                                 /* No enabled layers. */
+        .enabledExtensionCount   = extensionCount,                          /* e.g. surface, platform. */
+        .ppEnabledExtensionNames = pExtensionNames,                         /* Provided extension names. */
     };
 
     VkResult result = vkCreateInstance(&createInfo, nullptr, &m_instance);

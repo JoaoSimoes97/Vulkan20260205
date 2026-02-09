@@ -14,15 +14,15 @@ void VulkanFramebuffers::Create(VkDevice device, VkRenderPass renderPass,
 
     for (size_t zIdx = static_cast<size_t>(0); zIdx < imageViews.size(); ++zIdx) {
         VkFramebufferCreateInfo fbInfo = {
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .renderPass = renderPass,
-            .attachmentCount = 1,
-            .pAttachments = &imageViews[zIdx],
-            .width = extent.width,
-            .height = extent.height,
-            .layers = 1,
+            .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,   /* Framebuffer create struct. */
+            .pNext           = nullptr,                                     /* No extension chain. */
+            .flags           = 0,                                           /* No flags. */
+            .renderPass      = renderPass,                                  /* Compatible render pass. */
+            .attachmentCount = 1,                                           /* Single color attachment. */
+            .pAttachments    = &imageViews[zIdx],                           /* Swapchain image view for this index. */
+            .width           = extent.width,                                /* Match swapchain extent. */
+            .height          = extent.height,                               /* Match swapchain extent. */
+            .layers          = 1,                                           /* Single layer. */
         };
         VkResult result = vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_framebuffers[zIdx]);
         if (result != VK_SUCCESS) {

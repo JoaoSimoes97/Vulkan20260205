@@ -52,16 +52,21 @@ When moving to a new machine, you only need:
 ```
 VulkanProjects/
 ├── CMakeLists.txt
-├── setup_*.sh / setup_*.bat
-├── build.sh / build.bat
-├── check_dependencies.*
-├── compile_shaders.*
+├── scripts/
+│   ├── linux/     # build.sh, compile_shaders.sh, setup_linux.sh, check_dependencies.sh
+│   ├── windows/   # build.bat, compile_shaders.bat, setup_windows.bat, check_dependencies.bat
+│   └── macos/     # compile_shaders.sh, setup_macos.sh
 ├── include/
 ├── src/
 └── shaders/
-    ├── vert.vert
-    └── frag.frag
+    └── source/
+        ├── vert.vert
+        └── frag.frag
 ```
+
+On any OS, run from project root: **Linux** `scripts/linux/compile_shaders.sh`, **macOS** `scripts/macos/compile_shaders.sh`, **Windows** `scripts\windows\compile_shaders.bat`. All use input `shaders/source/` and output `build/shaders/`.
+
+**When distributing/shipping:** Ship the executable plus `shaders/` (compiled `.spv`) and optionally `config/` in the same directory (or use the install target). Paths are resolved relative to the executable.
 
 **Do NOT backup:**
 - `build/` directory (will be regenerated)

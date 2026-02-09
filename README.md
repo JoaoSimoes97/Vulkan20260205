@@ -275,24 +275,30 @@ REM Run from project root: install\Debug\bin\VulkanApp.exe
 
 **Note**: Shaders are automatically compiled during the CMake build process if `glslc` or `glslangValidator` is found in your PATH.
 
-If automatic compilation doesn't work, you can compile shaders manually:
+If automatic compilation doesn't work, you can compile shaders manually. All scripts use **input** `shaders/source/` and **output** `build/shaders/` (same as CMake).
 
-### Linux/macOS
+### Linux
 
 ```bash
-./compile_shaders.sh
+scripts/linux/compile_shaders.sh
+```
+
+### macOS
+
+```bash
+scripts/macos/compile_shaders.sh
 ```
 
 ### Windows
 
 ```cmd
-compile_shaders.bat
+scripts\windows\compile_shaders.bat
 ```
 
-Or manually:
+Or manually (output to `build\shaders\` so the app finds them):
 ```cmd
-glslc shaders\vert.vert -o shaders\vert.spv
-glslc shaders\frag.frag -o shaders\frag.spv
+glslc shaders\source\vert.vert -o build\shaders\vert.spv
+glslc shaders\source\frag.frag -o build\shaders\frag.spv
 ```
 
 ## Project Structure
@@ -318,12 +324,11 @@ VulkanProjects/
 │   ├── vulkan_app.cpp          # Application implementation (instance, device, window)
 │   └── vulkan_utils.cpp        # Utility stubs
 ├── shaders/
-│   ├── vert.vert               # Vertex shader (GLSL source)
-│   └── frag.frag               # Fragment shader (GLSL source)
+│   └── source/                 # GLSL source (vert.vert, frag.frag); compiled → build/shaders/
 ├── scripts/
-│   ├── linux/                  # build.sh, setup_linux.sh, check_dependencies.sh, etc.
-│   ├── windows/                # build.bat, setup_windows.bat, etc.
-│   └── macos/                  # setup_macos.sh
+│   ├── linux/                  # build.sh, compile_shaders.sh, setup_linux.sh, etc.
+│   ├── windows/                # build.bat, compile_shaders.bat, setup_windows.bat, etc.
+│   └── macos/                  # compile_shaders.sh, setup_macos.sh
 └── platforms/
     ├── android/                # Android scaffold and README
     └── ios/                    # iOS scaffold and README
@@ -404,8 +409,17 @@ CMake will fetch SDL3 via FetchContent if not found. Alternatively install SDL3:
 If automatic shader compilation fails:
 
 1. Ensure `glslc` or `glslangValidator` is in your PATH
-2. Compile manually using `compile_shaders.sh` or `compile_shaders.bat`
+2. Compile manually using `scripts/linux/compile_shaders.sh`, `scripts/macos/compile_shaders.sh`, or `scripts/windows/compile_shaders.bat`
 3. The compiled `.spv` files must be in the `build/shaders/` directory
+
+### Shipping / distribution
+
+All resource paths (shaders, config) are resolved **relative to the executable**. When you ship the app, use one of these layouts:
+
+- **Flat**: One folder containing the executable, a `shaders/` folder (with `.spv` files), and optionally `config/` (user and default JSON). The app finds them next to the exe.
+- **Install target**: `install_local` produces `install/bin/`, `install/shaders/`, `install/config/`. Run the exe from `install/bin/`; it will find `../shaders/` and `../config/`.
+
+You do not need to "run from" a specific directory; the executable’s location is the reference.
 
 ### Build errors
 

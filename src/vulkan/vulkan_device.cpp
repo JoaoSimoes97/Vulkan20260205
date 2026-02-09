@@ -41,6 +41,7 @@ uint32_t VulkanDevice::RateSuitability(VkPhysicalDevice physicalDevice, const Vk
         default: break;
     }
 
+    /* Query supported features for suitability check. */
     VkPhysicalDeviceFeatures features = {};
     vkGetPhysicalDeviceFeatures(physicalDevice, &features);
     if (features.geometryShader == VK_FALSE)
@@ -67,9 +68,11 @@ void VulkanDevice::Create(VkInstance instance, VkSurfaceKHR surface) {
 
     uint32_t bestScore = 0;
     VkPhysicalDevice bestDevice = VK_NULL_HANDLE;
+    /* Properties of the chosen physical device (name, type, etc.). */
     VkPhysicalDeviceProperties bestProps = {};
 
     for (VkPhysicalDevice dev : devices) {
+        /* Properties of current candidate device. */
         VkPhysicalDeviceProperties props = {};
         vkGetPhysicalDeviceProperties(dev, &props);
         m_queueFamilyIndices = FindQueueFamilyIndices(dev, surface);
@@ -98,12 +101,12 @@ void VulkanDevice::Create(VkInstance instance, VkSurfaceKHR surface) {
 
     const float queuePriority = 1.0f;
     VkDeviceQueueCreateInfo queueCreateInfo = {
-        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .queueFamilyIndex = m_queueFamilyIndices.graphicsFamily,
-        .queueCount = 1,
-        .pQueuePriorities = &queuePriority,
+        .sType             = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,    /* Queue create. */
+        .pNext             = nullptr,                                       /* No extension chain. */
+        .flags             = 0,                                             /* No flags. */
+        .queueFamilyIndex  = m_queueFamilyIndices.graphicsFamily,           /* Graphics queue family. */
+        .queueCount        = 1,                                             /* Single queue. */
+        .pQueuePriorities  = &queuePriority,                                /* Priority 1.0. */
     };
 
     VkPhysicalDeviceFeatures deviceFeatures = {};
@@ -114,16 +117,16 @@ void VulkanDevice::Create(VkInstance instance, VkSurfaceKHR surface) {
     }
 
     VkDeviceCreateInfo createInfo = {
-        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .queueCreateInfoCount = 1,
-        .pQueueCreateInfos = &queueCreateInfo,
-        .enabledLayerCount = 0,
-        .ppEnabledLayerNames = nullptr,
-        .enabledExtensionCount = 1,
-        .ppEnabledExtensionNames = &DEVICE_EXTENSION_SWAPCHAIN,
-        .pEnabledFeatures = &deviceFeatures,
+        .sType                 = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,      /* Logical device create. */
+        .pNext                 = nullptr,                                   /* No extension chain. */
+        .flags                 = 0,                                         /* No flags. */
+        .queueCreateInfoCount  = 1,                                         /* One queue create info. */
+        .pQueueCreateInfos     = &queueCreateInfo,                          /* Graphics queue. */
+        .enabledLayerCount     = 0,                                         /* No enabled layers. */
+        .ppEnabledLayerNames   = nullptr,                                   /* No enabled layers. */
+        .enabledExtensionCount = 1,                                         /* Swapchain only. */
+        .ppEnabledExtensionNames = &DEVICE_EXTENSION_SWAPCHAIN,             /* VK_KHR_swapchain. */
+        .pEnabledFeatures      = &deviceFeatures,                           /* e.g. geometry shader. */
     };
 
     VkResult result = vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_logicalDevice);

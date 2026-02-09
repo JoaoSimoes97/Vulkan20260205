@@ -114,6 +114,18 @@ namespace VulkanUtils {
     const bool ENABLE_VALIDATION_LAYERS = static_cast<bool>(true);
 #endif
 
+    /* Returns the directory containing the executable. Empty on failure. */
+    std::string GetExecutableDirectory();
+
+    /* Base directory for shipped resources: exe dir if it contains shaders/, else exe parent (install/bin layout). Use for all paths when shipping. */
+    std::string GetResourceBaseDir();
+
+    /* Path for a resource relative to the executable: base/sPath. Use for shaders, config, etc. so the app works when shipped (exe + shaders/ + config/ in one folder). */
+    std::string GetResourcePath(const std::string& sPath);
+
+    /* Resolve path for reading: same as GetResourcePath (exe-relative); kept for compatibility. */
+    std::string ResolveResourcePath(const std::string& sPath);
+
     /* Helper functions. */
     std::vector<char> ReadFile(const std::string& sFilename);
     VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,

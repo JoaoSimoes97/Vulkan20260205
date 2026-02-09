@@ -1,19 +1,21 @@
 #pragma once
 
+#include "managers/pipeline_manager.h"
+#include "thread/job_queue.h"
 #include "vulkan_config.h"
 #include "vulkan_device.h"
 #include "vulkan_framebuffers.h"
 #include "vulkan_instance.h"
-#include "vulkan_pipeline.h"
 #include "vulkan_render_pass.h"
+#include "vulkan_shader_manager.h"
 #include "vulkan_swapchain.h"
 #include "window.h"
 #include <memory>
 
 /*
- * Main application: owns window, Vulkan instance, device, swapchain, render pass, pipeline, framebuffers.
+ * Main application: owns job queue (for loaders), window, Vulkan instance, device, swapchain,
+ * render pass, shader manager, pipeline, framebuffers.
  * Rebuild cases: docs/vulkan/swapchain-rebuild-cases.md.
- * Future: multiple cameras, shadow maps, raytracing as separate modules composed here.
  */
 class VulkanApp {
 public:
@@ -34,11 +36,13 @@ private:
     void RecreateSwapchainAndDependents();
 
     VulkanConfig m_config;
+    JobQueue m_jobQueue;
+    VulkanShaderManager m_shaderManager;
     std::unique_ptr<Window> m_pWindow;
     VulkanInstance m_instance;
     VulkanDevice m_device;
     VulkanSwapchain m_swapchain;
     VulkanRenderPass m_renderPass;
-    VulkanPipeline m_pipeline;
+    PipelineManager m_pipelineManager;
     VulkanFramebuffers m_framebuffers;
 };

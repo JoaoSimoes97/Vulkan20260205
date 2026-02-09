@@ -1,6 +1,7 @@
 #include "config_loader.h"
 #include "vulkan_config.h"
 #include "vulkan_utils.h"
+#include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -93,6 +94,11 @@ VulkanConfig LoadConfigFromFile(const std::string& sPath) {
 }
 
 void SaveConfigToFile(const std::string& sPath, const VulkanConfig& stConfig) {
+    std::filesystem::path p(sPath);
+    std::filesystem::path parent = p.parent_path();
+    if (parent.empty() == false)
+        std::filesystem::create_directories(parent);
+    /* Build JSON tree: window and swapchain sections. */
     json jRoot = {
         { "window", {
             { "width", stConfig.lWidth },
