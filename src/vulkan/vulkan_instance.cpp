@@ -33,6 +33,16 @@ void VulkanInstance::Create(const char* const* pExtensionNames, uint32_t extensi
     }
     CheckExtensionsAvailable(pExtensionNames, extensionCount);
 
+    if ((VulkanUtils::ENABLE_VALIDATION_LAYERS == true) && (VulkanUtils::CheckValidationLayerSupport() == false)) {
+        VulkanUtils::LogErr("Validation layers requested, but not available");
+        throw std::runtime_error("Validation layers requested, but not available");
+    }
+
+    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {};
+    if (VulkanUtils::ENABLE_VALIDATION_LAYERS == true) {
+        VulkanUtils::PopulateDebugMessengerCreateInfo(debugCreateInfo);
+    }
+
     VkApplicationInfo appInfo = {
         .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,   /* Application info struct. */
         .pNext              = nullptr,                              /* No extension chain. */
@@ -40,18 +50,18 @@ void VulkanInstance::Create(const char* const* pExtensionNames, uint32_t extensi
         .applicationVersion = VK_MAKE_VERSION(1, 0, 0),             /* App version. */
         .pEngineName        = "Custom Vulkan Engine",               /* Engine name. */
         .engineVersion      = VK_MAKE_VERSION(1, 0, 0),             /* Engine version. */
-        .apiVersion         = VK_API_VERSION_1_4,                   /* Requested Vulkan API version. */
+        .apiVersion         = VK_API_VERSION_1_4,                    /* Requested Vulkan API version. */
     };
 
     VkInstanceCreateInfo createInfo = {
-        .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,  /* Instance create. */
-        .pNext                   = nullptr,                                 /* No extension chain. */
-        .flags                   = 0,                                       /* No create flags. */
-        .pApplicationInfo        = &appInfo,                                /* App/engine/API version. */
-        .enabledLayerCount       = 0,                                       /* No validation or other layers. */
-        .ppEnabledLayerNames     = nullptr,                                 /* No enabled layers. */
-        .enabledExtensionCount   = extensionCount,                          /* e.g. surface, platform. */
-        .ppEnabledExtensionNames = pExtensionNames,                         /* Provided extension names. */
+        .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pNext                   = VulkanUtils::ENABLE_VALIDATION_LAYERS ? &debugCreateInfo : nullptr,
+        .flags                   = 0,
+        .pApplicationInfo        = &appInfo,
+        .enabledLayerCount       = VulkanUtils::ENABLE_VALIDATION_LAYERS ? static_cast<uint32_t>(VulkanUtils::VALIDATION_LAYERS.size()) : 0u,
+        .ppEnabledLayerNames     = VulkanUtils::ENABLE_VALIDATION_LAYERS ? VulkanUtils::VALIDATION_LAYERS.data() : nullptr,
+        .enabledExtensionCount   = extensionCount,
+        .ppEnabledExtensionNames = pExtensionNames,
     };
 
     VkResult result = vkCreateInstance(&createInfo, nullptr, &m_instance);
@@ -59,9 +69,24 @@ void VulkanInstance::Create(const char* const* pExtensionNames, uint32_t extensi
         VulkanUtils::LogErr("vkCreateInstance failed: {}", static_cast<int>(result));
         throw std::runtime_error("Failed to create Vulkan instance");
     }
+
+    if (VulkanUtils::ENABLE_VALIDATION_LAYERS == true) {
+        VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo = {};
+        VulkanUtils::PopulateDebugMessengerCreateInfo(messengerCreateInfo);
+        result = VulkanUtils::CreateDebugUtilsMessengerEXT(m_instance, &messengerCreateInfo, nullptr, &m_debugMessenger);
+        if (result != VK_SUCCESS) {
+            VulkanUtils::LogErr("Failed to set up debug messenger");
+            Destroy();
+            throw std::runtime_error("Failed to set up debug messenger");
+        }
+    }
 }
 
 void VulkanInstance::Destroy() {
+    if ((VulkanUtils::ENABLE_VALIDATION_LAYERS == true) && (m_debugMessenger != VK_NULL_HANDLE)) {
+        VulkanUtils::DestroyDebugUtilsMessengerEXT(m_instance, m_debugMessenger, nullptr);
+        m_debugMessenger = VK_NULL_HANDLE;
+    }
     if (m_instance != VK_NULL_HANDLE) {
         vkDestroyInstance(m_instance, nullptr);
         m_instance = VK_NULL_HANDLE;

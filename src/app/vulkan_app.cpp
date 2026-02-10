@@ -3,6 +3,7 @@
 #include "vulkan_utils.h"
 #include <SDL3/SDL_stdinc.h>
 #include <stdexcept>
+#include <vector>
 
 /* Resource paths: resolved relative to the executable so the app works when shipped (exe + shaders/ + config/ in one folder). */
 static const char* CONFIG_PATH_USER    = "config/config.json";
@@ -43,7 +44,11 @@ void VulkanApp::InitVulkan() {
         throw std::runtime_error("SDL_Vulkan_GetInstanceExtensions failed");
     }
 
-    this->m_instance.Create(pExtensionNames, lExtensionCount);
+    std::vector<const char*> vecExtensionNames(pExtensionNames, pExtensionNames + lExtensionCount);
+    if (VulkanUtils::ENABLE_VALIDATION_LAYERS == true) {
+        vecExtensionNames.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
+    this->m_instance.Create(vecExtensionNames.data(), static_cast<uint32_t>(vecExtensionNames.size()));
     this->m_pWindow->CreateSurface(this->m_instance.Get());
     this->m_device.Create(this->m_instance.Get(), this->m_pWindow->GetSurface());
     this->m_swapchain.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(), this->m_pWindow->GetSurface(),

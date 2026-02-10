@@ -24,4 +24,5 @@ private:
     static void CheckExtensionsAvailable(const char* const* pExtensionNames, uint32_t extensionCount);
 
     VkInstance m_instance = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
 };

@@ -7,3 +7,5 @@ Project conventions for enabling and using validation layers (see also [Vulkan T
 - **Debug utils**: When validation is enabled, add `VK_EXT_debug_utils` and set up a debug messenger (callback for validation output). Pass `VkDebugUtilsMessengerCreateInfoEXT` in `pNext` of `VkInstanceCreateInfo` so `vkCreateInstance`/`vkDestroyInstance` are validated too.
 - **Device**: Enable the same layer(s) at logical device creation for spec compatibility.
 - **Cleanup**: Destroy the debug messenger before `vkDestroyInstance`.
+
+**Implementation:** Helpers live in `src/vulkan/vulkan_utils.cpp` (CheckValidationLayerSupport, PopulateDebugMessengerCreateInfo, Create/DestroyDebugUtilsMessengerEXT, DebugCallback). Instance creation and messenger lifecycle are in `VulkanInstance` (`src/vulkan/vulkan_instance.cpp`); device layers in `VulkanDevice::Create` (`src/vulkan/vulkan_device.cpp`). The app builds the extension list (SDL + optional `VK_EXT_DEBUG_UTILS_EXTENSION_NAME`) in `src/app/vulkan_app.cpp` and passes it to `VulkanInstance::Create`.

@@ -122,8 +122,8 @@ void VulkanDevice::Create(VkInstance instance, VkSurfaceKHR surface) {
         .flags                 = 0,                                         /* No flags. */
         .queueCreateInfoCount  = 1,                                         /* One queue create info. */
         .pQueueCreateInfos     = &queueCreateInfo,                          /* Graphics queue. */
-        .enabledLayerCount     = 0,                                         /* No enabled layers. */
-        .ppEnabledLayerNames   = nullptr,                                   /* No enabled layers. */
+        .enabledLayerCount     = VulkanUtils::ENABLE_VALIDATION_LAYERS ? static_cast<uint32_t>(VulkanUtils::VALIDATION_LAYERS.size()) : 0u,
+        .ppEnabledLayerNames   = VulkanUtils::ENABLE_VALIDATION_LAYERS ? VulkanUtils::VALIDATION_LAYERS.data() : nullptr,
         .enabledExtensionCount = 1,                                         /* Swapchain only. */
         .ppEnabledExtensionNames = &DEVICE_EXTENSION_SWAPCHAIN,             /* VK_KHR_swapchain. */
         .pEnabledFeatures      = &deviceFeatures,                           /* e.g. geometry shader. */

@@ -1,4 +1,5 @@
 #include "vulkan_utils.h"
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -64,6 +65,87 @@ std::string GetResourcePath(const std::string& sPath) {
 
 std::string ResolveResourcePath(const std::string& sPath) {
     return GetResourcePath(sPath);
+}
+
+bool CheckValidationLayerSupport() {
+    uint32_t lLayerCount = static_cast<uint32_t>(0);
+    vkEnumerateInstanceLayerProperties(&lLayerCount, nullptr);
+    std::vector<VkLayerProperties> vecAvailableLayers(lLayerCount);
+    vkEnumerateInstanceLayerProperties(&lLayerCount, vecAvailableLayers.data());
+
+    for (const char* pLayerName : VALIDATION_LAYERS) {
+        bool bLayerFound = static_cast<bool>(false);
+        for (const auto& stLayerProperties : vecAvailableLayers) {
+            if (std::strcmp(pLayerName, stLayerProperties.layerName) == static_cast<int>(0)) {
+                bLayerFound = static_cast<bool>(true);
+                break;
+            }
+        }
+        if (bLayerFound == false) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& stCreateInfo) {
+    stCreateInfo = {};
+    stCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    stCreateInfo.messageSeverity =
+        static_cast<VkDebugUtilsMessageSeverityFlagsEXT>(
+            static_cast<uint32_t>(VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) |
+            static_cast<uint32_t>(VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) |
+            static_cast<uint32_t>(VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT));
+    stCreateInfo.messageType =
+        static_cast<VkDebugUtilsMessageTypeFlagsEXT>(
+            static_cast<uint32_t>(VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT) |
+            static_cast<uint32_t>(VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) |
+            static_cast<uint32_t>(VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT));
+    stCreateInfo.pfnUserCallback = DebugCallback;
+    stCreateInfo.pUserData = nullptr;
+}
+
+VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
+                                      const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+                                      const VkAllocationCallbacks* pAllocator,
+                                      VkDebugUtilsMessengerEXT* pDebugMessenger) {
+    auto pfnCreate = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+        vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
+    if (pfnCreate != nullptr) {
+        return pfnCreate(instance, pCreateInfo, pAllocator, pDebugMessenger);
+    }
+    return VK_ERROR_EXTENSION_NOT_PRESENT;
+}
+
+void DestroyDebugUtilsMessengerEXT(VkInstance instance,
+                                   VkDebugUtilsMessengerEXT debugMessenger,
+                                   const VkAllocationCallbacks* pAllocator) {
+    auto pfnDestroy = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+        vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+    if (pfnDestroy != nullptr) {
+        pfnDestroy(instance, debugMessenger, pAllocator);
+    }
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                             VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                             const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+                                             void* pUserData) {
+    (void)messageType;
+    (void)pUserData;
+    if ((pCallbackData == nullptr) || (pCallbackData->pMessage == nullptr)) {
+        return VK_FALSE;
+    }
+    if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        LogErr("validation: {}", pCallbackData->pMessage);
+    } else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+        LogWarn("validation: {}", pCallbackData->pMessage);
+    } else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+        LogInfo("validation: {}", pCallbackData->pMessage);
+    } else {
+        LogDebug("validation: {}", pCallbackData->pMessage);
+    }
+    return VK_FALSE;
 }
 
 }
