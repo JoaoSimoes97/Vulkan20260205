@@ -2,9 +2,15 @@
 #include "vulkan_utils.h"
 #include <stdexcept>
 
+/*
+ * Create: builds a graphics pipeline for the given device, extent, render pass, and shaders.
+ * Fixed-function state is driven by pipelineParams (topology, rasterization, MSAA). Vertex input and
+ * pipeline layout remain none; add when using vertex buffers or UBOs/textures.
+ */
 void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass renderPass,
                             VulkanShaderManager* pShaderManager,
-                            const std::string& sVertPath, const std::string& sFragPath) {
+                            const std::string& sVertPath, const std::string& sFragPath,
+                            const GraphicsPipelineParams& pipelineParams) {
     VulkanUtils::LogTrace("VulkanPipeline::Create");
     if (device == VK_NULL_HANDLE) {
         VulkanUtils::LogErr("VulkanPipeline::Create: invalid device");
@@ -14,7 +20,7 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         VulkanUtils::LogErr("VulkanPipeline::Create: invalid shader manager");
         throw std::runtime_error("VulkanPipeline::Create: invalid shader manager");
     }
-    if ((renderPass == VK_NULL_HANDLE)) {
+    if (renderPass == VK_NULL_HANDLE) {
         VulkanUtils::LogErr("VulkanPipeline::Create: invalid render pass");
         throw std::runtime_error("VulkanPipeline::Create: invalid render pass");
     }
@@ -35,6 +41,7 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         throw std::runtime_error("VulkanPipeline::Create: failed to load shaders");
     }
 
+    /* Vertex and fragment stages; entry point "main", no specialization. */
     VkPipelineShaderStageCreateInfo stVertStage = {
         .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .pNext  = nullptr,
@@ -55,7 +62,7 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
     };
     VkPipelineShaderStageCreateInfo vecStages[] = { stVertStage, stFragStage };
 
-    /* No vertex input (shader uses gl_VertexIndex only). */
+    /* No vertex bindings/attributes; shader uses gl_VertexIndex only (e.g. fullscreen tri). */
     VkPipelineVertexInputStateCreateInfo stVertexInput = {
         .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .pNext                           = nullptr,
@@ -66,14 +73,16 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         .pVertexAttributeDescriptions     = nullptr,
     };
 
+    /* Input assembly: topology and primitive restart from pipelineParams. */
     VkPipelineInputAssemblyStateCreateInfo stInputAssembly = {
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         .pNext                  = nullptr,
         .flags                  = static_cast<VkPipelineInputAssemblyStateCreateFlags>(0),
-        .topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-        .primitiveRestartEnable = VK_FALSE,
+        .topology               = pipelineParams.topology,
+        .primitiveRestartEnable = pipelineParams.primitiveRestartEnable,
     };
 
+    /* Full extent viewport and scissor; depth [0, 1]. */
     VkViewport stViewport = {
         .x        = static_cast<float>(0.0),
         .y        = static_cast<float>(0.0),
@@ -96,27 +105,29 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         .pScissors     = &stScissor,
     };
 
+    /* Rasterization: polygon mode, cull, front face, line width from pipelineParams. */
     VkPipelineRasterizationStateCreateInfo stRaster = {
         .sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .pNext                   = nullptr,
         .flags                   = static_cast<VkPipelineRasterizationStateCreateFlags>(0),
         .depthClampEnable        = VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
-        .polygonMode             = VK_POLYGON_MODE_FILL,
-        .cullMode                = VK_CULL_MODE_BACK_BIT,
-        .frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .polygonMode             = pipelineParams.polygonMode,
+        .cullMode                = pipelineParams.cullMode,
+        .frontFace               = pipelineParams.frontFace,
         .depthBiasEnable         = VK_FALSE,
         .depthBiasConstantFactor = static_cast<float>(0.0),
         .depthBiasClamp          = static_cast<float>(0.0),
         .depthBiasSlopeFactor    = static_cast<float>(0.0),
-        .lineWidth               = static_cast<float>(1.0),
+        .lineWidth               = pipelineParams.lineWidth,
     };
 
+    /* Multisample: sample count from pipelineParams (e.g. 1_BIT or 4_BIT for MSAA). */
     VkPipelineMultisampleStateCreateInfo stMultisample = {
         .sType                 = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .pNext                 = nullptr,
         .flags                 = static_cast<VkPipelineMultisampleStateCreateFlags>(0),
-        .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
+        .rasterizationSamples  = pipelineParams.rasterizationSamples,
         .sampleShadingEnable   = VK_FALSE,
         .minSampleShading      = static_cast<float>(1.0),
         .pSampleMask           = nullptr,
@@ -124,6 +135,7 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         .alphaToOneEnable      = VK_FALSE,
     };
 
+    /* Single color attachment: no blend, write RGBA. */
     VkPipelineColorBlendAttachmentState stBlendAttachment = {
         .blendEnable         = VK_FALSE,
         .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
@@ -145,7 +157,7 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         .blendConstants  = { static_cast<float>(0.0), static_cast<float>(0.0), static_cast<float>(0.0), static_cast<float>(0.0) },
     };
 
-    /* Pipeline layout: no descriptor sets, no push constants. */
+    /* Layout: no descriptor sets, no push constants. Add when using UBOs/textures. */
     VkPipelineLayoutCreateInfo stLayoutInfo = {
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext                  = nullptr,
@@ -163,6 +175,7 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         throw std::runtime_error("VulkanPipeline::Create: pipeline layout failed");
     }
 
+    /* Assemble graphics pipeline; no tessellation, no depth/stencil, subpass 0. */
     VkGraphicsPipelineCreateInfo stPipelineInfo = {
         .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext               = nullptr,
@@ -204,6 +217,7 @@ void VulkanPipeline::Destroy() {
         vkDestroyPipelineLayout(this->m_device, this->m_pipelineLayout, nullptr);
         this->m_pipelineLayout = VK_NULL_HANDLE;
     }
+    /* Release shader refs so VulkanShaderManager can unload if no other pipeline uses them. */
     if ((this->m_pShaderManager != nullptr) && (this->m_sVertPath.empty() == false))
         this->m_pShaderManager->Release(this->m_sVertPath);
     if ((this->m_pShaderManager != nullptr) && (this->m_sFragPath.empty() == false))

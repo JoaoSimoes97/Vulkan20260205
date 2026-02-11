@@ -19,7 +19,8 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
                                                VkDevice device,
                                                VkExtent2D extent,
                                                VkRenderPass renderPass,
-                                               VulkanShaderManager* pShaderManager) {
+                                               VulkanShaderManager* pShaderManager,
+                                               const GraphicsPipelineParams& pipelineParams) {
     if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || pShaderManager == nullptr)
         return VK_NULL_HANDLE;
     auto it = this->m_entries.find(sKey);
@@ -47,14 +48,16 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
     pShaderManager->Release(entry.sVertPath);
     pShaderManager->Release(entry.sFragPath);
 
-    bool bExtentMatch = (entry.extent.width == extent.width && entry.extent.height == extent.height);
+    bool bExtentMatch   = (entry.extent.width == extent.width && entry.extent.height == extent.height);
     bool bRenderPassMatch = (entry.renderPass == renderPass);
-    if ((entry.pipeline.IsValid() == false) || (bExtentMatch == false) || (bRenderPassMatch == false)) {
+    bool bParamsMatch   = (entry.lastParams == pipelineParams);
+    if ((entry.pipeline.IsValid() == false) || (bExtentMatch == false) || (bRenderPassMatch == false) || (bParamsMatch == false)) {
         if (entry.pipeline.IsValid() == true)
             entry.pipeline.Destroy();
-        entry.pipeline.Create(device, extent, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath);
+        entry.pipeline.Create(device, extent, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath, pipelineParams);
         entry.extent     = extent;
         entry.renderPass = renderPass;
+        entry.lastParams = pipelineParams;
     }
     return entry.pipeline.Get();
 }
@@ -74,5 +77,6 @@ void PipelineManager::DestroyPipelines() {
             kv.second.pipeline.Destroy();
         kv.second.extent     = { 0u, 0u };
         kv.second.renderPass = VK_NULL_HANDLE;
+        kv.second.lastParams = {};
     }
 }

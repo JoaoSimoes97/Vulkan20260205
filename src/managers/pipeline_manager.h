@@ -23,14 +23,16 @@ public:
                          const std::string& sFragPath);
 
     /*
-     * Non-blocking: return VkPipeline for key if shaders are ready and pipeline is built for this extent/renderPass.
-     * Returns VK_NULL_HANDLE if not ready or load failed. When extent/renderPass change, pipeline is recreated.
+     * Non-blocking: return VkPipeline for key if shaders are ready and pipeline is built for this extent/renderPass/params.
+     * Caller passes pipelineParams (single source of truth); pipeline is recreated when extent, renderPass, or params change.
+     * Returns VK_NULL_HANDLE if not ready or load failed.
      */
     VkPipeline GetPipelineIfReady(const std::string& sKey,
                                   VkDevice device,
                                   VkExtent2D extent,
                                   VkRenderPass renderPass,
-                                  VulkanShaderManager* pShaderManager);
+                                  VulkanShaderManager* pShaderManager,
+                                  const GraphicsPipelineParams& pipelineParams);
 
     VkPipelineLayout GetPipelineLayoutIfReady(const std::string& sKey) const;
 
@@ -39,11 +41,12 @@ public:
 
 private:
     struct PipelineEntry {
-        std::string    sVertPath;
-        std::string    sFragPath;
-        VulkanPipeline pipeline;
-        VkExtent2D     extent   = { 0u, 0u };
-        VkRenderPass  renderPass = VK_NULL_HANDLE;
+        std::string              sVertPath;
+        std::string              sFragPath;
+        VulkanPipeline           pipeline;
+        VkExtent2D               extent     = { 0u, 0u };
+        VkRenderPass             renderPass = VK_NULL_HANDLE;
+        GraphicsPipelineParams   lastParams = {};
     };
     std::map<std::string, PipelineEntry> m_entries;
 };

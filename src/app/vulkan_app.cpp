@@ -117,10 +117,19 @@ void VulkanApp::MainLoop() {
             this->RecreateSwapchainAndDependents();
         }
 
-        /* Draw when pipeline manager has the pipeline ready (non-blocking). */
+        /* Draw when pipeline manager has the pipeline ready (non-blocking). Caller passes pipelineParams (single source of truth). */
+        GraphicsPipelineParams pipeParams = {
+            .topology                 = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            .primitiveRestartEnable   = VK_FALSE,
+            .polygonMode              = VK_POLYGON_MODE_FILL,
+            .cullMode                 = VK_CULL_MODE_BACK_BIT,
+            .frontFace                = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .lineWidth                = 1.0f,
+            .rasterizationSamples      = VK_SAMPLE_COUNT_1_BIT,
+        };
         VkPipeline pipeline = this->m_pipelineManager.GetPipelineIfReady(
             PIPELINE_KEY_MAIN, this->m_device.GetDevice(), this->m_swapchain.GetExtent(),
-            this->m_renderPass.Get(), &this->m_shaderManager);
+            this->m_renderPass.Get(), &this->m_shaderManager, pipeParams);
         if (pipeline != VK_NULL_HANDLE)
             this->DrawFrame();
     }
