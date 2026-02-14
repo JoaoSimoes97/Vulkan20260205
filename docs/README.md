@@ -8,10 +8,10 @@ Overview of project documentation. All paths are relative to the project root.
 |------|----------|
 | [getting-started.md](getting-started.md) | Setup (per platform), build, shader compilation, project structure. |
 | [troubleshooting.md](troubleshooting.md) | Common issues: validation layers, Vulkan/SDL3, shaders, build errors. |
-| [architecture.md](architecture.md) | Module layout, init/cleanup order, swapchain reconstruction, rendering and draw list, future extensions. |
-| [plan-loading-and-managers.md](plan-loading-and-managers.md) | Loader/job system, pipeline/mesh/texture managers, editor and many objects. |
-| [plan-rendering-and-materials.md](plan-rendering-and-materials.md) | Draw loop (done), pipeline layout parameterization, blend, scene/draw list, materials roadmap. |
-| [plan-editor-and-scene.md](plan-editor-and-scene.md) | Editor and scene: many objects, different GPU data; MeshManager, Scene, RenderListBuilder; phased implementation and optimization. |
+| [architecture.md](architecture.md) | Module layout, init/cleanup order, swapchain reconstruction, config (incl. camera/render), rendering and draw list, implemented (Phase 1.5, camera), future extensions. |
+| [plan-loading-and-managers.md](plan-loading-and-managers.md) | Loader/job system, pipeline/mesh/texture managers (Phase 1.5 done; next Phase 2). |
+| [plan-rendering-and-materials.md](plan-rendering-and-materials.md) | Draw loop, depth and multi-viewport prep (done), pipeline layout, blend, scene/draw list, materials roadmap. |
+| [plan-editor-and-scene.md](plan-editor-and-scene.md) | Editor and scene: Phase 1.5 done; Phase 2 MeshManager, Scene, RenderListBuilder; phased implementation. |
 | [guidelines/](guidelines/) | Code style and conventions (naming, comments, classes, formatting). |
 | [vulkan/](vulkan/) | Vulkan implementation: tutorial order, swapchain rebuild cases. |
 | [platforms/](platforms/) | Platform-specific setup: Android, iOS. |

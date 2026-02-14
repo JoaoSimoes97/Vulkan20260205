@@ -6,8 +6,8 @@ Roadmap for the draw loop, pipeline state (including blend), and materials. Comp
 
 ## Current state
 
-- **Done**: Swapchain, render pass, framebuffers, pipeline with `GraphicsPipelineParams`, pipeline manager (get by key, layout descriptor per key). **Pipeline layout parameterization**: `PipelineLayoutDescriptor` (push ranges); different pipelines can have different push layouts. Draw loop: acquire → record (render pass + list of `DrawCall`s) → submit → present; out-of-date handling. Command buffers record a **draw list**; app builds the list each frame from objects (e.g. `m_objects`). Orthographic aspect-correct projection (mat4) + per-object color (vec4) pushed per draw. Simple **Object** class (Shape, localTransform, color, pushData) and debug shapes (triangle, circle, rectangle, cube).
-- **Not yet**: Depth buffer; blend; render pass/framebuffer/Record parameterized for multi-viewport; vertex buffers; MeshManager; material concept.
+- **Done**: Swapchain, render pass (from descriptor: color + optional depth), **VulkanDepthImage**, framebuffers (color + optional depth views), pipeline with `GraphicsPipelineParams` (including depth state), pipeline manager (get by key, layout descriptor per key, ref-counted shaders). **Pipeline layout parameterization**: `PipelineLayoutDescriptor` (push ranges). Draw loop: acquire → record (render area, viewport, scissor, clear values, draw list) → submit → present; out-of-date handling. Command buffers record a **draw list**; app builds the list each frame from objects. Perspective and orthographic projection (config-driven, aspect = width/height, Vulkan NDC Y-down); view matrix from camera position; initial camera and pan speed from config. Resize syncs swapchain to drawable size every frame. Simple **Object** class (Shape, localTransform, color, pushData, pipelineKey) and debug shapes; multiple pipelines (main fill, wire, alt shader).
+- **Not yet**: Blend; vertex buffers; MeshManager; material concept; RenderListBuilder.
 
 ---
 
@@ -23,9 +23,9 @@ Pipeline layout is driven by `PipelineLayoutDescriptor` (push ranges); PipelineM
 
 ---
 
-## 3. Depth and multi-viewport prep (next)
+## 3. Depth and multi-viewport prep — done
 
-Render pass descriptor (color + optional depth), framebuffers with attachment list, depth image, pipeline depth state, and Record(render area, viewport, scissor, clear value array). Done **before** Phase 2 (MeshManager, Scene, RenderListBuilder) so the recording path is stable. Enables depth for 3D and prepares for multiple viewports (e.g. ImGui). See [plan-editor-and-scene.md](plan-editor-and-scene.md) Phase 1.5.
+Render pass descriptor (color + optional depth), framebuffers with attachment list, VulkanDepthImage, pipeline depth state, and Record(render area, viewport, scissor, clear value array). The recording path is stable and multi-viewport-ready. Enables depth for 3D and prepares for multiple viewports (e.g. ImGui). See [plan-editor-and-scene.md](plan-editor-and-scene.md) Phase 1.5.
 
 ---
 
@@ -68,7 +68,7 @@ For an editor with many objects and different GPU data: introduce **Scene** (lis
 ## 7. After materials (order flexible)
 
 - **Vertex buffers** and vertex input in pipeline.
-- **Depth** is covered in Phase 1.5 (depth and multi-viewport prep).
+- **Depth** is implemented (Phase 1.5).
 - **Uniform buffers** (e.g. per-frame, per-object) and **pipeline layout** (descriptor set layouts, push constants).
 - **Textures** (descriptor sets: image view + sampler).
 - Optional: **Shader cache across swapchain recreate** (see TODO in `vulkan_app.cpp`).

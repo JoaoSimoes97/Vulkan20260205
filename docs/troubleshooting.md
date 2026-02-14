@@ -46,6 +46,15 @@ CMake can fetch SDL3 via FetchContent. Or install manually:
 
 ---
 
+## Aspect ratio wrong when resizing
+
+The app syncs the swapchain to the current window drawable size **every frame** (not only on resize events), so the rendered image should keep the correct aspect. If the picture still looks stretched or inverted when you resize:
+
+- Ensure you're not overriding or caching an old extent elsewhere.
+- Projection uses **aspect = width/height** (drawable size); viewport uses swapchain extent, which is updated from drawable size on recreate. See [architecture.md](architecture.md) (Swapchain extent and aspect ratio).
+
+---
+
 ## Build errors
 
 1. **Check dependencies:** `scripts/linux/check_dependencies.sh` or `scripts\windows\check_dependencies.bat`

@@ -38,18 +38,17 @@ Pipeline layout definition stays in pipeline land; the scene only holds referenc
 
 ---
 
-### Phase 1.5: Depth and multi-viewport prep (before Phase 2)
+### Phase 1.5: Depth and multi-viewport prep — done
 
-Done **before** Phase 2 so the recording path (render pass, framebuffers, Record) is stable. Phase 2 then only adds scene/mesh/material and plugs into the same target API.
+The recording path (render pass, framebuffers, Record) is stable. Phase 2 only adds scene/mesh/material and plugs into the same target API.
 
-- **Render pass descriptor**: Create from a descriptor (color format + optional depth format, load/store ops). Build attachments and subpass from that; `pDepthStencilAttachment` set when depth format is valid.
-- **Framebuffers**: Create from **list of attachment views** (color + optional depth) + extent. So main pass uses swapchain views + depth view; later, offscreen viewports use own image views.
-- **Depth image**: New helper or small module: create depth image + view (format, extent); recreate with extent; pass view into framebuffer creation.
-- **Pipeline depth state**: Add to `GraphicsPipelineParams` (or pipeline descriptor): `depthTestEnable`, `depthWriteEnable`, `depthCompareOp`. In `VulkanPipeline::Create`, build `VkPipelineDepthStencilStateCreateInfo` when depth is enabled; otherwise keep `pDepthStencilState = nullptr`.
-- **Record refactor**: Take **render area** (offset + extent), **viewport** (full struct), **scissor** (or derive from render area), and **clear values** as **array + count** (color + depth when applicable). One API works for fullscreen and for a region, and for color-only or color+depth. Enables multiple viewports (e.g. ImGui) later without further refactor.
-- **App**: Use new API for main pass (fullscreen, with depth). Draw list source unchanged (e.g. `m_objects`); only the Record call site and render pass/framebuffer creation change.
-
-**Deliverable**: Depth buffer in use for main pass; Record and render pass/framebuffers parameterized so multiple viewports (e.g. ImGui) are easy to add later.
+**Current implementation:**
+- **Render pass**: Created from `RenderPassDescriptor` (color + optional depth format, load/store ops). `HasDepthAttachment()` used for clear value count and pipeline.
+- **VulkanDepthImage**: Create/destroy from device, physical device, format, extent; `FindSupportedFormat` for format selection. Recreated with swapchain.
+- **Framebuffers**: Created from list of attachment views (swapchain + optional depth view) + extent.
+- **Pipeline depth state**: In `GraphicsPipelineParams`; `VulkanPipeline::Create` builds depth stencil state when render pass has depth.
+- **Record**: `Record(index, renderPass, framebuffer, renderArea, viewport, scissor, drawCalls, pClearValues, clearValueCount)`. Multi-viewport-ready.
+- **App**: Main pass uses fullscreen extent, viewport, scissor, color + depth clear; build draw list from `m_objects`, then `DrawFrame(drawCalls)`.
 
 ---
 
@@ -111,7 +110,7 @@ Done **before** Phase 2 so the recording path (render pass, framebuffers, Record
 | **MeshManager** | Load meshes; return MeshId and draw params; own vertex/index buffers. |
 | **Scene / ObjectManager** | List of renderables (mesh id, material id, per-object data). API-agnostic. |
 | **RenderListBuilder** | Scene + PipelineManager + MeshManager → `std::vector<DrawCall>`; sort; optional instancing. |
-| **VulkanCommandBuffers** | Record(target: render area, viewport, scissor, clear values; drawCalls). No knowledge of objects or scene. After Phase 1.5: supports depth clear and multi-viewport-ready. |
+| **VulkanCommandBuffers** | Record(render area, viewport, scissor, drawCalls, clear values). No knowledge of objects or scene. Supports depth clear and multi-viewport-ready. |
 
 ---
 

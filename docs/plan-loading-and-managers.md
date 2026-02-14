@@ -36,15 +36,15 @@ To support an editor with many objects and different GPU data per object: MeshMa
 
 - No MeshManager implementation; no vertex buffers or mesh loading.
 - No Scene, RenderListBuilder, or material table (plan in [plan-editor-and-scene.md](plan-editor-and-scene.md)).
-- Pipeline layout is still hardcoded (single 64-byte push range) until Phase 1 of editor plan.
 - No new job types beyond the refactor (LoadFile + reserved types).
 - No texture manager logic beyond stub.
 
 ---
 
-## 4. Order of work
+## 5. Order of work
 
-1. **Done**: Plan document; managers module scaffold (comments + one or two minimal pieces).
-2. **Done**: Refactor job queue to generic typed job system (`LoadJobType`, `CompletedLoadJob`, `ProcessCompletedJobs(handler)`); worker pushes to completed queue; main thread drains each frame with placeholder handler; shader loading unchanged (blocking GetShader).
-3. **Done**: Pipeline manager (get-or-create by key, params at get time).
-4. **Next**: Phase 1.5 (depth and multi-viewport prep), then Phase 2 (MeshManager, Scene, RenderListBuilder). See [plan-editor-and-scene.md](plan-editor-and-scene.md). Draw loop and pipeline layout param are done; see [plan-rendering-and-materials.md](plan-rendering-and-materials.md).
+1. **Done**: Plan document; managers module scaffold.
+2. **Done**: Refactor job queue to generic typed job system (`LoadJobType`, `CompletedLoadJob`, `ProcessCompletedJobs(handler)`); worker pushes to completed queue; main thread drains each frame; shader loading unchanged (blocking GetShader).
+3. **Done**: Pipeline manager (get-or-create by key, params at get time, ref-counted shaders).
+4. **Done**: Phase 1.5 (depth and multi-viewport prep): VulkanDepthImage, render pass/framebuffers/Record parameterized, pipeline depth state. See [plan-editor-and-scene.md](plan-editor-and-scene.md).
+5. **Next**: Phase 2 (MeshManager, Scene, RenderListBuilder). See [plan-editor-and-scene.md](plan-editor-and-scene.md) and [plan-rendering-and-materials.md](plan-rendering-and-materials.md).

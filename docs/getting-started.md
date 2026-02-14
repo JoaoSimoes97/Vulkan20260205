@@ -182,6 +182,14 @@ Build output: `build/Debug`, `build/Release`, `install/Debug`, `install/Release`
 
 ---
 
+## Config
+
+Config is loaded from **two files** (paths relative to the executable or working directory): `config/default.json` (read-only defaults, created once) and `config/config.json` (user overrides). See [architecture.md](architecture.md) for the full JSON layout.
+
+**Useful keys:** In `camera`: `use_perspective`, `fov_y_rad`, `near_z`, `far_z`, `ortho_half_extent`, `pan_speed`, `initial_camera_x`, `initial_camera_y`, `initial_camera_z`. In `render`: `cull_back_faces`, `clear_color_r/g/b/a`. Edit `config/config.json` and restart the app to apply (or call `ApplyConfig` at runtime for swapchain-related changes to take effect next frame).
+
+---
+
 ## Vulkan vs MoltenVK
 
 | Platform | Vulkan | MoltenVK |
