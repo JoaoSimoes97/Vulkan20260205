@@ -98,16 +98,31 @@ void VulkanDevice::Create(VkInstance instance, VkSurfaceKHR surface) {
         VulkanUtils::LogErr("Graphics queue family not found");
         throw std::runtime_error("Graphics queue family not found");
     }
+    if (surface != VK_NULL_HANDLE && m_queueFamilyIndices.presentFamily == QUEUE_FAMILY_IGNORED) {
+        VulkanUtils::LogErr("Present queue family not found");
+        throw std::runtime_error("Present queue family not found");
+    }
 
     const float queuePriority = 1.0f;
-    VkDeviceQueueCreateInfo queueCreateInfo = {
-        .sType             = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,    /* Queue create. */
-        .pNext             = nullptr,                                       /* No extension chain. */
-        .flags             = 0,                                             /* No flags. */
-        .queueFamilyIndex  = m_queueFamilyIndices.graphicsFamily,           /* Graphics queue family. */
-        .queueCount        = 1,                                             /* Single queue. */
-        .pQueuePriorities  = &queuePriority,                                /* Priority 1.0. */
-    };
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    queueCreateInfos.push_back({
+        .sType             = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .pNext             = nullptr,
+        .flags             = 0,
+        .queueFamilyIndex  = m_queueFamilyIndices.graphicsFamily,
+        .queueCount        = 1,
+        .pQueuePriorities  = &queuePriority,
+    });
+    if (surface != VK_NULL_HANDLE && m_queueFamilyIndices.presentFamily != m_queueFamilyIndices.graphicsFamily) {
+        queueCreateInfos.push_back({
+            .sType             = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .pNext             = nullptr,
+            .flags             = 0,
+            .queueFamilyIndex  = m_queueFamilyIndices.presentFamily,
+            .queueCount        = 1,
+            .pQueuePriorities  = &queuePriority,
+        });
+    }
 
     VkPhysicalDeviceFeatures deviceFeatures = {};
     vkGetPhysicalDeviceFeatures(m_physicalDevice, &deviceFeatures);
@@ -117,11 +132,11 @@ void VulkanDevice::Create(VkInstance instance, VkSurfaceKHR surface) {
     }
 
     VkDeviceCreateInfo createInfo = {
-        .sType                 = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,      /* Logical device create. */
-        .pNext                 = nullptr,                                   /* No extension chain. */
-        .flags                 = 0,                                         /* No flags. */
-        .queueCreateInfoCount  = 1,                                         /* One queue create info. */
-        .pQueueCreateInfos     = &queueCreateInfo,                          /* Graphics queue. */
+        .sType                 = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext                 = nullptr,
+        .flags                 = 0,
+        .queueCreateInfoCount  = static_cast<uint32_t>(queueCreateInfos.size()),
+        .pQueueCreateInfos     = queueCreateInfos.data(),
         .enabledLayerCount     = VulkanUtils::ENABLE_VALIDATION_LAYERS ? static_cast<uint32_t>(VulkanUtils::VALIDATION_LAYERS.size()) : 0u,
         .ppEnabledLayerNames   = VulkanUtils::ENABLE_VALIDATION_LAYERS ? VulkanUtils::VALIDATION_LAYERS.data() : nullptr,
         .enabledExtensionCount = 1,                                         /* Swapchain only. */
@@ -137,6 +152,11 @@ void VulkanDevice::Create(VkInstance instance, VkSurfaceKHR surface) {
 
     constexpr uint32_t QUEUE_INDEX_FIRST = 0;
     vkGetDeviceQueue(m_logicalDevice, m_queueFamilyIndices.graphicsFamily, QUEUE_INDEX_FIRST, &m_graphicsQueue);
+    if (surface != VK_NULL_HANDLE && m_queueFamilyIndices.presentFamily != QUEUE_FAMILY_IGNORED) {
+        vkGetDeviceQueue(m_logicalDevice, m_queueFamilyIndices.presentFamily, QUEUE_INDEX_FIRST, &m_presentQueue);
+    } else {
+        m_presentQueue = m_graphicsQueue;
+    }
 }
 
 void VulkanDevice::Destroy() {
@@ -146,6 +166,7 @@ void VulkanDevice::Destroy() {
     }
     m_physicalDevice = VK_NULL_HANDLE;
     m_graphicsQueue = VK_NULL_HANDLE;
+    m_presentQueue  = VK_NULL_HANDLE;
     m_queueFamilyIndices = {};
     m_instance = VK_NULL_HANDLE;
 }

@@ -1,6 +1,6 @@
 # Plan: Loading and Managers
 
-This document describes the roadmap for the generic loader/job system and the managers module (pipeline, mesh, texture). Objects (e.g. cubes) and draw logic are not implemented yet.
+This document describes the roadmap for the generic loader/job system and the managers module (pipeline, mesh, texture). For the draw loop, blend params, and materials see [plan-rendering-and-materials.md](plan-rendering-and-materials.md).
 
 ---
 
@@ -17,22 +17,28 @@ This document describes the roadmap for the generic loader/job system and the ma
 ## 2. Managers module (scaffold)
 
 - **Location**: `src/managers/`.
-- **Pipeline manager**: get-or-create pipeline by (vert path, frag path). Depends on shader manager. Used by drawables (e.g. cubes).
+- **Pipeline manager**: get-or-create pipeline by key (vert path, frag path); caller passes `GraphicsPipelineParams` at get time (params at get time, single source of truth). Depends on shader manager. **Done.** Used by drawables (e.g. cubes).
 - **Shader manager**: lives in `vulkan/`; used by pipeline manager. No move.
-- **Mesh manager** (future): get-or-load mesh by path. Consumes LoadMesh results; creates vertex/index buffers on main thread. Cubes and terrain depend on it.
+- **Mesh manager** (next for editor): get-or-load mesh by path (or create procedurally). Returns mesh id and draw params; creates vertex/index buffers on main thread. Used by Scene and RenderListBuilder so the editor can load many objects. See [plan-editor-and-scene.md](plan-editor-and-scene.md).
 - **Texture manager** (future): get-or-load texture by path. Consumes LoadTexture results; creates image + view + sampler on main thread.
 
-**Dependency chain**: Shaders → Pipeline → Drawable (Pipeline + Mesh (+ Texture)). Multiple cubes = one pipeline, one mesh asset, N instances.
+**Dependency chain**: Shaders → Pipeline → Material (pipeline key + layout). Scene objects reference mesh id + material id; RenderListBuilder turns scene + PipelineManager + MeshManager into draw list. Multiple objects = many DrawCalls, optionally batched by (mesh, material) for instancing.
 
 ---
 
-## 3. Not done yet
+## 3. Editor and many objects
 
-- No implementation of cubes, meshes, or terrain.
-- No vertex buffers or draw calls for objects.
+To support an editor with many objects and different GPU data per object: MeshManager provides mesh ids and draw params; Scene holds renderables (mesh id, material id, per-object data); RenderListBuilder produces the draw list from scene + PipelineManager + MeshManager. Pipeline layout is parameterized per pipeline key so different materials can have different push constant layouts. See [plan-editor-and-scene.md](plan-editor-and-scene.md) for the full phased plan.
+
+---
+
+## 4. Not done yet
+
+- No MeshManager implementation; no vertex buffers or mesh loading.
+- No Scene, RenderListBuilder, or material table (plan in [plan-editor-and-scene.md](plan-editor-and-scene.md)).
+- Pipeline layout is still hardcoded (single 64-byte push range) until Phase 1 of editor plan.
 - No new job types beyond the refactor (LoadFile + reserved types).
-- No pipeline manager logic beyond stub/comment.
-- No mesh/texture manager logic beyond comments/stub.
+- No texture manager logic beyond stub.
 
 ---
 
@@ -40,5 +46,5 @@ This document describes the roadmap for the generic loader/job system and the ma
 
 1. **Done**: Plan document; managers module scaffold (comments + one or two minimal pieces).
 2. **Done**: Refactor job queue to generic typed job system (`LoadJobType`, `CompletedLoadJob`, `ProcessCompletedJobs(handler)`); worker pushes to completed queue; main thread drains each frame with placeholder handler; shader loading unchanged (blocking GetShader).
-3. **Later**: Implement pipeline manager (get-or-create by vert+frag).
-4. **Later**: Mesh loading job type + mesh manager; then cube drawables.
+3. **Done**: Pipeline manager (get-or-create by key, params at get time).
+4. **Next**: Pipeline layout parameterization and MeshManager (see [plan-editor-and-scene.md](plan-editor-and-scene.md)); then Scene and RenderListBuilder. Draw loop is done; see [plan-rendering-and-materials.md](plan-rendering-and-materials.md).

@@ -17,6 +17,10 @@ struct VulkanConfig {
     std::string sWindowTitle = "Vulkan App";
 
     /* --- Swapchain --- */
+    /** Exact swapchain image count (e.g. 2 = double, 3 = triple buffering). Driver must return this count or app fails. */
+    uint32_t lImageCount = static_cast<uint32_t>(3);
+    /** Max frames in flight (e.g. 2). Must be at least 1; typically 2. */
+    uint32_t lMaxFramesInFlight = static_cast<uint32_t>(2);
     VkPresentModeKHR ePresentMode = VK_PRESENT_MODE_FIFO_KHR;
     /* Preferred surface format (e.g. "B8G8R8A8_SRGB"). Empty = driver default. */
     std::string sPreferredFormat = "B8G8R8A8_SRGB";

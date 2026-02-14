@@ -7,7 +7,7 @@
  * Fixed-function state is driven by pipelineParams (topology, rasterization, MSAA). Vertex input and
  * pipeline layout remain none; add when using vertex buffers or UBOs/textures.
  */
-void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass renderPass,
+void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
                             VulkanShaderManager* pShaderManager,
                             const std::string& sVertPath, const std::string& sFragPath,
                             const GraphicsPipelineParams& pipelineParams) {
@@ -82,27 +82,24 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         .primitiveRestartEnable = pipelineParams.primitiveRestartEnable,
     };
 
-    /* Full extent viewport and scissor; depth [0, 1]. */
-    VkViewport stViewport = {
-        .x        = static_cast<float>(0.0),
-        .y        = static_cast<float>(0.0),
-        .width    = static_cast<float>(extent.width),
-        .height   = static_cast<float>(extent.height),
-        .minDepth = static_cast<float>(0.0),
-        .maxDepth = static_cast<float>(1.0),
-    };
-    VkRect2D stScissor = {
-        .offset = { .x = 0, .y = 0 },
-        .extent = extent,
-    };
+    /* Viewport and scissor are dynamic: set at record time to match the framebuffer extent (no resize mismatch). */
     VkPipelineViewportStateCreateInfo stViewportState = {
         .sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         .pNext         = nullptr,
         .flags         = static_cast<VkPipelineViewportStateCreateFlags>(0),
         .viewportCount = static_cast<uint32_t>(1),
-        .pViewports    = &stViewport,
+        .pViewports    = nullptr,
         .scissorCount  = static_cast<uint32_t>(1),
-        .pScissors     = &stScissor,
+        .pScissors     = nullptr,
+    };
+
+    VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo stDynamicState = {
+        .sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .pNext             = nullptr,
+        .flags             = static_cast<VkPipelineDynamicStateCreateFlags>(0),
+        .dynamicStateCount = static_cast<uint32_t>(2),
+        .pDynamicStates    = dynamicStates,
     };
 
     /* Rasterization: polygon mode, cull, front face, line width from pipelineParams. */
@@ -157,15 +154,21 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         .blendConstants  = { static_cast<float>(0.0), static_cast<float>(0.0), static_cast<float>(0.0), static_cast<float>(0.0) },
     };
 
-    /* Layout: no descriptor sets, no push constants. Add when using UBOs/textures. */
+    /* Push constant: one mat4 (64 bytes) for projection (and later view). Updated per frame from extent. */
+    constexpr uint32_t kPushConstantSize = 64u;  /* mat4 */
+    VkPushConstantRange pushRange = {
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .offset     = 0u,
+        .size       = kPushConstantSize,
+    };
     VkPipelineLayoutCreateInfo stLayoutInfo = {
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext                  = nullptr,
         .flags                  = static_cast<VkPipelineLayoutCreateFlags>(0),
         .setLayoutCount         = static_cast<uint32_t>(0),
         .pSetLayouts            = nullptr,
-        .pushConstantRangeCount = static_cast<uint32_t>(0),
-        .pPushConstantRanges    = nullptr,
+        .pushConstantRangeCount = static_cast<uint32_t>(1),
+        .pPushConstantRanges    = &pushRange,
     };
     VkResult result = vkCreatePipelineLayout(device, &stLayoutInfo, nullptr, &this->m_pipelineLayout);
     if (result != VK_SUCCESS) {
@@ -190,7 +193,7 @@ void VulkanPipeline::Create(VkDevice device, VkExtent2D extent, VkRenderPass ren
         .pMultisampleState   = &stMultisample,
         .pDepthStencilState  = nullptr,
         .pColorBlendState    = &stColorBlend,
-        .pDynamicState       = nullptr,
+        .pDynamicState       = &stDynamicState,
         .layout              = this->m_pipelineLayout,
         .renderPass          = renderPass,
         .subpass             = static_cast<uint32_t>(0),

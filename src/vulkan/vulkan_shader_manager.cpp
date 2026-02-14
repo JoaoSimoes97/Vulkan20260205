@@ -84,6 +84,7 @@ VkShaderModule VulkanShaderManager::CompletePendingLoad(VkDevice device, const s
     if (pResult->bDone == false)
         return VK_NULL_HANDLE;
     if (pResult->vecData.empty() == true) {
+        VulkanUtils::LogErr("Shader file not found or empty: {}", sPath);
         this->m_pending.erase(itPending);
         return VK_NULL_HANDLE;
     }

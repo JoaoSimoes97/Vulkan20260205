@@ -3,19 +3,21 @@
 #include "managers/pipeline_manager.h"
 #include "thread/job_queue.h"
 #include "vulkan_config.h"
+#include "vulkan_command_buffers.h"
 #include "vulkan_device.h"
 #include "vulkan_framebuffers.h"
 #include "vulkan_instance.h"
 #include "vulkan_render_pass.h"
 #include "vulkan_shader_manager.h"
+#include "vulkan_sync.h"
 #include "vulkan_swapchain.h"
 #include "window.h"
 #include <memory>
 
-/*
- * Main application: owns job queue (for loaders), window, Vulkan instance, device, swapchain,
- * render pass, shader manager, pipeline, framebuffers.
- * Rebuild cases: docs/vulkan/swapchain-rebuild-cases.md.
+/**
+ * Main application: owns window, Vulkan instance/device/swapchain, render pass, pipeline manager,
+ * framebuffers, command buffers, sync, and job queue (async shader loads).
+ * See docs/architecture.md for init order and swapchain rebuild flow.
  */
 class VulkanApp {
 public:
@@ -24,7 +26,7 @@ public:
 
     void Run();
 
-    /* Apply new config at runtime (e.g. from CFG file or UI). Resizes window if size changed; sets bSwapchainDirty so next frame recreates. */
+    /** Apply config at runtime; resizes window if needed and sets bSwapchainDirty for next-frame recreate. */
     void ApplyConfig(const VulkanConfig& newConfig);
 
 private:
@@ -32,7 +34,7 @@ private:
     void InitVulkan();
     void MainLoop();
     void Cleanup();
-    void DrawFrame();
+    void DrawFrame(const std::vector<DrawCall>& drawCalls);
     void RecreateSwapchainAndDependents();
 
     VulkanConfig m_config;
@@ -45,4 +47,6 @@ private:
     VulkanRenderPass m_renderPass;
     PipelineManager m_pipelineManager;
     VulkanFramebuffers m_framebuffers;
+    VulkanCommandBuffers m_commandBuffers;
+    VulkanSync m_sync;
 };

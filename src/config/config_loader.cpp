@@ -1,3 +1,7 @@
+/*
+ * Config loader — default.json (immutable) + config.json (user). Load merges user over default.
+ * See config_loader.h and docs/architecture.md for JSON layout.
+ */
 #include "config_loader.h"
 #include "vulkan_config.h"
 #include "vulkan_utils.h"
@@ -23,6 +27,10 @@ void ApplyJsonToConfig(const json& jRoot, VulkanConfig& stConfig) {
     }
     if (jRoot.contains("swapchain") == true) {
         const json& jSwapchain = jRoot["swapchain"];
+        if ((jSwapchain.contains("image_count") == true) && (jSwapchain["image_count"].is_number_unsigned() == true))
+            stConfig.lImageCount = jSwapchain["image_count"].get<uint32_t>();
+        if ((jSwapchain.contains("max_frames_in_flight") == true) && (jSwapchain["max_frames_in_flight"].is_number_unsigned() == true))
+            stConfig.lMaxFramesInFlight = jSwapchain["max_frames_in_flight"].get<uint32_t>();
         if ((jSwapchain.contains("present_mode") == true) && (jSwapchain["present_mode"].is_string() == true))
             stConfig.ePresentMode = PresentModeFromString(jSwapchain["present_mode"].get<std::string>());
         if ((jSwapchain.contains("preferred_format") == true) && (jSwapchain["preferred_format"].is_string() == true))
@@ -41,6 +49,8 @@ VulkanConfig GetDefaultConfig() {
     stCfg.lHeight = static_cast<uint32_t>(600);
     stCfg.bFullscreen = static_cast<bool>(false);
     stCfg.sWindowTitle = "Vulkan App";
+    stCfg.lImageCount = static_cast<uint32_t>(3);
+    stCfg.lMaxFramesInFlight = static_cast<uint32_t>(2);
     stCfg.ePresentMode = VK_PRESENT_MODE_FIFO_KHR;
     stCfg.sPreferredFormat = "B8G8R8A8_SRGB";
     stCfg.sPreferredColorSpace = "SRGB_NONLINEAR";
@@ -107,6 +117,8 @@ void SaveConfigToFile(const std::string& sPath, const VulkanConfig& stConfig) {
             { "title", stConfig.sWindowTitle }
         }},
         { "swapchain", {
+            { "image_count", stConfig.lImageCount },
+            { "max_frames_in_flight", stConfig.lMaxFramesInFlight },
             { "present_mode", PresentModeToString(stConfig.ePresentMode) },
             { "preferred_format", stConfig.sPreferredFormat.empty() == true ? "B8G8R8A8_SRGB" : stConfig.sPreferredFormat },
             { "preferred_color_space", stConfig.sPreferredColorSpace.empty() == true ? "SRGB_NONLINEAR" : stConfig.sPreferredColorSpace }

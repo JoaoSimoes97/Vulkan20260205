@@ -33,15 +33,15 @@ inline bool operator==(const GraphicsPipelineParams& a, const GraphicsPipelinePa
 
 /*
  * Graphics pipeline: vert + frag stages, fixed-function state (viewport, raster, blend, etc.).
- * Depends on render pass and swapchain extent. Loads shaders via VulkanShaderManager and holds
- * refs until Destroy. Use GraphicsPipelineParams to configure topology, rasterization, and MSAA.
+ * Depends on render pass. Viewport/scissor are dynamic (set at record time). Loads shaders via
+ * VulkanShaderManager and holds refs until Destroy. Use GraphicsPipelineParams for fixed-function state.
  */
 class VulkanPipeline {
 public:
     VulkanPipeline() = default;
     ~VulkanPipeline();
 
-    void Create(VkDevice device, VkExtent2D extent, VkRenderPass renderPass,
+    void Create(VkDevice device, VkRenderPass renderPass,
                 VulkanShaderManager* pShaderManager,
                 const std::string& sVertPath, const std::string& sFragPath,
                 const GraphicsPipelineParams& pipelineParams);

@@ -21,10 +21,12 @@ void VulkanRenderPass::Create(VkDevice device, VkFormat swapchainImageFormat) {
         .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,                /* Don't care before first use. */
         .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,          /* Optimal layout for presentation. */
     };
+
     VkAttachmentReference colorRef = {
         .attachment = 0,                                            /* Index of color attachment in render pass. */
         .layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,     /* Optimal layout during subpass. */
     };
+
     VkSubpassDescription subpass = {
         .flags                   = 0,                               /* No flags. */
         .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS, /* Graphics subpass. */
@@ -37,6 +39,7 @@ void VulkanRenderPass::Create(VkDevice device, VkFormat swapchainImageFormat) {
         .preserveAttachmentCount = 0,                               /* No preserved attachments. */
         .pPreserveAttachments    = nullptr,
     };
+
     VkRenderPassCreateInfo rpInfo = {
         .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,   /* Render pass create. */
         .pNext           = nullptr,                                     /* No extension chain. */
@@ -48,6 +51,7 @@ void VulkanRenderPass::Create(VkDevice device, VkFormat swapchainImageFormat) {
         .dependencyCount  = 0,                                          /* No subpass dependencies. */
         .pDependencies    = nullptr,
     };
+    
     VkResult result = vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_renderPass);
     if (result != VK_SUCCESS) {
         VulkanUtils::LogErr("vkCreateRenderPass failed: {}", static_cast<int>(result));

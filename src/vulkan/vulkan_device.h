@@ -20,6 +20,8 @@ public:
     VkPhysicalDevice GetPhysicalDevice() const { return m_physicalDevice; }
     VkDevice GetDevice() const { return m_logicalDevice; }
     VkQueue GetGraphicsQueue() const { return m_graphicsQueue; }
+    /** Queue to use for vkQueuePresentKHR; same as graphics when presentFamily == graphicsFamily. */
+    VkQueue GetPresentQueue() const { return m_presentQueue; }
     const QueueFamilyIndices& GetQueueFamilyIndices() const { return m_queueFamilyIndices; }
     bool IsValid() const { return m_logicalDevice != VK_NULL_HANDLE; }
 
@@ -32,4 +34,5 @@ private:
     VkDevice m_logicalDevice = VK_NULL_HANDLE;
     QueueFamilyIndices m_queueFamilyIndices = {};
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
+    VkQueue m_presentQueue  = VK_NULL_HANDLE;
 };

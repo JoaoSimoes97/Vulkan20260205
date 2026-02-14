@@ -8,7 +8,7 @@
  * - default.json: created once if missing, never overwritten. Single source of default values.
  * - config.json: user config; created from default if missing; can be updated by the app.
  * Load merges user over default (missing keys in user = value from default).
- * JSON keys: window (width, height, fullscreen, title), swapchain (present_mode, preferred_format, preferred_color_space).
+ * JSON keys: window (width, height, fullscreen, title), swapchain (image_count, max_frames_in_flight, present_mode, preferred_format, preferred_color_space).
  * Validation layers are not persisted. See docs/architecture.md.
  */
 VulkanConfig GetDefaultConfig();

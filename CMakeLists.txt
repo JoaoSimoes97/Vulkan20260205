@@ -73,6 +73,8 @@ set(SOURCES
     src/vulkan/vulkan_render_pass.cpp
     src/vulkan/vulkan_pipeline.cpp
     src/vulkan/vulkan_framebuffers.cpp
+    src/vulkan/vulkan_command_buffers.cpp
+    src/vulkan/vulkan_sync.cpp
     src/vulkan/vulkan_shader_manager.cpp
     src/managers/pipeline_manager.cpp
 )
@@ -94,6 +96,8 @@ set(HEADERS
     src/vulkan/vulkan_render_pass.h
     src/vulkan/vulkan_pipeline.h
     src/vulkan/vulkan_framebuffers.h
+    src/vulkan/vulkan_command_buffers.h
+    src/vulkan/vulkan_sync.h
     src/vulkan/vulkan_shader_manager.h
 )
 
@@ -190,6 +194,17 @@ file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 
 add_custom_target(compile_shaders ALL
     DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv
+)
+
+# Ensure shaders are built before the app, and copy shaders + config next to the exe so the app finds them regardless of cwd.
+add_dependencies(${PROJECT_NAME} compile_shaders)
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
+    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
+    COMMENT "Copying shaders and config next to executable"
 )
 
 # Local install/bundle: output folder (e.g. install/Debug, install/Release)

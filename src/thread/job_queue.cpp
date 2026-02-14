@@ -1,3 +1,7 @@
+/*
+ * JobQueue — worker threads for async file loads. SubmitLoadFile() enqueues; workers call ReadFileBinary
+ * and set result; main thread drains completed jobs via ProcessCompletedJobs(). Used by VulkanShaderManager.
+ */
 #include "job_queue.h"
 #include "vulkan/vulkan_utils.h"
 #include <fstream>

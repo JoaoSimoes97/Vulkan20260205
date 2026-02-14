@@ -1,3 +1,7 @@
+/*
+ * PipelineManager — request pipelines by key (vert+frag paths). GetPipelineIfReady is non-blocking;
+ * returns VK_NULL_HANDLE until shaders are loaded, then builds or reuses pipeline for renderPass/params.
+ */
 #include "pipeline_manager.h"
 
 void PipelineManager::RequestPipeline(const std::string& sKey,
@@ -17,7 +21,6 @@ void PipelineManager::RequestPipeline(const std::string& sKey,
 
 VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
                                                VkDevice device,
-                                               VkExtent2D extent,
                                                VkRenderPass renderPass,
                                                VulkanShaderManager* pShaderManager,
                                                const GraphicsPipelineParams& pipelineParams) {
@@ -28,17 +31,16 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
         return VK_NULL_HANDLE;
 
     PipelineEntry& entry = it->second;
-    /* Request only paths that are not yet ready (cache or completed pending); avoid re-requesting or releasing the one that finished. */
-    if (pShaderManager->IsLoadReady(entry.sVertPath) == false)
+    if (!pShaderManager->IsLoadReady(entry.sVertPath))
         pShaderManager->RequestLoad(entry.sVertPath);
-    if (pShaderManager->IsLoadReady(entry.sFragPath) == false)
+    if (!pShaderManager->IsLoadReady(entry.sFragPath))
         pShaderManager->RequestLoad(entry.sFragPath);
-    if (pShaderManager->IsLoadReady(entry.sVertPath) == false || pShaderManager->IsLoadReady(entry.sFragPath) == false)
+    if (!pShaderManager->IsLoadReady(entry.sVertPath) || !pShaderManager->IsLoadReady(entry.sFragPath))
         return VK_NULL_HANDLE;
 
     VkShaderModule modVert = pShaderManager->GetShaderIfReady(device, entry.sVertPath);
     VkShaderModule modFrag = pShaderManager->GetShaderIfReady(device, entry.sFragPath);
-    if ((modVert == VK_NULL_HANDLE) || (modFrag == VK_NULL_HANDLE)) {
+    if (modVert == VK_NULL_HANDLE || modFrag == VK_NULL_HANDLE) {
         if (modVert != VK_NULL_HANDLE)
             pShaderManager->Release(entry.sVertPath);
         if (modFrag != VK_NULL_HANDLE)
@@ -48,14 +50,12 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
     pShaderManager->Release(entry.sVertPath);
     pShaderManager->Release(entry.sFragPath);
 
-    bool bExtentMatch   = (entry.extent.width == extent.width && entry.extent.height == extent.height);
-    bool bRenderPassMatch = (entry.renderPass == renderPass);
-    bool bParamsMatch   = (entry.lastParams == pipelineParams);
-    if ((entry.pipeline.IsValid() == false) || (bExtentMatch == false) || (bRenderPassMatch == false) || (bParamsMatch == false)) {
-        if (entry.pipeline.IsValid() == true)
+    bool renderPassMatch = (entry.renderPass == renderPass);
+    bool paramsMatch    = (entry.lastParams == pipelineParams);
+    if (!entry.pipeline.IsValid() || !renderPassMatch || !paramsMatch) {
+        if (entry.pipeline.IsValid())
             entry.pipeline.Destroy();
-        entry.pipeline.Create(device, extent, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath, pipelineParams);
-        entry.extent     = extent;
+        entry.pipeline.Create(device, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath, pipelineParams);
         entry.renderPass = renderPass;
         entry.lastParams = pipelineParams;
     }
@@ -73,9 +73,8 @@ VkPipelineLayout PipelineManager::GetPipelineLayoutIfReady(const std::string& sK
 
 void PipelineManager::DestroyPipelines() {
     for (auto& kv : this->m_entries) {
-        if (kv.second.pipeline.IsValid() == true)
+        if (kv.second.pipeline.IsValid())
             kv.second.pipeline.Destroy();
-        kv.second.extent     = { 0u, 0u };
         kv.second.renderPass = VK_NULL_HANDLE;
         kv.second.lastParams = {};
     }

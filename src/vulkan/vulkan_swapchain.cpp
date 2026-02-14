@@ -2,6 +2,7 @@
 #include "vulkan_config.h"
 #include "vulkan_utils.h"
 #include <algorithm>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
 
@@ -78,24 +79,43 @@ VkPresentModeKHR ChoosePresentMode(VkPhysicalDevice physicalDevice, VkSurfaceKHR
 
 VkExtent2D ChooseExtent(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
                         uint32_t lRequestedWidth, uint32_t lRequestedHeight) {
-    /* Surface capability limits (min/max extent, current extent). */
+    if (lRequestedWidth == 0u || lRequestedHeight == 0u) {
+        VulkanUtils::LogErr("ChooseExtent: requested extent {}x{} is invalid; caller must supply non-zero size.",
+            lRequestedWidth, lRequestedHeight);
+        throw std::runtime_error("ChooseExtent: zero extent not allowed");
+    }
+
     VkSurfaceCapabilitiesKHR stCaps = {};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &stCaps);
 
-    if (stCaps.currentExtent.width != UINT32_MAX) {
-        VulkanUtils::LogWarn("Swapchain extent forced to driver current extent {}x{} (requested {}x{}).",
-            stCaps.currentExtent.width, stCaps.currentExtent.height, lRequestedWidth, lRequestedHeight);
-        return stCaps.currentExtent;
-    }
-    /* Requested size; will be clamped to driver min/max if needed. */
-    VkExtent2D stExtent = { lRequestedWidth, lRequestedHeight };
-    stExtent.width = std::clamp(stExtent.width, stCaps.minImageExtent.width, stCaps.maxImageExtent.width);
-    stExtent.height = std::clamp(stExtent.height, stCaps.minImageExtent.height, stCaps.maxImageExtent.height);
-    if ((stExtent.width != lRequestedWidth) || (stExtent.height != lRequestedHeight)) {
-        VulkanUtils::LogWarn("Swapchain extent clamped from {}x{} to {}x{} (driver min/max).",
-            lRequestedWidth, lRequestedHeight, stExtent.width, stExtent.height);
-    }
-    return stExtent;
+    const uint32_t minW = stCaps.minImageExtent.width;
+    const uint32_t minH = stCaps.minImageExtent.height;
+    const uint32_t maxW = stCaps.maxImageExtent.width;
+    const uint32_t maxH = stCaps.maxImageExtent.height;
+
+    /* If requested size is within surface limits, use it exactly (no aspect change). */
+    if (lRequestedWidth >= minW && lRequestedWidth <= maxW && lRequestedHeight >= minH && lRequestedHeight <= maxH)
+        return VkExtent2D{ lRequestedWidth, lRequestedHeight };
+
+    /* Otherwise fit into [min,max] preserving aspect ratio so the image is never stretched. */
+    double scaleMaxW = (maxW > 0u) ? static_cast<double>(maxW) / static_cast<double>(lRequestedWidth) : 1.0;
+    double scaleMaxH = (maxH > 0u) ? static_cast<double>(maxH) / static_cast<double>(lRequestedHeight) : 1.0;
+    double scaleMinW = (lRequestedWidth > 0u) ? static_cast<double>(minW) / static_cast<double>(lRequestedWidth) : 0.0;
+    double scaleMinH = (lRequestedHeight > 0u) ? static_cast<double>(minH) / static_cast<double>(lRequestedHeight) : 0.0;
+
+    double scale = std::min(scaleMaxW, scaleMaxH);
+    double scaleMin = std::max(scaleMinW, scaleMinH);
+    if (scale < scaleMin)
+        scale = scaleMin;
+
+    uint32_t extentW = static_cast<uint32_t>(std::round(static_cast<double>(lRequestedWidth) * scale));
+    uint32_t extentH = static_cast<uint32_t>(std::round(static_cast<double>(lRequestedHeight) * scale));
+    extentW = std::clamp(extentW, minW, maxW);
+    extentH = std::clamp(extentH, minH, maxH);
+
+    VulkanUtils::LogWarn("Swapchain extent adjusted from requested {}x{} to {}x{} (surface min/max, aspect preserved).",
+        lRequestedWidth, lRequestedHeight, extentW, extentH);
+    return VkExtent2D{ extentW, extentH };
 }
 
 } // namespace
@@ -119,13 +139,17 @@ void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, V
     this->m_extent = ChooseExtent(physicalDevice, surface, stConfig.lWidth, stConfig.lHeight);
     this->m_imageFormat = stSurfaceFormat.format;
 
-    /* Surface caps for image count limits and transform. */
+    /* Surface caps: validate config image count; no clamping, fail if invalid. */
     VkSurfaceCapabilitiesKHR stCaps = {};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &stCaps);
-    uint32_t lImageCount = stCaps.minImageCount + static_cast<uint32_t>(1);
-    if ((stCaps.maxImageCount > 0) && (lImageCount > stCaps.maxImageCount)) {
-        VulkanUtils::LogWarn("Swapchain image count clamped from {} to maxImageCount {} (driver limit).", lImageCount, stCaps.maxImageCount);
-        lImageCount = stCaps.maxImageCount;
+    uint32_t lRequestedCount = stConfig.lImageCount;
+    if (lRequestedCount < stCaps.minImageCount) {
+        VulkanUtils::LogErr("Config image_count {} is below surface minImageCount {}. Adjust config and restart.", lRequestedCount, stCaps.minImageCount);
+        throw std::runtime_error("VulkanSwapchain::Create: image_count below surface minimum");
+    }
+    if ((stCaps.maxImageCount > 0) && (lRequestedCount > stCaps.maxImageCount)) {
+        VulkanUtils::LogErr("Config image_count {} exceeds surface maxImageCount {}. Adjust config and restart.", lRequestedCount, stCaps.maxImageCount);
+        throw std::runtime_error("VulkanSwapchain::Create: image_count above surface maximum");
     }
 
     /* Use present queue if distinct from graphics; else same queue for both. */
@@ -141,7 +165,7 @@ void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, V
         .pNext                 = static_cast<void*>(nullptr),                                                   /* No extension chain. */
         .flags                 = 0,                                                                             /* No create flags. */
         .surface               = surface,                                                                       /* Target presentation surface. */
-        .minImageCount         = lImageCount,                                                                   /* Desired image count (clamped to caps). */
+        .minImageCount         = lRequestedCount,                                                               /* Exact count from config; validated against caps. */
         .imageFormat           = stSurfaceFormat.format,                                                        /* Chosen surface format. */
         .imageColorSpace       = stSurfaceFormat.colorSpace,                                                    /* Chosen color space. */
         .imageExtent           = this->m_extent,                                                                /* Swapchain image dimensions. */
@@ -165,8 +189,15 @@ void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, V
 
     uint32_t lSwapchainImageCount = static_cast<uint32_t>(0);
     vkGetSwapchainImagesKHR(this->m_device, this->m_swapchain, &lSwapchainImageCount, nullptr);
+    if (lSwapchainImageCount != lRequestedCount) {
+        vkDestroySwapchainKHR(this->m_device, this->m_swapchain, nullptr);
+        this->m_swapchain = VK_NULL_HANDLE;
+        VulkanUtils::LogErr("Config image_count {} not satisfied: driver returned {} images. Adjust config and restart.", lRequestedCount, lSwapchainImageCount);
+        throw std::runtime_error("VulkanSwapchain::Create: driver returned different image count than config");
+    }
     this->m_images.resize(lSwapchainImageCount);
     vkGetSwapchainImagesKHR(this->m_device, this->m_swapchain, &lSwapchainImageCount, this->m_images.data());
+    VulkanUtils::LogInfo("Swapchain image count: {} ({} buffering).", lSwapchainImageCount, lSwapchainImageCount == 2 ? "double" : (lSwapchainImageCount == 3 ? "triple" : "other"));
     this->CreateImageViews();
 }
 

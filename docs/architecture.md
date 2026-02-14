@@ -12,15 +12,31 @@ The app is split into modules so it stays maintainable and can grow (multiple ca
 | **VulkanDevice** | Physical device pick, logical device, queues, queue family indices. | Usually fixed; only on device lost / GPU switch. |
 | **VulkanSwapchain** | Swapchain, image views, extent, format, present mode. `RecreateSwapchain(config)` tears down and recreates. | Core of reconstruction (resize, present mode, format change). |
 | **VulkanRenderPass** | Render pass (attachments, subpasses). Depends on swapchain format. | Recreated when swapchain is recreated (format/extent). |
-| **VulkanPipeline** | Graphics pipeline (stub for now). Depends on render pass and extent. | Recreated when swapchain/render pass is recreated. |
+| **VulkanPipeline** | Graphics pipeline (vert+frag, params: topology, rasterization, MSAA). Pipeline layout from descriptor (push constant ranges; later descriptor set layouts). Viewport/scissor dynamic. Depends on render pass. | Recreated when render pass, pipeline params, or layout descriptor change. |
+| **PipelineManager** | Get-or-create pipeline by key; stores layout descriptor per key (push ranges, later set layouts). Caller passes `GraphicsPipelineParams` and layout at get/request time. | Pipelines destroyed on swapchain recreate; recreated when shaders ready and GetPipelineIfReady called. |
 | **VulkanFramebuffers** | One framebuffer per swapchain image view. | Recreated when swapchain is recreated. |
-| **VulkanApp** | Owns all of the above. Init order, main loop, `RecreateSwapchainAndDependents()`, cleanup. | Orchestrates when to reconstruct. |
+| **VulkanCommandBuffers** | Command pool + one primary command buffer per swapchain image. `Record(index, ..., drawCalls, clearColor)` encodes render pass and a list of `DrawCall`s (pipeline, layout, push constants, draw params). | Recreated when swapchain is recreated. |
+| **VulkanSync** | Per-frame-in-flight fences and semaphores (image available, render finished). Render-finished semaphores are per swapchain image. | Recreated when swapchain is recreated (new image count). |
+| **Scene / ObjectManager** | List of renderables: each has mesh id, material id, per-object GPU data (e.g. transform). No Vulkan types; editor adds/removes/updates objects. | N/A (data only). |
+| **RenderListBuilder** | Builds `std::vector<DrawCall>` from scene: resolve pipeline/layout per object via material, resolve mesh draw params, sort by pipeline (and optionally mesh), optional instancing. Uses PipelineManager and MeshManager. | N/A (stateless or reuses one buffer per frame). |
+| **MeshManager** | Load mesh by path (or create procedurally); returns mesh id and draw params (vertex count, first vertex, index count, etc.). Owns vertex/index buffers. | Buffers recreated only on device/context change or explicit reload. |
+| **VulkanApp** | Owns all of the above. Init order, main loop, build draw list (or delegate to RenderListBuilder), `DrawFrame(drawCalls)`, `RecreateSwapchainAndDependents()`, cleanup. | Orchestrates when to reconstruct. |
 
 ## Init and cleanup order
 
-**Init:** Window → Instance → Window.CreateSurface → Device → Swapchain → RenderPass → Pipeline → Framebuffers.
+**Init:** Window → Instance → Window.CreateSurface → Device → Swapchain → RenderPass → Pipeline → Framebuffers → CommandBuffers → Sync.
 
-**Cleanup (reverse):** Framebuffers → Pipeline → RenderPass → Swapchain → Device → Window.DestroySurface → Instance → Window.
+**Cleanup (reverse):** Sync → CommandBuffers → Framebuffers → Pipeline → RenderPass → Swapchain → Device → Window.DestroySurface → Instance → Window.
+
+## Swapchain extent and aspect ratio
+
+Extent is the single source of truth for how big the swapchain images are and must match what the window displays so the image is not stretched.
+
+- **Source:** At init we call `GetDrawableSize()` and set `m_config.lWidth/lHeight` before creating the swapchain (no config size that might differ from the real window). On resize we set config from `GetDrawableSize(newW, newH)` and recreate. When applying config (e.g. from file), we use that config and recreate.
+- **ChooseExtent** (in `VulkanSwapchain`): Uses only the requested extent. If it is within the surface’s `[minImageExtent, maxImageExtent]`, we use it as-is. If it is outside (e.g. driver limits), we fit into that range while **preserving aspect ratio** so the image is never stretched.
+- **Viewport:** Viewport and scissor are dynamic and set in the command buffer at record time from the same extent we use for the render area, so there is no pipeline vs framebuffer extent mismatch.
+
+Logging: init and resize paths log drawable size and swapchain extent at INFO so you can confirm they match.
 
 ## When swapchain is recreated
 
@@ -44,19 +60,31 @@ Config uses **two files**: a read-only default and a user config that can be upd
 | `window`   | `width`, `height` | unsigned int |
 |            | `fullscreen` | bool |
 |            | `title` | string |
-| `swapchain`| `present_mode` | `fifo` \| `mailbox` \| `immediate` \| `fifo_relaxed` |
+| `swapchain`| `image_count` | 2 or 3 (double/triple buffering); driver must return this exact count or app fails |
+|            | `max_frames_in_flight` | e.g. 2; must be at least 1 (0 is treated as 1) |
+|            | `present_mode` | `fifo` \| `mailbox` \| `immediate` \| `fifo_relaxed` |
 |            | `preferred_format` | e.g. `B8G8R8A8_SRGB`, `B8G8R8A8_UNORM`, `R8G8B8A8_SRGB` |
 |            | `preferred_color_space` | `SRGB_NONLINEAR`, `DISPLAY_P3`, `EXTENDED_SRGB` |
 
-Validation layers are **not** in the config file (dev/debug only); set from build type or env when you implement them.
+Validation layers are **not** in the config file (dev/debug only); enabled when `ENABLE_VALIDATION_LAYERS` is set (e.g. debug build). See [vulkan/validation-layers.md](vulkan/validation-layers.md).
 
 - **Resize path**: User resizes window → config is synced from window size → recreate.
 - **Config path**: Load JSON or set config, call `ApplyConfig(config)` → window size/fullscreen/title updated, `bSwapchainDirty` set → next frame recreate uses new config.
 
 See [vulkan/swapchain-rebuild-cases.md](vulkan/swapchain-rebuild-cases.md).
 
+See also [plan-rendering-and-materials.md](plan-rendering-and-materials.md) and [plan-editor-and-scene.md](plan-editor-and-scene.md).
+
+## Rendering and draw list
+
+- **Draw list**: Each frame the app (or a RenderListBuilder) produces a `std::vector<DrawCall>`. Each `DrawCall` holds: pipeline, pipeline layout, optional push constant data (pointer + size), and draw params (vertex count, instance count, first vertex, first instance). No hardcoded pipeline or single draw; multiple objects with different pipelines and push data are supported.
+- **Material**: Conceptually “how to draw”—maps to a pipeline key and a pipeline layout descriptor. Objects reference a material id; when building the draw list, material id resolves to pipeline + layout; per-object data (e.g. transform) is the push constant source.
+- **Scene**: List of renderables (mesh id, material id, per-object GPU data). Editor or game code adds/edits objects; the list is the single source of truth for “what to draw.” Pipeline layout definition stays in pipeline land; the scene only holds references (material id) and data to push.
+
 ## Future extensions (not implemented yet)
 
+- **Pipeline layout parameterization** — Push constant ranges (and later descriptor set layouts) passed per pipeline key so different materials can have different layouts. See [plan-editor-and-scene.md](plan-editor-and-scene.md).
+- **3D and camera** — Orthographic aspect-correct projection is done for 2D. Add perspective matrix and view matrix from camera when moving to 3D.
 - **Multiple cameras** — Separate camera/view modules; each may have its own render target or share swapchain.
 - **Shadow maps** — Offscreen render targets (images + framebuffers + pipeline); separate from main swapchain, owned by a dedicated module.
 - **Raytracing** — Acceleration structures, raytracing pipeline; separate module, composed in VulkanApp.

@@ -12,7 +12,7 @@
  */
 class Window {
 public:
-    Window(uint32_t lWidth, uint32_t lHeight, const char* pTitle = "Vulkan App");
+    Window(uint32_t width, uint32_t height, const char* title = "Vulkan App");
     ~Window();
 
     /* Create Vulkan surface (call after VkInstance is created). */
@@ -22,17 +22,16 @@ public:
     /* Process events; returns true if quit requested. */
     bool PollEvents();
 
-    /* Resize window (for runtime config). Triggers resize events so swapchain will be recreated. */
-    void SetSize(uint32_t lWidth, uint32_t lHeight);
-    void SetFullscreen(bool bFullscreen);
-    void SetTitle(const char* pTitle);
+    void SetSize(uint32_t width, uint32_t height);
+    void SetFullscreen(bool fullscreen);
+    void SetTitle(const char* title);
 
     VkSurfaceKHR GetSurface() const { return m_surface; }
     SDL_Window* GetSDLWindow() { return m_pWindow; }
     uint32_t GetWidth() const { return m_width; }
     uint32_t GetHeight() const { return m_height; }
-    /* Current drawable size in pixels (for swapchain extent). */
-    void GetDrawableSize(uint32_t* pOutWidth, uint32_t* pOutHeight) const;
+    /** Current drawable size in pixels (for swapchain extent). */
+    void GetDrawableSize(uint32_t* outWidth, uint32_t* outHeight) const;
 
     bool GetFramebufferResized() const { return m_bFramebufferResized; }
     void SetFramebufferResized(bool b) { m_bFramebufferResized = b; }
