@@ -6,8 +6,8 @@ Roadmap for the draw loop, pipeline state (including blend), and materials. Comp
 
 ## Current state
 
-- **Done**: Swapchain, render pass, framebuffers, pipeline with `GraphicsPipelineParams` (topology, rasterization, MSAA), pipeline manager (get by key, params at get time). Draw loop: acquire → record (render pass + list of `DrawCall`s) → submit → present; out-of-date handling. Command buffers record a **draw list**: each `DrawCall` has pipeline, layout, optional push constants, and draw params; app builds the list each frame (e.g. one draw per object). Orthographic aspect-correct projection (mat4) pushed per draw so the triangle is not stretched on non-square windows.
-- **Hardcoded**: Pipeline layout is a single push constant range of 64 bytes (vertex stage) inside `VulkanPipeline::Create`. Blend off; no material concept; no vertex buffers or mesh manager yet.
+- **Done**: Swapchain, render pass, framebuffers, pipeline with `GraphicsPipelineParams`, pipeline manager (get by key, layout descriptor per key). **Pipeline layout parameterization**: `PipelineLayoutDescriptor` (push ranges); different pipelines can have different push layouts. Draw loop: acquire → record (render pass + list of `DrawCall`s) → submit → present; out-of-date handling. Command buffers record a **draw list**; app builds the list each frame from objects (e.g. `m_objects`). Orthographic aspect-correct projection (mat4) + per-object color (vec4) pushed per draw. Simple **Object** class (Shape, localTransform, color, pushData) and debug shapes (triangle, circle, rectangle, cube).
+- **Not yet**: Depth buffer; blend; render pass/framebuffer/Record parameterized for multi-viewport; vertex buffers; MeshManager; material concept.
 
 ---
 
@@ -17,24 +17,19 @@ The frame path is implemented: acquire image, record (render pass + list of `Dra
 
 ---
 
-## 2. Pipeline layout parameterization (next)
+## 2. Pipeline layout parameterization — done
 
-Make pipeline layout driven by a descriptor so different pipelines can have different push constant sizes/stages (and later descriptor set layouts).
-
-| Step | What |
-|------|------|
-| Layout descriptor | Introduce a small struct (e.g. `PipelineLayoutDescriptor`) holding `std::vector<VkPushConstantRange>` (and later set layouts). |
-| VulkanPipeline::Create | Build `VkPipelineLayoutCreateInfo` from this descriptor instead of hardcoded 64-byte vertex range. |
-| PipelineManager | Store layout descriptor per key; pass it when creating pipelines. Cache invalidation must include layout (e.g. compare push ranges) so layout change triggers rebuild. |
-| DrawCall / recording | Unchanged: one push blob per draw; app (or RenderListBuilder) ensures size matches the pipeline’s layout. |
-
-**Goal**: Support multiple pipelines with different push constant layouts (e.g. main = mat4; UI = mat4 + color; some = no push). Required for editor with many objects and different materials.
-
-See [plan-editor-and-scene.md](plan-editor-and-scene.md) for the full editor/scene plan.
+Pipeline layout is driven by `PipelineLayoutDescriptor` (push ranges); PipelineManager stores it per key. See [plan-editor-and-scene.md](plan-editor-and-scene.md) Phase 1.
 
 ---
 
-## 3. Pipeline params — blend (transparency)
+## 3. Depth and multi-viewport prep (next)
+
+Render pass descriptor (color + optional depth), framebuffers with attachment list, depth image, pipeline depth state, and Record(render area, viewport, scissor, clear value array). Done **before** Phase 2 (MeshManager, Scene, RenderListBuilder) so the recording path is stable. Enables depth for 3D and prepares for multiple viewports (e.g. ImGui). See [plan-editor-and-scene.md](plan-editor-and-scene.md) Phase 1.5.
+
+---
+
+## 4. Pipeline params — blend (transparency)
 
 Add blend state to **GraphicsPipelineParams** so opaque vs transparent is caller-driven like other pipeline options.
 
@@ -48,13 +43,13 @@ Add blend state to **GraphicsPipelineParams** so opaque vs transparent is caller
 
 ---
 
-## 4. Scene, objects, and draw list (editor)
+## 5. Scene, objects, and draw list (editor)
 
 For an editor with many objects and different GPU data: introduce **Scene** (list of renderables: mesh id, material id, per-object data), **MeshManager** (load meshes, return draw params), and **RenderListBuilder** (build `std::vector<DrawCall>` from scene, sort by pipeline, optional instancing). Material = pipeline key + layout; objects reference material id. See [plan-editor-and-scene.md](plan-editor-and-scene.md) for phased implementation and optimization.
 
 ---
 
-## 5. Materials (later)
+## 6. Materials (later)
 
 **Material** = appearance (albedo, roughness, metallic, etc.) + rendering state (blend, depth, cull).
 
@@ -70,10 +65,10 @@ For an editor with many objects and different GPU data: introduce **Scene** (lis
 
 ---
 
-## 6. After materials (order flexible)
+## 7. After materials (order flexible)
 
 - **Vertex buffers** and vertex input in pipeline.
-- **Depth buffer** (attachment + pipeline depth state).
+- **Depth** is covered in Phase 1.5 (depth and multi-viewport prep).
 - **Uniform buffers** (e.g. per-frame, per-object) and **pipeline layout** (descriptor set layouts, push constants).
 - **Textures** (descriptor sets: image view + sampler).
 - Optional: **Shader cache across swapchain recreate** (see TODO in `vulkan_app.cpp`).
@@ -82,7 +77,7 @@ See [future-ideas/README.md](future-ideas/README.md) (Rendering) for more.
 
 ---
 
-## 7. Out of scope for this plan
+## 8. Out of scope for this plan
 
 - Multiple cameras, shadow maps, raytracing — see [architecture.md](architecture.md) (Future extensions).
 - Async logging, CI, ImGui — see [future-ideas/README.md](future-ideas/README.md).

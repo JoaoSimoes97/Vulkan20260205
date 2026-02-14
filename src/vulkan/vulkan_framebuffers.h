@@ -5,6 +5,7 @@
 
 /*
  * Framebuffers (one per swapchain image view, bound to render pass).
+ * Attachments: color views (one per framebuffer) + optional shared depth view.
  * Recreated when swapchain is recreated. Future: multiple render targets, shadow map framebuffers.
  */
 class VulkanFramebuffers {
@@ -12,8 +13,11 @@ public:
     VulkanFramebuffers() = default;
     ~VulkanFramebuffers();
 
+    /** colorImageViews: one per framebuffer. depthImageView: optional (VK_NULL_HANDLE = color-only). */
     void Create(VkDevice device, VkRenderPass renderPass,
-                const std::vector<VkImageView>& imageViews, VkExtent2D extent);
+                const std::vector<VkImageView>& colorImageViews,
+                VkImageView depthImageView,
+                VkExtent2D extent);
     void Destroy();
 
     const std::vector<VkFramebuffer>& Get() const { return m_framebuffers; }

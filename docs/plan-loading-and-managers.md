@@ -47,4 +47,4 @@ To support an editor with many objects and different GPU data per object: MeshMa
 1. **Done**: Plan document; managers module scaffold (comments + one or two minimal pieces).
 2. **Done**: Refactor job queue to generic typed job system (`LoadJobType`, `CompletedLoadJob`, `ProcessCompletedJobs(handler)`); worker pushes to completed queue; main thread drains each frame with placeholder handler; shader loading unchanged (blocking GetShader).
 3. **Done**: Pipeline manager (get-or-create by key, params at get time).
-4. **Next**: Pipeline layout parameterization and MeshManager (see [plan-editor-and-scene.md](plan-editor-and-scene.md)); then Scene and RenderListBuilder. Draw loop is done; see [plan-rendering-and-materials.md](plan-rendering-and-materials.md).
+4. **Next**: Phase 1.5 (depth and multi-viewport prep), then Phase 2 (MeshManager, Scene, RenderListBuilder). See [plan-editor-and-scene.md](plan-editor-and-scene.md). Draw loop and pipeline layout param are done; see [plan-rendering-and-materials.md](plan-rendering-and-materials.md).

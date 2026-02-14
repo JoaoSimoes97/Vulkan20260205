@@ -4,6 +4,7 @@
 #include "thread/job_queue.h"
 #include "vulkan_config.h"
 #include "vulkan_command_buffers.h"
+#include "vulkan_depth_image.h"
 #include "vulkan_device.h"
 #include "vulkan_framebuffers.h"
 #include "vulkan_instance.h"
@@ -47,9 +48,12 @@ private:
     VulkanDevice m_device;
     VulkanSwapchain m_swapchain;
     VulkanRenderPass m_renderPass;
+    VulkanDepthImage m_depthImage;
     PipelineManager m_pipelineManager;
     VulkanFramebuffers m_framebuffers;
     VulkanCommandBuffers m_commandBuffers;
     VulkanSync m_sync;
     std::vector<Object> m_objects;
+    /** Camera position (world space); set from config at init, updated by WASD / arrows / QE. */
+    float m_cameraPosition[3] = { 0.f, 0.f, 0.f };
 };

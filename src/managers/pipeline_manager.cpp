@@ -24,7 +24,8 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
                                                VkRenderPass renderPass,
                                                VulkanShaderManager* pShaderManager,
                                                const GraphicsPipelineParams& pipelineParams,
-                                               const PipelineLayoutDescriptor& layoutDescriptor) {
+                                               const PipelineLayoutDescriptor& layoutDescriptor,
+                                               bool renderPassHasDepth) {
     if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || pShaderManager == nullptr)
         return VK_NULL_HANDLE;
     auto it = this->m_entries.find(sKey);
@@ -54,13 +55,15 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
     bool renderPassMatch = (entry.renderPass == renderPass);
     bool paramsMatch    = (entry.lastParams == pipelineParams);
     bool layoutMatch    = (entry.lastLayout == layoutDescriptor);
-    if (!entry.pipeline.IsValid() || !renderPassMatch || !paramsMatch || !layoutMatch) {
+    bool depthMatch     = (entry.lastRenderPassHasDepth == renderPassHasDepth);
+    if (!entry.pipeline.IsValid() || !renderPassMatch || !paramsMatch || !layoutMatch || !depthMatch) {
         if (entry.pipeline.IsValid())
             entry.pipeline.Destroy();
-        entry.pipeline.Create(device, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath, pipelineParams, layoutDescriptor);
+        entry.pipeline.Create(device, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath, pipelineParams, layoutDescriptor, renderPassHasDepth);
         entry.renderPass = renderPass;
         entry.lastParams = pipelineParams;
         entry.lastLayout = layoutDescriptor;
+        entry.lastRenderPassHasDepth = renderPassHasDepth;
     }
     return entry.pipeline.Get();
 }
@@ -81,5 +84,6 @@ void PipelineManager::DestroyPipelines() {
         kv.second.renderPass = VK_NULL_HANDLE;
         kv.second.lastParams = {};
         kv.second.lastLayout = {};
+        kv.second.lastRenderPassHasDepth = false;
     }
 }

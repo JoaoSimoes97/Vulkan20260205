@@ -28,7 +28,7 @@ inline bool operator==(const PipelineLayoutDescriptor& a, const PipelineLayoutDe
 
 /*
  * Parameters for graphics pipeline fixed-function state. Caller must set every member;
- * pass to VulkanPipeline::Create (no default).
+ * pass to VulkanPipeline::Create (no default). Depth state is used only when render pass has depth.
  */
 struct GraphicsPipelineParams {
     /** Primitive type: triangle list, line list, point list, or strip variants. */
@@ -45,12 +45,20 @@ struct GraphicsPipelineParams {
     float                  lineWidth;
     /** MSAA sample count; must match render pass and framebuffer. */
     VkSampleCountFlagBits  rasterizationSamples;
+    /** Depth test enable; only used when render pass has depth attachment. */
+    VkBool32               depthTestEnable  = VK_TRUE;
+    /** Depth write enable; only used when render pass has depth attachment. */
+    VkBool32               depthWriteEnable = VK_TRUE;
+    /** Depth compare op (e.g. LESS_OR_EQUAL); only used when render pass has depth. */
+    VkCompareOp            depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
 };
 
 inline bool operator==(const GraphicsPipelineParams& a, const GraphicsPipelineParams& b) {
     return a.topology == b.topology && a.primitiveRestartEnable == b.primitiveRestartEnable
         && a.polygonMode == b.polygonMode && a.cullMode == b.cullMode && a.frontFace == b.frontFace
-        && a.lineWidth == b.lineWidth && a.rasterizationSamples == b.rasterizationSamples;
+        && a.lineWidth == b.lineWidth && a.rasterizationSamples == b.rasterizationSamples
+        && a.depthTestEnable == b.depthTestEnable && a.depthWriteEnable == b.depthWriteEnable
+        && a.depthCompareOp == b.depthCompareOp;
 }
 
 /*
@@ -63,11 +71,13 @@ public:
     VulkanPipeline() = default;
     ~VulkanPipeline();
 
+    /** renderPassHasDepth: if true, build depth stencil state from pipelineParams; else pDepthStencilState = nullptr. */
     void Create(VkDevice device, VkRenderPass renderPass,
                 VulkanShaderManager* pShaderManager,
                 const std::string& sVertPath, const std::string& sFragPath,
                 const GraphicsPipelineParams& pipelineParams,
-                const PipelineLayoutDescriptor& layoutDescriptor);
+                const PipelineLayoutDescriptor& layoutDescriptor,
+                bool renderPassHasDepth);
     void Destroy();
 
     VkPipeline Get() const { return this->m_pipeline; }

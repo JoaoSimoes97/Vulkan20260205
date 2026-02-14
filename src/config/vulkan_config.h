@@ -27,6 +27,37 @@ struct VulkanConfig {
     /* Preferred color space (e.g. "SRGB_NONLINEAR"). Empty = driver default. */
     std::string sPreferredColorSpace = "SRGB_NONLINEAR";
 
+    /* --- Camera / projection --- */
+    /** Use perspective (true) or orthographic (false) projection for the main view. */
+    bool bUsePerspective = true;
+    /** Vertical FOV in radians (perspective only). */
+    float fCameraFovYRad = 0.8f;
+    /** Near plane distance (perspective and ortho). */
+    float fCameraNearZ = 0.1f;
+    /** Far plane distance (perspective and ortho). */
+    float fCameraFarZ = 100.f;
+    /** Ortho only: half extent in Y (view volume ±halfExtent). X = halfExtent/aspect. */
+    float fOrthoHalfExtent = 8.f;
+    /** Ortho only: near Z in view space. */
+    float fOrthoNear = -10.f;
+    /** Ortho only: far Z in view space. */
+    float fOrthoFar = 10.f;
+    /** Camera pan/move speed per frame (WASD / arrows / QE). */
+    float fPanSpeed = 0.012f;
+    /** Initial camera position (world space). Perspective: use positive Z to start behind the scene. */
+    float fInitialCameraX = 0.f;
+    float fInitialCameraY = 0.f;
+    float fInitialCameraZ = 8.f;
+
+    /* --- Render --- */
+    /** If true, cull back faces (VK_CULL_MODE_BACK_BIT); if false, no face culling (see both sides). */
+    bool bCullBackFaces = false;
+    /** Clear color (RGBA, 0–1). */
+    float fClearColorR = 0.1f;
+    float fClearColorG = 0.1f;
+    float fClearColorB = 0.4f;
+    float fClearColorA = 1.f;
+
     /* Dev/debug only: not persisted in config file. Set from build type or env when implementing. */
     bool bValidationLayers = static_cast<bool>(false);
 

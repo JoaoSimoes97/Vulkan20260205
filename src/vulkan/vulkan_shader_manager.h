@@ -8,11 +8,9 @@
 #include <string>
 
 /*
- * Shader manager: load SPIR-V via job queue, cache VkShaderModule, ref-count and unload when ref 0.
- * RequestLoad(path): submits load to job queue without blocking; use when shaders can load in background.
- * GetShaderIfReady(device, path): non-blocking; returns module if load is done and module created, else VK_NULL_HANDLE.
- * GetShader(device, path): blocking; returns module when load is done (for pipeline create after swapchain recreate; hits cache).
- * Release(path): decrements ref; when 0, destroys module and removes from cache.
+ * Shader manager: load SPIR-V via job queue, cache VkShaderModule, ref-count. When ref 0 the module is destroyed and removed from cache so shaders can be unloaded when no pipeline uses them (e.g. on DestroyPipelines or when streaming a huge world).
+ * Pipelines hold a ref (VulkanPipeline::Create does GetShader and does not Release on success; Destroy releases). Multiple pipelines can share the same shader; when all are destroyed the shader is unloaded.
+ * RequestLoad(path): submits load without blocking. GetShaderIfReady/GetShader return module; Release(path) decrements ref.
  */
 class VulkanShaderManager {
 public:

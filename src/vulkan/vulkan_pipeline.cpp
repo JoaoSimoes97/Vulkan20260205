@@ -11,7 +11,8 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
                             VulkanShaderManager* pShaderManager,
                             const std::string& sVertPath, const std::string& sFragPath,
                             const GraphicsPipelineParams& pipelineParams,
-                            const PipelineLayoutDescriptor& layoutDescriptor) {
+                            const PipelineLayoutDescriptor& layoutDescriptor,
+                            bool renderPassHasDepth) {
     VulkanUtils::LogTrace("VulkanPipeline::Create");
     if (device == VK_NULL_HANDLE) {
         VulkanUtils::LogErr("VulkanPipeline::Create: invalid device");
@@ -155,6 +156,23 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .blendConstants  = { static_cast<float>(0.0), static_cast<float>(0.0), static_cast<float>(0.0), static_cast<float>(0.0) },
     };
 
+    /* Depth/stencil: only when render pass has depth attachment; otherwise nullptr. */
+    VkPipelineDepthStencilStateCreateInfo stDepthStencil = {
+        .sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .pNext                 = nullptr,
+        .flags                 = 0,
+        .depthTestEnable       = pipelineParams.depthTestEnable,
+        .depthWriteEnable      = pipelineParams.depthWriteEnable,
+        .depthCompareOp        = pipelineParams.depthCompareOp,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable     = VK_FALSE,
+        .front                 = {},
+        .back                  = {},
+        .minDepthBounds        = 0.0f,
+        .maxDepthBounds        = 1.0f,
+    };
+    VkPipelineDepthStencilStateCreateInfo* pDepthStencil = renderPassHasDepth ? &stDepthStencil : nullptr;
+
     /* Pipeline layout from descriptor: push constant ranges (and later descriptor set layouts). */
     VkPipelineLayoutCreateInfo stLayoutInfo = {
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -173,7 +191,7 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         throw std::runtime_error("VulkanPipeline::Create: pipeline layout failed");
     }
 
-    /* Assemble graphics pipeline; no tessellation, no depth/stencil, subpass 0. */
+    /* Assemble graphics pipeline; no tessellation; depth/stencil from params when render pass has depth. */
     VkGraphicsPipelineCreateInfo stPipelineInfo = {
         .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext               = nullptr,
@@ -186,7 +204,7 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .pViewportState      = &stViewportState,
         .pRasterizationState = &stRaster,
         .pMultisampleState   = &stMultisample,
-        .pDepthStencilState  = nullptr,
+        .pDepthStencilState  = pDepthStencil,
         .pColorBlendState    = &stColorBlend,
         .pDynamicState       = &stDynamicState,
         .layout              = this->m_pipelineLayout,

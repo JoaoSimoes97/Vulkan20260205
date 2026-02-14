@@ -14,7 +14,8 @@ void VulkanShaderManager::Create(JobQueue* pJobQueue) {
 
 void VulkanShaderManager::Destroy() {
     VulkanUtils::LogTrace("VulkanShaderManager::Destroy");
-    /* Caller must ensure all shaders are released and no VkDevice is used after Destroy. */
+    for (auto& kv : this->m_cache)
+        this->DestroyCached(kv.second);
     this->m_cache.clear();
     this->m_pending.clear();
     this->m_pJobQueue = nullptr;

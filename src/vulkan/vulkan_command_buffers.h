@@ -30,10 +30,11 @@ public:
     void Create(VkDevice device, uint32_t queueFamilyIndex, uint32_t bufferCount);
     void Destroy();
 
-    /** Record buffer: begin render pass, set viewport/scissor, then for each DrawCall: bind pipeline, push constants (if any), draw. */
+    /** Record buffer: begin render pass (renderArea, clearValues), set viewport/scissor, then for each DrawCall: bind pipeline, push constants (if any), draw. */
     void Record(uint32_t index, VkRenderPass renderPass, VkFramebuffer framebuffer,
-                VkExtent2D extent, const std::vector<DrawCall>& drawCalls,
-                const VkClearValue& clearColor);
+                VkRect2D renderArea, VkViewport viewport, VkRect2D scissor,
+                const std::vector<DrawCall>& drawCalls,
+                const VkClearValue* pClearValues, uint32_t clearValueCount);
 
     VkCommandBuffer Get(uint32_t index) const;
     uint32_t GetCount() const { return static_cast<uint32_t>(m_commandBuffers.size()); }

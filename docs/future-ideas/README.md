@@ -21,10 +21,10 @@ Placeholder for later improvements. Not in scope for current learning path.
 
 ## Rendering
 
-- **Vertex buffers** – Render more complex geometry with real vertex data.
-- **Textures** – Load and sample textures.
-- **Depth buffer** – Proper depth testing for 3D.
-- **Uniform buffers** – Push transforms (MVP, etc.) to shaders.
+- **Depth and multi-viewport** – Planned as Phase 1.5 in [plan-editor-and-scene.md](../plan-editor-and-scene.md): render pass descriptor (color + depth), framebuffers with attachment list, Record(render area, viewport, clear array). Enables depth for 3D and ImGui multi-viewport.
+- **Vertex buffers** – Render more complex geometry with real vertex data (Phase 2: MeshManager).
+- **Textures** – Load and sample textures (Phase 5: descriptors).
+- **Uniform buffers** – Push transforms (MVP, etc.) to shaders; descriptor set layouts in pipeline.
 
 ---
 

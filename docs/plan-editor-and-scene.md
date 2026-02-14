@@ -38,6 +38,21 @@ Pipeline layout definition stays in pipeline land; the scene only holds referenc
 
 ---
 
+### Phase 1.5: Depth and multi-viewport prep (before Phase 2)
+
+Done **before** Phase 2 so the recording path (render pass, framebuffers, Record) is stable. Phase 2 then only adds scene/mesh/material and plugs into the same target API.
+
+- **Render pass descriptor**: Create from a descriptor (color format + optional depth format, load/store ops). Build attachments and subpass from that; `pDepthStencilAttachment` set when depth format is valid.
+- **Framebuffers**: Create from **list of attachment views** (color + optional depth) + extent. So main pass uses swapchain views + depth view; later, offscreen viewports use own image views.
+- **Depth image**: New helper or small module: create depth image + view (format, extent); recreate with extent; pass view into framebuffer creation.
+- **Pipeline depth state**: Add to `GraphicsPipelineParams` (or pipeline descriptor): `depthTestEnable`, `depthWriteEnable`, `depthCompareOp`. In `VulkanPipeline::Create`, build `VkPipelineDepthStencilStateCreateInfo` when depth is enabled; otherwise keep `pDepthStencilState = nullptr`.
+- **Record refactor**: Take **render area** (offset + extent), **viewport** (full struct), **scissor** (or derive from render area), and **clear values** as **array + count** (color + depth when applicable). One API works for fullscreen and for a region, and for color-only or color+depth. Enables multiple viewports (e.g. ImGui) later without further refactor.
+- **App**: Use new API for main pass (fullscreen, with depth). Draw list source unchanged (e.g. `m_objects`); only the Record call site and render pass/framebuffer creation change.
+
+**Deliverable**: Depth buffer in use for main pass; Record and render pass/framebuffers parameterized so multiple viewports (e.g. ImGui) are easy to add later.
+
+---
+
 ### Phase 2: MeshManager and material notion
 
 - **MeshManager**: Load one mesh (file or procedural); return opaque `MeshId` and, when needed, fill draw params (vertex count, first vertex, index count, etc.). Owns vertex/index buffers.
@@ -96,7 +111,7 @@ Pipeline layout definition stays in pipeline land; the scene only holds referenc
 | **MeshManager** | Load meshes; return MeshId and draw params; own vertex/index buffers. |
 | **Scene / ObjectManager** | List of renderables (mesh id, material id, per-object data). API-agnostic. |
 | **RenderListBuilder** | Scene + PipelineManager + MeshManager → `std::vector<DrawCall>`; sort; optional instancing. |
-| **VulkanCommandBuffers** | Record(drawCalls) unchanged; no knowledge of objects or scene. |
+| **VulkanCommandBuffers** | Record(target: render area, viewport, scissor, clear values; drawCalls). No knowledge of objects or scene. After Phase 1.5: supports depth clear and multi-viewport-ready. |
 
 ---
 

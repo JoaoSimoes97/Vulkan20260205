@@ -26,14 +26,15 @@ public:
     /*
      * Non-blocking: return VkPipeline for key if shaders are ready and pipeline is built for this renderPass/params/layout.
      * layoutDescriptor defines push constant ranges (and later descriptor set layouts) for this pipeline.
-     * Returns VK_NULL_HANDLE if not ready or load failed.
+     * renderPassHasDepth: must match render pass (pipeline depth state vs nullptr). Returns VK_NULL_HANDLE if not ready or load failed.
      */
     VkPipeline GetPipelineIfReady(const std::string& sKey,
                                   VkDevice device,
                                   VkRenderPass renderPass,
                                   VulkanShaderManager* pShaderManager,
                                   const GraphicsPipelineParams& pipelineParams,
-                                  const PipelineLayoutDescriptor& layoutDescriptor);
+                                  const PipelineLayoutDescriptor& layoutDescriptor,
+                                  bool renderPassHasDepth);
 
     VkPipelineLayout GetPipelineLayoutIfReady(const std::string& sKey) const;
 
@@ -48,6 +49,7 @@ private:
         VkRenderPass               renderPass = VK_NULL_HANDLE;
         GraphicsPipelineParams     lastParams = {};
         PipelineLayoutDescriptor   lastLayout = {};
+        bool                       lastRenderPassHasDepth = false;
     };
     std::map<std::string, PipelineEntry> m_entries;
 };

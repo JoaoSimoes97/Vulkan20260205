@@ -72,6 +72,7 @@ set(SOURCES
     src/vulkan/vulkan_device.cpp
     src/vulkan/vulkan_swapchain.cpp
     src/vulkan/vulkan_render_pass.cpp
+    src/vulkan/vulkan_depth_image.cpp
     src/vulkan/vulkan_pipeline.cpp
     src/vulkan/vulkan_framebuffers.cpp
     src/vulkan/vulkan_command_buffers.cpp
@@ -96,6 +97,7 @@ set(HEADERS
     src/vulkan/vulkan_device.h
     src/vulkan/vulkan_swapchain.h
     src/vulkan/vulkan_render_pass.h
+    src/vulkan/vulkan_depth_image.h
     src/vulkan/vulkan_pipeline.h
     src/vulkan/vulkan_framebuffers.h
     src/vulkan/vulkan_command_buffers.h
@@ -174,6 +176,12 @@ if(GLSLC)
         DEPENDS ${SHADERS_SOURCE_DIR}/frag.frag
         COMMENT "Compiling fragment shader"
     )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/frag_alt.spv
+        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/frag_alt.frag -o ${SHADERS_OUTPUT_DIR}/frag_alt.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/frag_alt.frag
+        COMMENT "Compiling alt fragment shader"
+    )
 elseif(GLSLANGVALIDATOR)
     message(STATUS "Found glslangValidator, will auto-compile shaders (source: shaders/source/ -> build/shaders/)")
     add_custom_command(
@@ -188,6 +196,12 @@ elseif(GLSLANGVALIDATOR)
         DEPENDS ${SHADERS_SOURCE_DIR}/frag.frag
         COMMENT "Compiling fragment shader"
     )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/frag_alt.spv
+        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/frag_alt.frag -o ${SHADERS_OUTPUT_DIR}/frag_alt.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/frag_alt.frag
+        COMMENT "Compiling alt fragment shader"
+    )
 else()
     message(WARNING "No shader compiler found (glslc or glslangValidator). Shaders must be compiled manually.")
     file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
@@ -196,7 +210,7 @@ endif()
 file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 
 add_custom_target(compile_shaders ALL
-    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv
+    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/frag_alt.spv
 )
 
 # Ensure shaders are built before the app, and copy shaders + config next to the exe so the app finds them regardless of cwd.
@@ -206,6 +220,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_alt.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
     COMMENT "Copying shaders and config next to executable"
 )

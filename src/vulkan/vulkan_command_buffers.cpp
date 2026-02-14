@@ -1,6 +1,7 @@
 /*
  * VulkanCommandBuffers — one command pool and one primary command buffer per swapchain image.
- * Record() encodes: begin render pass, bind pipeline, vkCmdDraw(3) for the fullscreen triangle, end.
+ * Record() encodes: begin render pass, set viewport/scissor, then for each DrawCall bind pipeline,
+ * push constants, and vkCmdDraw; end render pass.
  */
 #include "vulkan_command_buffers.h"
 #include "vulkan_utils.h"
@@ -60,11 +61,16 @@ void VulkanCommandBuffers::Destroy() {
 }
 
 void VulkanCommandBuffers::Record(uint32_t index, VkRenderPass renderPass, VkFramebuffer framebuffer,
-                                  VkExtent2D extent, const std::vector<DrawCall>& drawCalls,
-                                  const VkClearValue& clearColor) {
+                                  VkRect2D renderArea, VkViewport viewport, VkRect2D scissor,
+                                  const std::vector<DrawCall>& drawCalls,
+                                  const VkClearValue* pClearValues, uint32_t clearValueCount) {
     if (index >= m_commandBuffers.size() || renderPass == VK_NULL_HANDLE || framebuffer == VK_NULL_HANDLE) {
         VulkanUtils::LogErr("VulkanCommandBuffers::Record: invalid index or handles");
         throw std::runtime_error("VulkanCommandBuffers::Record: invalid parameters");
+    }
+    if (clearValueCount > 0 && pClearValues == nullptr) {
+        VulkanUtils::LogErr("VulkanCommandBuffers::Record: clearValueCount > 0 but pClearValues is null");
+        throw std::runtime_error("VulkanCommandBuffers::Record: invalid clear values");
     }
     for (const auto& d : drawCalls) {
         if (d.pipeline == VK_NULL_HANDLE || d.pipelineLayout == VK_NULL_HANDLE || d.vertexCount == 0) {
@@ -98,21 +104,12 @@ void VulkanCommandBuffers::Record(uint32_t index, VkRenderPass renderPass, VkFra
         .pNext             = nullptr,
         .renderPass        = renderPass,
         .framebuffer       = framebuffer,
-        .renderArea       = { .offset = { 0, 0 }, .extent = extent },
-        .clearValueCount  = 1,
-        .pClearValues     = &clearColor,
+        .renderArea        = renderArea,
+        .clearValueCount   = clearValueCount,
+        .pClearValues      = pClearValues,
     };
     vkCmdBeginRenderPass(cmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkViewport viewport = {
-        .x        = 0.0f,
-        .y        = 0.0f,
-        .width    = static_cast<float>(extent.width),
-        .height   = static_cast<float>(extent.height),
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f,
-    };
-    VkRect2D scissor = { .offset = { 0, 0 }, .extent = extent };
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 

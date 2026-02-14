@@ -1,0 +1,53 @@
+# Troubleshooting
+
+Common issues and fixes. For setup and build see [getting-started.md](getting-started.md).
+
+---
+
+## "WARNING: radv is not a conformant Vulkan implementation"
+
+On **Linux with an AMD GPU**, the Mesa **RADV** driver may print this when Vulkan initializes. It is **harmless**: RADV is widely used and works for development. The message is hardcoded in the driver. You can ignore it. For official conformance use AMD’s proprietary driver or AMDVLK.
+
+---
+
+## "Validation layers requested, but not available!"
+
+Warning only; the app continues without validation. To install:
+
+- **Arch/CachyOS**: `sudo pacman -S vulkan-validation-layers`
+- **Debian/Ubuntu**: `sudo apt-get install vulkan-validationlayers`
+- **Fedora**: `sudo dnf install vulkan-validation-layers`
+
+---
+
+## CMake can't find Vulkan
+
+**Linux:** Install Vulkan development packages and run `scripts/linux/check_dependencies.sh` (or `./check_dependencies.sh` if at project root).
+
+**Windows:** Install [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows) and add `C:\VulkanSDK\<version>\Bin` to PATH. Check with `where glslc`.
+
+---
+
+## CMake can't find SDL3
+
+CMake can fetch SDL3 via FetchContent. Or install manually:
+
+- **Linux**: `sudo pacman -S sdl3` (Arch), `sudo apt install libsdl3-dev` (Debian/Ubuntu)
+- **Windows**: `vcpkg install sdl3`
+- **macOS**: `brew install sdl3`
+
+---
+
+## Shaders not compiling automatically
+
+1. Ensure `glslc` or `glslangValidator` is in your PATH.
+2. Compile manually: `scripts/linux/compile_shaders.sh`, `scripts/macos/compile_shaders.sh`, or `scripts\windows\compile_shaders.bat`.
+3. Put `.spv` files in `build/shaders/` (or the same path your build uses).
+
+---
+
+## Build errors
+
+1. **Check dependencies:** `scripts/linux/check_dependencies.sh` or `scripts\windows\check_dependencies.bat`
+2. **Clean build:** Delete `build/` and rebuild.
+3. **Compiler:** Use a C++23-capable compiler.

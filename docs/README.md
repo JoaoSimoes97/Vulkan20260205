@@ -6,6 +6,8 @@ Overview of project documentation. All paths are relative to the project root.
 
 | Path | Contents |
 |------|----------|
+| [getting-started.md](getting-started.md) | Setup (per platform), build, shader compilation, project structure. |
+| [troubleshooting.md](troubleshooting.md) | Common issues: validation layers, Vulkan/SDL3, shaders, build errors. |
 | [architecture.md](architecture.md) | Module layout, init/cleanup order, swapchain reconstruction, rendering and draw list, future extensions. |
 | [plan-loading-and-managers.md](plan-loading-and-managers.md) | Loader/job system, pipeline/mesh/texture managers, editor and many objects. |
 | [plan-rendering-and-materials.md](plan-rendering-and-materials.md) | Draw loop (done), pipeline layout parameterization, blend, scene/draw list, materials roadmap. |
@@ -17,6 +19,8 @@ Overview of project documentation. All paths are relative to the project root.
 
 ## Quick links
 
+- **Getting started** — [getting-started.md](getting-started.md)
+- **Troubleshooting** — [troubleshooting.md](troubleshooting.md)
 - **Architecture / modules** — [architecture.md](architecture.md)
 - **Plan: loading and managers** — [plan-loading-and-managers.md](plan-loading-and-managers.md)
 - **Plan: rendering and materials** — [plan-rendering-and-materials.md](plan-rendering-and-materials.md)

@@ -11,11 +11,11 @@ The app is split into modules so it stays maintainable and can grow (multiple ca
 | **VulkanInstance** | Instance, layers, extensions (e.g. from SDL). | Rarely recreated. |
 | **VulkanDevice** | Physical device pick, logical device, queues, queue family indices. | Usually fixed; only on device lost / GPU switch. |
 | **VulkanSwapchain** | Swapchain, image views, extent, format, present mode. `RecreateSwapchain(config)` tears down and recreates. | Core of reconstruction (resize, present mode, format change). |
-| **VulkanRenderPass** | Render pass (attachments, subpasses). Depends on swapchain format. | Recreated when swapchain is recreated (format/extent). |
-| **VulkanPipeline** | Graphics pipeline (vert+frag, params: topology, rasterization, MSAA). Pipeline layout from descriptor (push constant ranges; later descriptor set layouts). Viewport/scissor dynamic. Depends on render pass. | Recreated when render pass, pipeline params, or layout descriptor change. |
+| **VulkanRenderPass** | Render pass (attachments, subpasses). Currently color only; Phase 1.5: create from descriptor (color format + optional depth format). | Recreated when swapchain or target config is recreated. |
+| **VulkanPipeline** | Graphics pipeline (vert+frag, params: topology, rasterization, MSAA). Pipeline layout from descriptor (push constant ranges; later descriptor set layouts). Viewport/scissor dynamic. Phase 1.5: optional depth state from params. Depends on render pass. | Recreated when render pass, pipeline params, or layout descriptor change. |
 | **PipelineManager** | Get-or-create pipeline by key; stores layout descriptor per key (push ranges, later set layouts). Caller passes `GraphicsPipelineParams` and layout at get/request time. | Pipelines destroyed on swapchain recreate; recreated when shaders ready and GetPipelineIfReady called. |
-| **VulkanFramebuffers** | One framebuffer per swapchain image view. | Recreated when swapchain is recreated. |
-| **VulkanCommandBuffers** | Command pool + one primary command buffer per swapchain image. `Record(index, ..., drawCalls, clearColor)` encodes render pass and a list of `DrawCall`s (pipeline, layout, push constants, draw params). | Recreated when swapchain is recreated. |
+| **VulkanFramebuffers** | One framebuffer per swapchain image (or per offscreen target). Phase 1.5: create from list of attachment views (color + optional depth) + extent. | Recreated when swapchain or target extent is recreated. |
+| **VulkanCommandBuffers** | Command pool + one primary command buffer per swapchain image. `Record(index, renderPass, framebuffer, extent, drawCalls, clearColor)`. Phase 1.5: Record takes render area, viewport, scissor, clear value array (color + depth); multi-viewport-ready. | Recreated when swapchain is recreated. |
 | **VulkanSync** | Per-frame-in-flight fences and semaphores (image available, render finished). Render-finished semaphores are per swapchain image. | Recreated when swapchain is recreated (new image count). |
 | **Scene / ObjectManager** | List of renderables: each has mesh id, material id, per-object GPU data (e.g. transform). No Vulkan types; editor adds/removes/updates objects. | N/A (data only). |
 | **RenderListBuilder** | Builds `std::vector<DrawCall>` from scene: resolve pipeline/layout per object via material, resolve mesh draw params, sort by pipeline (and optionally mesh), optional instancing. Uses PipelineManager and MeshManager. | N/A (stateless or reuses one buffer per frame). |
@@ -83,9 +83,10 @@ See also [plan-rendering-and-materials.md](plan-rendering-and-materials.md) and 
 
 ## Future extensions (not implemented yet)
 
-- **Pipeline layout parameterization** — Push constant ranges (and later descriptor set layouts) passed per pipeline key so different materials can have different layouts. See [plan-editor-and-scene.md](plan-editor-and-scene.md).
-- **3D and camera** — Orthographic aspect-correct projection is done for 2D. Add perspective matrix and view matrix from camera when moving to 3D.
-- **Multiple cameras** — Separate camera/view modules; each may have its own render target or share swapchain.
+- **Phase 1.5: Depth and multi-viewport prep** — Render pass descriptor (color + optional depth), framebuffers with attachment list, depth image, pipeline depth state, Record(render area, viewport, scissor, clear array). See [plan-editor-and-scene.md](plan-editor-and-scene.md). Enables depth for 3D and prepares for ImGui multi-viewport.
+- **Phase 2** — MeshManager, material notion, Scene, RenderListBuilder. See [plan-editor-and-scene.md](plan-editor-and-scene.md).
+- **3D and camera** — Orthographic is used for debug/editor; the final main view should use perspective (see `ObjectSetPerspective` and `usePerspective` in the app). View matrix from camera position is already applied.
+- **Multiple cameras and viewports** — The design should support as many cameras as the user wants. Each camera can have its own projection (ortho or perspective) and view; each may render to its own target or share the swapchain. A second viewport (e.g. to show where the main camera is and what it is looking at) or depth visualization are planned: same render-area/viewport/scissor parameterization and optional extra passes (sample depth texture, draw into a subregion) will support this without changing the core recording API.
 - **Shadow maps** — Offscreen render targets (images + framebuffers + pipeline); separate from main swapchain, owned by a dedicated module.
 - **Raytracing** — Acceleration structures, raytracing pipeline; separate module, composed in VulkanApp.
 
