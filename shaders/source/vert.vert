@@ -2,6 +2,7 @@
 
 layout(push_constant) uniform Push {
     mat4 proj;
+    vec4 color;
 } pc;
 
 void main() {

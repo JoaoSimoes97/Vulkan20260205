@@ -9,6 +9,7 @@
 #include "config_loader.h"
 #include "vulkan_utils.h"
 #include <SDL3/SDL_stdinc.h>
+#include <cstring>
 #include <chrono>
 #include <stdexcept>
 #include <vector>
@@ -87,6 +88,12 @@ void VulkanApp::InitVulkan() {
 
     uint32_t maxFramesInFlight = (m_config.lMaxFramesInFlight >= 1u) ? m_config.lMaxFramesInFlight : 1u;
     m_sync.Create(m_device.GetDevice(), maxFramesInFlight, m_swapchain.GetImageCount());
+
+    /* Debug objects: triangle, circle, rectangle, cube (all drawn as triangles until mesh support). */
+    m_objects.push_back(MakeTriangle());
+    m_objects.push_back(MakeCircle());
+    m_objects.push_back(MakeRectangle());
+    m_objects.push_back(MakeCube());
 }
 
 void VulkanApp::RecreateSwapchainAndDependents() {
@@ -174,12 +181,19 @@ void VulkanApp::MainLoop() {
             .lineWidth               = 1.0f,
             .rasterizationSamples    = VK_SAMPLE_COUNT_1_BIT,
         };
+        // Main pipeline: push constants mat4 (64) + vec4 color (16) = 80 bytes, vertex + fragment.
+        constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
+        PipelineLayoutDescriptor mainLayoutDesc = {
+            .pushConstantRanges = {
+                { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
+            }
+        };
         VkPipeline pipeline = m_pipelineManager.GetPipelineIfReady(
-            PIPELINE_KEY_MAIN, m_device.GetDevice(), m_renderPass.Get(), &m_shaderManager, pipeParams);
+            PIPELINE_KEY_MAIN, m_device.GetDevice(), m_renderPass.Get(), &m_shaderManager, pipeParams, mainLayoutDesc);
         VkPipelineLayout pipelineLayout = m_pipelineManager.GetPipelineLayoutIfReady(PIPELINE_KEY_MAIN);
-        if (pipeline != VK_NULL_HANDLE && pipelineLayout != VK_NULL_HANDLE) {
-            /* Orthographic projection with aspect correction so the triangle isn't stretched on non-square windows.
-             * Column-major (GLSL): scale(sx, 1, 1) with sx = height/width. */
+        if (pipeline != VK_NULL_HANDLE && pipelineLayout != VK_NULL_HANDLE && !m_objects.empty()) {
+
+            /* Orthographic projection with aspect correction. Column-major (GLSL): scale(sx, 1, 1), sx = height/width. */
             VkExtent2D ext = m_swapchain.GetExtent();
             float aspect = (ext.width > 0) ? static_cast<float>(ext.height) / static_cast<float>(ext.width) : 1.f;
             alignas(16) float projMat4[16] = {
@@ -188,18 +202,38 @@ void VulkanApp::MainLoop() {
                 0.f,    0.f, 1.f, 0.f,
                 0.f,    0.f, 0.f, 1.f
             };
-            constexpr uint32_t kPushConstantSize = 64u;
-            std::vector<DrawCall> drawCalls = {
-                { .pipeline         = pipeline,
-                  .pipelineLayout   = pipelineLayout,
-                  .pPushConstants   = projMat4,
-                  .pushConstantSize = kPushConstantSize,
-                  .vertexCount      = 3,
-                  .instanceCount   = 1,
-                  .firstVertex     = 0,
-                  .firstInstance   = 0 }
-            };
-            DrawFrame(drawCalls);
+
+            /* Fill each object's push data: first 64 bytes = proj * localTransform, then 16 bytes = color. */
+            for (auto& obj : m_objects)
+            {
+                if (obj.pushData.size() >= kObjectPushConstantSize) {
+                    ObjectMat4Multiply(reinterpret_cast<float*>(obj.pushData.data()), projMat4, obj.localTransform);
+                    std::memcpy(obj.pushData.data() + 64u, obj.color, 16u);
+                }
+            }
+
+            std::vector<DrawCall> drawCalls;
+            drawCalls.reserve(m_objects.size());
+            for (const auto& obj : m_objects)
+            {
+                if (obj.pushDataSize == 0u || obj.pushData.empty() || obj.vertexCount == 0u)
+                    continue;
+                drawCalls.push_back({
+                    .pipeline         = pipeline,
+                    .pipelineLayout   = pipelineLayout,
+                    .pPushConstants   = obj.pushData.data(),
+                    .pushConstantSize = obj.pushDataSize,
+                    .vertexCount      = obj.vertexCount,
+                    .instanceCount   = obj.instanceCount,
+                    .firstVertex     = obj.firstVertex,
+                    .firstInstance   = obj.firstInstance
+                });
+            }
+
+            if (!drawCalls.empty())
+            {
+                DrawFrame(drawCalls);
+            }
         }
     }
 }

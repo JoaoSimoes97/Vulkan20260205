@@ -1,6 +1,6 @@
 /*
  * PipelineManager — request pipelines by key (vert+frag paths). GetPipelineIfReady is non-blocking;
- * returns VK_NULL_HANDLE until shaders are loaded, then builds or reuses pipeline for renderPass/params.
+ * returns VK_NULL_HANDLE until shaders are loaded, then builds or reuses pipeline for renderPass/params/layout.
  */
 #include "pipeline_manager.h"
 
@@ -23,7 +23,8 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
                                                VkDevice device,
                                                VkRenderPass renderPass,
                                                VulkanShaderManager* pShaderManager,
-                                               const GraphicsPipelineParams& pipelineParams) {
+                                               const GraphicsPipelineParams& pipelineParams,
+                                               const PipelineLayoutDescriptor& layoutDescriptor) {
     if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || pShaderManager == nullptr)
         return VK_NULL_HANDLE;
     auto it = this->m_entries.find(sKey);
@@ -52,12 +53,14 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
 
     bool renderPassMatch = (entry.renderPass == renderPass);
     bool paramsMatch    = (entry.lastParams == pipelineParams);
-    if (!entry.pipeline.IsValid() || !renderPassMatch || !paramsMatch) {
+    bool layoutMatch    = (entry.lastLayout == layoutDescriptor);
+    if (!entry.pipeline.IsValid() || !renderPassMatch || !paramsMatch || !layoutMatch) {
         if (entry.pipeline.IsValid())
             entry.pipeline.Destroy();
-        entry.pipeline.Create(device, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath, pipelineParams);
+        entry.pipeline.Create(device, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath, pipelineParams, layoutDescriptor);
         entry.renderPass = renderPass;
         entry.lastParams = pipelineParams;
+        entry.lastLayout = layoutDescriptor;
     }
     return entry.pipeline.Get();
 }
@@ -77,5 +80,6 @@ void PipelineManager::DestroyPipelines() {
             kv.second.pipeline.Destroy();
         kv.second.renderPass = VK_NULL_HANDLE;
         kv.second.lastParams = {};
+        kv.second.lastLayout = {};
     }
 }

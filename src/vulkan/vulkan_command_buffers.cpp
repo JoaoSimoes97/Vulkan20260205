@@ -118,8 +118,9 @@ void VulkanCommandBuffers::Record(uint32_t index, VkRenderPass renderPass, VkFra
 
     for (const auto& d : drawCalls) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
+        /* Push constants: vertex + fragment stages when layout includes both (e.g. mat4 + color). */
         if (d.pPushConstants != nullptr && d.pushConstantSize > 0)
-            vkCmdPushConstants(cmd, d.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, d.pushConstantSize, d.pPushConstants);
+            vkCmdPushConstants(cmd, d.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, d.pushConstantSize, d.pPushConstants);
         vkCmdDraw(cmd, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
     }
 

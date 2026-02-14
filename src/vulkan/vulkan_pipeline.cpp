@@ -3,14 +3,15 @@
 #include <stdexcept>
 
 /*
- * Create: builds a graphics pipeline for the given device, extent, render pass, and shaders.
- * Fixed-function state is driven by pipelineParams (topology, rasterization, MSAA). Vertex input and
- * pipeline layout remain none; add when using vertex buffers or UBOs/textures.
+ * Create: builds a graphics pipeline for the given device, render pass, and shaders.
+ * Fixed-function state from pipelineParams; layout from layoutDescriptor (push constant ranges;
+ * later descriptor set layouts). Vertex input is still none; add when using vertex buffers.
  */
 void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
                             VulkanShaderManager* pShaderManager,
                             const std::string& sVertPath, const std::string& sFragPath,
-                            const GraphicsPipelineParams& pipelineParams) {
+                            const GraphicsPipelineParams& pipelineParams,
+                            const PipelineLayoutDescriptor& layoutDescriptor) {
     VulkanUtils::LogTrace("VulkanPipeline::Create");
     if (device == VK_NULL_HANDLE) {
         VulkanUtils::LogErr("VulkanPipeline::Create: invalid device");
@@ -154,21 +155,15 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .blendConstants  = { static_cast<float>(0.0), static_cast<float>(0.0), static_cast<float>(0.0), static_cast<float>(0.0) },
     };
 
-    /* Push constant: one mat4 (64 bytes) for projection (and later view). Updated per frame from extent. */
-    constexpr uint32_t kPushConstantSize = 64u;  /* mat4 */
-    VkPushConstantRange pushRange = {
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-        .offset     = 0u,
-        .size       = kPushConstantSize,
-    };
+    /* Pipeline layout from descriptor: push constant ranges (and later descriptor set layouts). */
     VkPipelineLayoutCreateInfo stLayoutInfo = {
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext                  = nullptr,
         .flags                  = static_cast<VkPipelineLayoutCreateFlags>(0),
         .setLayoutCount         = static_cast<uint32_t>(0),
         .pSetLayouts            = nullptr,
-        .pushConstantRangeCount = static_cast<uint32_t>(1),
-        .pPushConstantRanges    = &pushRange,
+        .pushConstantRangeCount = static_cast<uint32_t>(layoutDescriptor.pushConstantRanges.size()),
+        .pPushConstantRanges    = layoutDescriptor.pushConstantRanges.empty() ? nullptr : layoutDescriptor.pushConstantRanges.data(),
     };
     VkResult result = vkCreatePipelineLayout(device, &stLayoutInfo, nullptr, &this->m_pipelineLayout);
     if (result != VK_SUCCESS) {

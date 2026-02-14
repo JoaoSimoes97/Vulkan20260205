@@ -27,12 +27,12 @@ Pipeline layout definition stays in pipeline land; the scene only holds referenc
 
 ## Phased implementation
 
-### Phase 1: Pipeline layout parameterization
+### Phase 1: Pipeline layout parameterization — done
 
-- Add **PipelineLayoutDescriptor** (e.g. `std::vector<VkPushConstantRange>`, later set layouts).
-- **VulkanPipeline::Create** takes layout descriptor; builds `VkPipelineLayout` from it (no hardcoded 64-byte range).
-- **PipelineManager** stores layout descriptor per key; passes it when creating pipelines; cache key includes layout so layout change triggers rebuild.
-- **App**: Register at least two pipeline keys with different layouts (e.g. "main" with mat4, "ui" with mat4+vec4) and draw one object per layout to verify.
+- **PipelineLayoutDescriptor** in `vulkan_pipeline.h`: `std::vector<VkPushConstantRange>`, with `operator==` for cache comparison.
+- **VulkanPipeline::Create** takes `const PipelineLayoutDescriptor&`; builds `VkPipelineLayout` from it (empty ranges = no push constants).
+- **PipelineManager**: `GetPipelineIfReady(..., layoutDescriptor)`; stores `lastLayout` per entry; recreates pipeline when layout changes.
+- **App**: Passes `mainLayoutDesc` (one range, 64 bytes, vertex) for the "main" pipeline.
 
 **Deliverable**: Different pipelines can have different push constant sizes and stages without code changes.
 

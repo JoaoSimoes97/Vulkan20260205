@@ -7,12 +7,14 @@
 #include "vulkan_device.h"
 #include "vulkan_framebuffers.h"
 #include "vulkan_instance.h"
+#include "scene/object.h"
 #include "vulkan_render_pass.h"
 #include "vulkan_shader_manager.h"
 #include "vulkan_sync.h"
 #include "vulkan_swapchain.h"
 #include "window.h"
 #include <memory>
+#include <vector>
 
 /**
  * Main application: owns window, Vulkan instance/device/swapchain, render pass, pipeline manager,
@@ -49,4 +51,5 @@ private:
     VulkanFramebuffers m_framebuffers;
     VulkanCommandBuffers m_commandBuffers;
     VulkanSync m_sync;
+    std::vector<Object> m_objects;
 };

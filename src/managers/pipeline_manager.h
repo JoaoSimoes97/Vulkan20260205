@@ -8,8 +8,9 @@
 
 /*
  * Pipeline manager: request pipelines by key (vert+frag paths); loads are non-blocking and scalable.
- * GetPipelineIfReady(key) returns VkPipeline when shaders are ready; if not ready, re-requests loads for that key and returns null (no wait).
- * Multiple pipelines: each key has its own vert/frag; manager re-requests per key when needed after DestroyPipelines().
+ * GetPipelineIfReady(key, ..., layoutDescriptor) returns VkPipeline when shaders are ready; pipeline
+ * layout is taken from layoutDescriptor per key (different keys can have different push constant layouts).
+ * Pipeline is recreated when renderPass, params, or layout descriptor change.
  * Call DestroyPipelines() when swapchain/render pass change (e.g. resize); next GetPipelineIfReady recreates when shaders land.
  */
 class PipelineManager {
@@ -23,15 +24,16 @@ public:
                          const std::string& sFragPath);
 
     /*
-     * Non-blocking: return VkPipeline for key if shaders are ready and pipeline is built for this renderPass/params.
-     * Pipeline is recreated when renderPass or params change (viewport is dynamic, so extent is not needed).
+     * Non-blocking: return VkPipeline for key if shaders are ready and pipeline is built for this renderPass/params/layout.
+     * layoutDescriptor defines push constant ranges (and later descriptor set layouts) for this pipeline.
      * Returns VK_NULL_HANDLE if not ready or load failed.
      */
     VkPipeline GetPipelineIfReady(const std::string& sKey,
                                   VkDevice device,
                                   VkRenderPass renderPass,
                                   VulkanShaderManager* pShaderManager,
-                                  const GraphicsPipelineParams& pipelineParams);
+                                  const GraphicsPipelineParams& pipelineParams,
+                                  const PipelineLayoutDescriptor& layoutDescriptor);
 
     VkPipelineLayout GetPipelineLayoutIfReady(const std::string& sKey) const;
 
@@ -40,11 +42,12 @@ public:
 
 private:
     struct PipelineEntry {
-        std::string              sVertPath;
-        std::string              sFragPath;
-        VulkanPipeline           pipeline;
-        VkRenderPass             renderPass = VK_NULL_HANDLE;
-        GraphicsPipelineParams   lastParams = {};
+        std::string                sVertPath;
+        std::string                sFragPath;
+        VulkanPipeline             pipeline;
+        VkRenderPass               renderPass = VK_NULL_HANDLE;
+        GraphicsPipelineParams     lastParams = {};
+        PipelineLayoutDescriptor   lastLayout = {};
     };
     std::map<std::string, PipelineEntry> m_entries;
 };

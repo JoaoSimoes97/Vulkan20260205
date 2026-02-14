@@ -55,6 +55,7 @@ include_directories(${CMAKE_SOURCE_DIR}/src/config)
 include_directories(${CMAKE_SOURCE_DIR}/src/managers)
 include_directories(${CMAKE_SOURCE_DIR}/src/thread)
 include_directories(${CMAKE_SOURCE_DIR}/src/window)
+include_directories(${CMAKE_SOURCE_DIR}/src/scene)
 include_directories(${CMAKE_SOURCE_DIR}/src/vulkan)
 include_directories(${Vulkan_INCLUDE_DIRS})
 
@@ -88,6 +89,7 @@ set(HEADERS
     src/managers/pipeline_manager.h
     src/thread/job_queue.h
     src/window/window.h
+    src/scene/object.h
     src/vulkan/vulkan_types.h
     src/vulkan/vulkan_utils.h
     src/vulkan/vulkan_instance.h
@@ -112,6 +114,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src/managers
     ${CMAKE_SOURCE_DIR}/src/thread
     ${CMAKE_SOURCE_DIR}/src/window
+    ${CMAKE_SOURCE_DIR}/src/scene
     ${CMAKE_SOURCE_DIR}/src/vulkan
     ${Vulkan_INCLUDE_DIRS}
 )

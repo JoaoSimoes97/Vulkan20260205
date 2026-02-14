@@ -3,6 +3,28 @@
 #include "vulkan_shader_manager.h"
 #include <vulkan/vulkan.h>
 #include <string>
+#include <vector>
+
+/**
+ * Describes pipeline layout: push constant ranges (and later descriptor set layouts).
+ * Different pipelines can have different push sizes and stages. Pass to VulkanPipeline::Create
+ * and to PipelineManager::GetPipelineIfReady so the manager can cache by layout.
+ */
+struct PipelineLayoutDescriptor {
+    std::vector<VkPushConstantRange> pushConstantRanges;
+};
+
+inline bool operator==(const PipelineLayoutDescriptor& a, const PipelineLayoutDescriptor& b) {
+    if (a.pushConstantRanges.size() != b.pushConstantRanges.size())
+        return false;
+    for (size_t i = 0; i < a.pushConstantRanges.size(); ++i) {
+        const auto& ra = a.pushConstantRanges[i];
+        const auto& rb = b.pushConstantRanges[i];
+        if (ra.stageFlags != rb.stageFlags || ra.offset != rb.offset || ra.size != rb.size)
+            return false;
+    }
+    return true;
+}
 
 /*
  * Parameters for graphics pipeline fixed-function state. Caller must set every member;
@@ -44,7 +66,8 @@ public:
     void Create(VkDevice device, VkRenderPass renderPass,
                 VulkanShaderManager* pShaderManager,
                 const std::string& sVertPath, const std::string& sFragPath,
-                const GraphicsPipelineParams& pipelineParams);
+                const GraphicsPipelineParams& pipelineParams,
+                const PipelineLayoutDescriptor& layoutDescriptor);
     void Destroy();
 
     VkPipeline Get() const { return this->m_pipeline; }
