@@ -2,14 +2,10 @@
 
 #include "vulkan_shader_manager.h"
 #include <vulkan/vulkan.h>
+#include <memory>
 #include <string>
 #include <vector>
 
-/**
- * Describes pipeline layout: push constant ranges (and later descriptor set layouts).
- * Different pipelines can have different push sizes and stages. Pass to VulkanPipeline::Create
- * and to PipelineManager::GetPipelineIfReady so the manager can cache by layout.
- */
 struct PipelineLayoutDescriptor {
     std::vector<VkPushConstantRange> pushConstantRanges;
 };
@@ -26,30 +22,16 @@ inline bool operator==(const PipelineLayoutDescriptor& a, const PipelineLayoutDe
     return true;
 }
 
-/*
- * Parameters for graphics pipeline fixed-function state. Caller must set every member;
- * pass to VulkanPipeline::Create (no default). Depth state is used only when render pass has depth.
- */
 struct GraphicsPipelineParams {
-    /** Primitive type: triangle list, line list, point list, or strip variants. */
     VkPrimitiveTopology    topology;
-    /** Enable primitive restart for strip topologies (e.g. 0xFFFFFFFF in index buffer). */
     VkBool32               primitiveRestartEnable;
-    /** Fill, wireframe (LINE), or point rasterization. */
     VkPolygonMode          polygonMode;
-    /** Which faces to cull: NONE, BACK, FRONT, or FRONT_AND_BACK. */
     VkCullModeFlags        cullMode;
-    /** Vertex winding for front face: COUNTER_CLOCKWISE or CLOCKWISE. */
     VkFrontFace            frontFace;
-    /** Line width for line/point modes; wide lines require wideLines device feature. */
     float                  lineWidth;
-    /** MSAA sample count; must match render pass and framebuffer. */
     VkSampleCountFlagBits  rasterizationSamples;
-    /** Depth test enable; only used when render pass has depth attachment. */
     VkBool32               depthTestEnable  = VK_TRUE;
-    /** Depth write enable; only used when render pass has depth attachment. */
     VkBool32               depthWriteEnable = VK_TRUE;
-    /** Depth compare op (e.g. LESS_OR_EQUAL); only used when render pass has depth. */
     VkCompareOp            depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
 };
 
@@ -62,16 +44,14 @@ inline bool operator==(const GraphicsPipelineParams& a, const GraphicsPipelinePa
 }
 
 /*
- * Graphics pipeline: vert + frag stages, fixed-function state (viewport, raster, blend, etc.).
- * Depends on render pass. Viewport/scissor are dynamic (set at record time). Loads shaders via
- * VulkanShaderManager and holds refs until Destroy. Use GraphicsPipelineParams for fixed-function state.
+ * Graphics pipeline: vert + frag stages, fixed-function state. Holds shared_ptr to shader modules
+ * so shaders stay alive while the pipeline exists; when pipeline is destroyed the shared_ptrs are dropped.
  */
 class VulkanPipeline {
 public:
     VulkanPipeline() = default;
     ~VulkanPipeline();
 
-    /** renderPassHasDepth: if true, build depth stencil state from pipelineParams; else pDepthStencilState = nullptr. */
     void Create(VkDevice device, VkRenderPass renderPass,
                 VulkanShaderManager* pShaderManager,
                 const std::string& sVertPath, const std::string& sFragPath,
@@ -88,7 +68,6 @@ private:
     VkDevice         m_device = VK_NULL_HANDLE;
     VkPipeline       m_pipeline = VK_NULL_HANDLE;
     VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
-    VulkanShaderManager* m_pShaderManager = nullptr;
-    std::string      m_sVertPath;
-    std::string      m_sFragPath;
+    ShaderModulePtr  m_pVertShader;
+    ShaderModulePtr  m_pFragShader;
 };

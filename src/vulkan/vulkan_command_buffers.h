@@ -4,14 +4,15 @@
 #include <vulkan/vulkan.h>
 
 /**
- * Single draw: pipeline, layout, optional push constants, and vkCmdDraw parameters.
- * App builds a list of these each frame to draw multiple objects with different materials/pipelines.
+ * Single draw: pipeline, layout, vertex buffer, optional push constants, and vkCmdDraw parameters.
  */
 struct DrawCall {
     VkPipeline        pipeline         = VK_NULL_HANDLE;
     VkPipelineLayout  pipelineLayout   = VK_NULL_HANDLE;
-    const void*       pPushConstants   = nullptr;  /* optional; use with pushConstantSize */
-    uint32_t          pushConstantSize = 0;       /* 0 = no push constants */
+    VkBuffer          vertexBuffer     = VK_NULL_HANDLE;
+    VkDeviceSize      vertexBufferOffset = 0;
+    const void*       pPushConstants   = nullptr;
+    uint32_t          pushConstantSize = 0;
     uint32_t          vertexCount      = 0;
     uint32_t          instanceCount    = 1;
     uint32_t          firstVertex      = 0;

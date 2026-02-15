@@ -1,36 +1,50 @@
 /*
- * PipelineManager — request pipelines by key (vert+frag paths). GetPipelineIfReady is non-blocking;
- * returns VK_NULL_HANDLE until shaders are loaded, then builds or reuses pipeline for renderPass/params/layout.
+ * PipelineManager — request pipelines by key; returns shared_ptr<PipelineHandle>. TrimUnused
+ * moves unused to pending; ProcessPendingDestroys() at safe time (after fence wait).
  */
 #include "pipeline_manager.h"
+
+void PipelineHandle::Create(VkDevice device, VkRenderPass renderPass,
+                            VulkanShaderManager* pShaderManager,
+                            const std::string& sVertPath, const std::string& sFragPath,
+                            const GraphicsPipelineParams& pipelineParams,
+                            const PipelineLayoutDescriptor& layoutDescriptor,
+                            bool renderPassHasDepth) {
+    m_pipeline.Create(device, renderPass, pShaderManager, sVertPath, sFragPath,
+                      pipelineParams, layoutDescriptor, renderPassHasDepth);
+}
+
+void PipelineHandle::Destroy() {
+    m_pipeline.Destroy();
+}
 
 void PipelineManager::RequestPipeline(const std::string& sKey,
                                        VulkanShaderManager* pShaderManager,
                                        const std::string& sVertPath,
                                        const std::string& sFragPath) {
-    if (pShaderManager == nullptr || pShaderManager->IsValid() == false)
+    if (pShaderManager == nullptr || !pShaderManager->IsValid())
         return;
-    auto it = this->m_entries.find(sKey);
-    if (it != this->m_entries.end())
+    auto it = m_entries.find(sKey);
+    if (it != m_entries.end())
         return;
-    this->m_entries[sKey].sVertPath = sVertPath;
-    this->m_entries[sKey].sFragPath = sFragPath;
+    m_entries[sKey].sVertPath = sVertPath;
+    m_entries[sKey].sFragPath = sFragPath;
     pShaderManager->RequestLoad(sVertPath);
     pShaderManager->RequestLoad(sFragPath);
 }
 
-VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
-                                               VkDevice device,
-                                               VkRenderPass renderPass,
-                                               VulkanShaderManager* pShaderManager,
-                                               const GraphicsPipelineParams& pipelineParams,
-                                               const PipelineLayoutDescriptor& layoutDescriptor,
-                                               bool renderPassHasDepth) {
+std::shared_ptr<PipelineHandle> PipelineManager::GetPipelineHandleIfReady(const std::string& sKey,
+                                                                          VkDevice device,
+                                                                          VkRenderPass renderPass,
+                                                                          VulkanShaderManager* pShaderManager,
+                                                                          const GraphicsPipelineParams& pipelineParams,
+                                                                          const PipelineLayoutDescriptor& layoutDescriptor,
+                                                                          bool renderPassHasDepth) {
     if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || pShaderManager == nullptr)
-        return VK_NULL_HANDLE;
-    auto it = this->m_entries.find(sKey);
-    if (it == this->m_entries.end())
-        return VK_NULL_HANDLE;
+        return nullptr;
+    auto it = m_entries.find(sKey);
+    if (it == m_entries.end())
+        return nullptr;
 
     PipelineEntry& entry = it->second;
     if (!pShaderManager->IsLoadReady(entry.sVertPath))
@@ -38,49 +52,62 @@ VkPipeline PipelineManager::GetPipelineIfReady(const std::string& sKey,
     if (!pShaderManager->IsLoadReady(entry.sFragPath))
         pShaderManager->RequestLoad(entry.sFragPath);
     if (!pShaderManager->IsLoadReady(entry.sVertPath) || !pShaderManager->IsLoadReady(entry.sFragPath))
-        return VK_NULL_HANDLE;
+        return nullptr;
 
-    VkShaderModule modVert = pShaderManager->GetShaderIfReady(device, entry.sVertPath);
-    VkShaderModule modFrag = pShaderManager->GetShaderIfReady(device, entry.sFragPath);
-    if (modVert == VK_NULL_HANDLE || modFrag == VK_NULL_HANDLE) {
-        if (modVert != VK_NULL_HANDLE)
-            pShaderManager->Release(entry.sVertPath);
-        if (modFrag != VK_NULL_HANDLE)
-            pShaderManager->Release(entry.sFragPath);
-        return VK_NULL_HANDLE;
-    }
-    pShaderManager->Release(entry.sVertPath);
-    pShaderManager->Release(entry.sFragPath);
+    ShaderModulePtr pVert = pShaderManager->GetShaderIfReady(device, entry.sVertPath);
+    ShaderModulePtr pFrag = pShaderManager->GetShaderIfReady(device, entry.sFragPath);
+    if (!pVert || !pFrag)
+        return nullptr;
 
     bool renderPassMatch = (entry.renderPass == renderPass);
     bool paramsMatch    = (entry.lastParams == pipelineParams);
     bool layoutMatch    = (entry.lastLayout == layoutDescriptor);
     bool depthMatch     = (entry.lastRenderPassHasDepth == renderPassHasDepth);
-    if (!entry.pipeline.IsValid() || !renderPassMatch || !paramsMatch || !layoutMatch || !depthMatch) {
-        if (entry.pipeline.IsValid())
-            entry.pipeline.Destroy();
-        entry.pipeline.Create(device, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath, pipelineParams, layoutDescriptor, renderPassHasDepth);
+    if (!entry.handle || !entry.handle->IsValid() || !renderPassMatch || !paramsMatch || !layoutMatch || !depthMatch) {
+        if (entry.handle && entry.handle->IsValid()) {
+            m_pendingDestroy.push_back(std::move(entry.handle));
+            entry.handle.reset();
+        }
+        entry.handle = std::make_shared<PipelineHandle>();
+        entry.handle->Create(device, renderPass, pShaderManager, entry.sVertPath, entry.sFragPath,
+                            pipelineParams, layoutDescriptor, renderPassHasDepth);
         entry.renderPass = renderPass;
         entry.lastParams = pipelineParams;
         entry.lastLayout = layoutDescriptor;
         entry.lastRenderPassHasDepth = renderPassHasDepth;
     }
-    return entry.pipeline.Get();
+    return entry.handle;
 }
 
-VkPipelineLayout PipelineManager::GetPipelineLayoutIfReady(const std::string& sKey) const {
-    auto it = this->m_entries.find(sKey);
-    if (it == this->m_entries.end())
-        return VK_NULL_HANDLE;
-    if (it->second.pipeline.IsValid() == false)
-        return VK_NULL_HANDLE;
-    return it->second.pipeline.GetLayout();
+void PipelineManager::TrimUnused() {
+    for (auto it = m_entries.begin(); it != m_entries.end(); ) {
+        if (it->second.handle && it->second.handle.use_count() == 1u) {
+            m_pendingDestroy.push_back(std::move(it->second.handle));
+            it = m_entries.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void PipelineManager::ProcessPendingDestroys() {
+    for (auto& p : m_pendingDestroy) {
+        if (p && p->IsValid())
+            p->Destroy();
+    }
+    m_pendingDestroy.clear();
 }
 
 void PipelineManager::DestroyPipelines() {
-    for (auto& kv : this->m_entries) {
-        if (kv.second.pipeline.IsValid())
-            kv.second.pipeline.Destroy();
+    for (auto& p : m_pendingDestroy) {
+        if (p && p->IsValid())
+            p->Destroy();
+    }
+    m_pendingDestroy.clear();
+    for (auto& kv : m_entries) {
+        if (kv.second.handle && kv.second.handle->IsValid())
+            kv.second.handle->Destroy();
+        kv.second.handle.reset();
         kv.second.renderPass = VK_NULL_HANDLE;
         kv.second.lastParams = {};
         kv.second.lastLayout = {};

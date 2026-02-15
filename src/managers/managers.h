@@ -1,12 +1,13 @@
 #pragma once
 
 /*
- * Managers module: pipeline, mesh, texture (and shader manager in vulkan/).
+ * Managers module: pipeline, material, mesh, texture (and shader manager in vulkan/).
  * See src/managers/README.md and docs/plan-loading-and-managers.md.
  *
- * PipelineManager: request pipelines by key; non-blocking. GetPipelineIfReady(key, ..., layoutDescriptor) when shaders ready; layout per key.
- * MeshManager:     (future) get-or-load mesh by path; vertex/index buffers on main thread.
+ * PipelineManager: get-or-create by key; returns shared_ptr<PipelineHandle>. TrimUnused() + ProcessPendingDestroys() after fence wait. DestroyPipelines() on swapchain recreate.
+ * MaterialManager: registry material id -> shared_ptr<MaterialHandle>; materials cache shared_ptr<PipelineHandle>; TrimUnused().
+ * MeshManager:     get-or-create procedural by key; returns shared_ptr<MeshHandle> (draw params); TrimUnused().
  * TextureManager:  (future) get-or-load texture by path; VkImage + view + sampler on main thread.
  *
- * Dependency: Shaders -> Pipeline -> Drawable (Pipeline + Mesh + optional Texture).
+ * Dependency: Shaders (shared_ptr) -> Pipeline -> Material -> Scene. Draw list holds raw VkPipeline/layout.
  */

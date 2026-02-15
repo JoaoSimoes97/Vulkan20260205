@@ -56,6 +56,8 @@ include_directories(${CMAKE_SOURCE_DIR}/src/managers)
 include_directories(${CMAKE_SOURCE_DIR}/src/thread)
 include_directories(${CMAKE_SOURCE_DIR}/src/window)
 include_directories(${CMAKE_SOURCE_DIR}/src/scene)
+include_directories(${CMAKE_SOURCE_DIR}/src/camera)
+include_directories(${CMAKE_SOURCE_DIR}/src/render)
 include_directories(${CMAKE_SOURCE_DIR}/src/vulkan)
 include_directories(${Vulkan_INCLUDE_DIRS})
 
@@ -67,6 +69,7 @@ set(SOURCES
     src/config/config_loader.cpp
     src/thread/job_queue.cpp
     src/window/window.cpp
+    src/camera/camera.cpp
     src/vulkan/vulkan_utils.cpp
     src/vulkan/vulkan_instance.cpp
     src/vulkan/vulkan_device.cpp
@@ -79,6 +82,10 @@ set(SOURCES
     src/vulkan/vulkan_sync.cpp
     src/vulkan/vulkan_shader_manager.cpp
     src/managers/pipeline_manager.cpp
+    src/managers/material_manager.cpp
+    src/managers/mesh_manager.cpp
+    src/managers/scene_manager.cpp
+    src/render/render_list_builder.cpp
 )
 
 # Header files (same layout)
@@ -88,6 +95,11 @@ set(HEADERS
     src/config/config_loader.h
     src/managers/managers.h
     src/managers/pipeline_manager.h
+    src/managers/material_manager.h
+    src/managers/mesh_manager.h
+    src/managers/scene_manager.h
+    src/scene/scene.h
+    src/render/render_list_builder.h
     src/thread/job_queue.h
     src/window/window.h
     src/scene/object.h
@@ -117,6 +129,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src/thread
     ${CMAKE_SOURCE_DIR}/src/window
     ${CMAKE_SOURCE_DIR}/src/scene
+    ${CMAKE_SOURCE_DIR}/src/render
     ${CMAKE_SOURCE_DIR}/src/vulkan
     ${Vulkan_INCLUDE_DIRS}
 )

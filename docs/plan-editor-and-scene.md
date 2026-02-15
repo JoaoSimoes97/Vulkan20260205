@@ -17,7 +17,7 @@ Roadmap for supporting an editor where users load many objects, each with differ
 | Concept | Responsibility | Owned by |
 |--------|----------------|----------|
 | **Mesh** | Geometry: vertex/index buffers, draw params (vertex count, first vertex, index count). Loaded once, shared by many objects. | MeshManager |
-| **Material** | How to draw: pipeline key + pipeline layout descriptor (push ranges; later descriptor set layouts). Objects reference material by id. | Material table / registry + PipelineManager |
+| **Material** | How to draw: pipeline key + layout + rendering state (blend, cull, depth). Resolves to `VkPipeline`/`VkPipelineLayout` via PipelineManager. Objects reference material by id. **MaterialManager** holds registry; TrimUnused() drops materials no object uses. | MaterialManager |
 | **Renderable / Object** | One drawable: mesh id, material id, per-object GPU data (e.g. transform mat4, color). | Scene / ObjectManager |
 | **Draw list** | Built each frame from scene: resolve pipeline and mesh params, sort, optionally batch/instance, produce `std::vector<DrawCall>`. | RenderListBuilder |
 
@@ -52,15 +52,16 @@ The recording path (render pass, framebuffers, Record) is stable. Phase 2 only a
 
 ---
 
-### Phase 2: MeshManager and material notion
+### Phase 2: MaterialManager, MeshManager, Scene, RenderListBuilder
 
-- **MeshManager**: Load one mesh (file or procedural); return opaque `MeshId` and, when needed, fill draw params (vertex count, first vertex, index count, etc.). Owns vertex/index buffers.
-- **Material**: Simple table or struct: material id → pipeline key + layout descriptor. Used when building the draw list to resolve pipeline and layout.
-- **Scene**: List of renderables. Each entry: mesh id, material id, per-object data (e.g. transform mat4 or small blob). Editor/app adds, removes, updates objects.
-- **RenderListBuilder**: Input = scene + PipelineManager + MeshManager. Output = `std::vector<DrawCall>`. For each object: resolve pipeline/layout via material id, resolve mesh draw params, push object data into DrawCall, append. Sort by pipeline to minimize state changes. Reuse one vector per frame (clear and fill).
-- **App**: Create a few objects (different mesh/material/data), build draw list via RenderListBuilder, `DrawFrame(drawCalls)`. Single render pass; one draw per object for now.
+- **MaterialManager** (implemented): Registry material id → `shared_ptr<MaterialHandle>`. Material caches `shared_ptr<PipelineHandle>`; resolves to `VkPipeline`/`VkPipelineLayout`. TrimUnused() when no object uses a material. See [plan-loading-and-managers.md](plan-loading-and-managers.md) §0.
+- **MeshManager** (implemented): **MeshHandle** (class) owns `VkBuffer` and `VkDeviceMemory`. Get-or-create procedural by key (triangle, circle, rectangle, cube) with vertex buffer upload; RequestLoadMesh + OnCompletedMeshFile parse .obj and upload vertex buffer. Return `shared_ptr<MeshHandle>`. **Destroy()** clears cache (call before device destroy); call **UnloadScene()** first so no scene refs keep handles alive. TrimUnused() when no object uses mesh.
+- **Scene** (implemented): Container: `std::vector<Object>`, name, **Clear()**. Data only; no Vulkan. Objects hold `shared_ptr<MaterialHandle>` and `shared_ptr<MeshHandle>`; when scene is unloaded or objects removed, refs drop and managers can TrimUnused().
+- **SceneManager** (implemented): Owns current scene. **LoadSceneAsync(path)** — file load via JobQueue, parse JSON on main when completed; **UnloadScene()**, **SetCurrentScene()**, **CreateDefaultScene()**; **AddObject** / **RemoveObject**. SetDependencies(JobQueue, MaterialManager, MeshManager). ProcessPendingDestroys() on pipelines at start of frame (after `vkWaitForFences`).
+- **Draw list**: Built each frame from current scene: for each object with valid material and mesh (HasValidBuffer()), material → pipeline/layout, mesh → vertex buffer, offset, and draw params; fill DrawCall; sort by (pipeline, vertex buffer, …); Record binds vertex buffers before each draw. TrimUnused() on shader/pipeline/material/mesh once per frame.
+- **App**: Holds SceneManager; sets default scene (CreateDefaultScene) or calls LoadSceneAsync; build draw list from GetCurrentScene(); DrawFrame(drawCalls).
 
-**Deliverable**: Scene-driven rendering; many objects with different meshes and materials; draw list built in one place.
+**Deliverable**: Scene-driven rendering; many objects with different meshes and materials; draw list built in one place; resources released when unused.
 
 ---
 
@@ -93,8 +94,8 @@ The recording path (render pass, framebuffers, Record) is stable. Phase 2 only a
 
 ## Optimization checklist
 
-- [ ] Sort draw list by (pipeline, mesh) to minimize pipeline and vertex buffer binds.
-- [ ] Reuse single `std::vector<DrawCall>` each frame; avoid per-frame allocations in build path.
+- [x] Sort draw list by (pipeline, mesh) to minimize pipeline and vertex buffer binds (RenderListBuilder).
+- [x] Reuse single `std::vector<DrawCall>` each frame; avoid per-frame allocations in build path (VulkanApp::m_drawCalls).
 - [ ] Push constant size matches layout (parameterized); no oversized pushes.
 - [ ] Instancing: one draw per (mesh, material) group when multiple objects share both.
 - [ ] Frustum culling (optional in editor): skip objects outside camera in RenderListBuilder.
@@ -106,11 +107,13 @@ The recording path (render pass, framebuffers, Record) is stable. Phase 2 only a
 
 | Module | Role |
 |--------|------|
-| **PipelineManager** | Get pipeline and layout by key; layout descriptor per key; creates pipelines with different push (and later set) layouts. |
-| **MeshManager** | Load meshes; return MeshId and draw params; own vertex/index buffers. |
-| **Scene / ObjectManager** | List of renderables (mesh id, material id, per-object data). API-agnostic. |
-| **RenderListBuilder** | Scene + PipelineManager + MeshManager → `std::vector<DrawCall>`; sort; optional instancing. |
-| **VulkanCommandBuffers** | Record(render area, viewport, scissor, drawCalls, clear values). No knowledge of objects or scene. Supports depth clear and multi-viewport-ready. |
+| **PipelineManager** | Get VkPipeline/VkPipelineLayout by key; DestroyPipelines() on swapchain recreate. |
+| **MaterialManager** | Registry material id → `shared_ptr<MaterialHandle>`; resolve to VkPipeline/VkPipelineLayout; TrimUnused(). |
+| **MeshManager** | MeshHandle owns VkBuffer/VkDeviceMemory. Procedural by key + RequestLoadMesh/OnCompletedMeshFile; vertex buffer upload implemented. SetDevice/SetPhysicalDevice/SetQueue/SetQueueFamilyIndex before use. Destroy() clears cache (before device); UnloadScene() before Destroy(). TrimUnused(). |
+| **Scene** | Container: objects, name; Clear() drops refs. |
+| **SceneManager** | Current scene; LoadSceneAsync(path), UnloadScene, SetCurrentScene, CreateDefaultScene, AddObject/RemoveObject. Async load via JobQueue; parse JSON when file ready. |
+| **RenderListBuilder** | Scene + managers → `std::vector<DrawCall>`; sort by (pipeline, mesh). Optional instancing later. |
+| **VulkanCommandBuffers** | Record(render area, viewport, scissor, drawCalls, clear values). Binds vertex buffer per draw from DrawCall. No knowledge of objects or scene. Supports depth clear and multi-viewport-ready. |
 
 ---
 

@@ -89,7 +89,7 @@ VulkanConfig GetDefaultConfig() {
     stCfg.sWindowTitle = "Vulkan App";
     stCfg.lImageCount = static_cast<uint32_t>(3);
     stCfg.lMaxFramesInFlight = static_cast<uint32_t>(2);
-    stCfg.ePresentMode = VK_PRESENT_MODE_FIFO_KHR;
+    stCfg.ePresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;  /* no vsync; use VK_PRESENT_MODE_FIFO_KHR for vsync */
     stCfg.sPreferredFormat = "B8G8R8A8_SRGB";
     stCfg.sPreferredColorSpace = "SRGB_NONLINEAR";
     stCfg.bUsePerspective = true;

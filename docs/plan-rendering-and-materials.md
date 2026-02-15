@@ -6,14 +6,14 @@ Roadmap for the draw loop, pipeline state (including blend), and materials. Comp
 
 ## Current state
 
-- **Done**: Swapchain, render pass (from descriptor: color + optional depth), **VulkanDepthImage**, framebuffers (color + optional depth views), pipeline with `GraphicsPipelineParams` (including depth state), pipeline manager (get by key, layout descriptor per key, ref-counted shaders). **Pipeline layout parameterization**: `PipelineLayoutDescriptor` (push ranges). Draw loop: acquire → record (render area, viewport, scissor, clear values, draw list) → submit → present; out-of-date handling. Command buffers record a **draw list**; app builds the list each frame from objects. Perspective and orthographic projection (config-driven, aspect = width/height, Vulkan NDC Y-down); view matrix from camera position; initial camera and pan speed from config. Resize syncs swapchain to drawable size every frame. Simple **Object** class (Shape, localTransform, color, pushData, pipelineKey) and debug shapes; multiple pipelines (main fill, wire, alt shader).
-- **Not yet**: Blend; vertex buffers; MeshManager; material concept; RenderListBuilder.
+- **Done**: Swapchain, render pass (from descriptor: color + optional depth), **VulkanDepthImage**, framebuffers (color + optional depth views), pipeline with `GraphicsPipelineParams` (including depth state and vertex input), pipeline manager (get by key, returns VkPipeline/VkPipelineLayout; shaders via shared_ptr + deleter, TrimUnused). **Pipeline layout parameterization**: `PipelineLayoutDescriptor` (push ranges). Draw loop: acquire → record (render area, viewport, scissor, clear values, draw list; **vertex buffer bind per draw**) → submit → present; out-of-date handling. **DrawCall** includes vertex buffer + offset; command buffers bind vertex buffers then draw. **MeshManager** (MeshHandle owns VkBuffer/VkDeviceMemory), **MaterialManager**, **Scene**/SceneManager, **RenderListBuilder** (build draw list from scene, sort by pipeline/mesh). Perspective and orthographic projection (config-driven); view matrix from camera position; initial camera and pan speed from config. Resize syncs swapchain to drawable size every frame. **Single Cleanup() path**: UnloadScene → MeshManager.Destroy() → ShaderManager.Destroy() → Device.
+- **Not yet**: Blend (transparency).
 
 ---
 
 ## 1. Draw loop — done
 
-The frame path is implemented: acquire image, record (render pass + list of `DrawCall`s: bind pipeline, push constants, draw per item), submit, present. Resize and out-of-date handling call `RecreateSwapchainAndDependents()`. See [vulkan/tutorial-order.md](vulkan/tutorial-order.md) and [vulkan/swapchain-rebuild-cases.md](vulkan/swapchain-rebuild-cases.md).
+The frame path is implemented: acquire image, record (render pass + list of `DrawCall`s: bind pipeline, bind vertex buffer, push constants, draw per item), submit, present. Resize and out-of-date handling call `RecreateSwapchainAndDependents()`. See [vulkan/tutorial-order.md](vulkan/tutorial-order.md) and [vulkan/swapchain-rebuild-cases.md](vulkan/swapchain-rebuild-cases.md).
 
 ---
 
@@ -45,7 +45,7 @@ Add blend state to **GraphicsPipelineParams** so opaque vs transparent is caller
 
 ## 5. Scene, objects, and draw list (editor)
 
-For an editor with many objects and different GPU data: introduce **Scene** (list of renderables: mesh id, material id, per-object data), **MeshManager** (load meshes, return draw params), and **RenderListBuilder** (build `std::vector<DrawCall>` from scene, sort by pipeline, optional instancing). Material = pipeline key + layout; objects reference material id. See [plan-editor-and-scene.md](plan-editor-and-scene.md) for phased implementation and optimization.
+**Implemented**: **Scene** (list of renderables: mesh + material refs, per-object data), **MeshManager** (vertex buffer upload, MeshHandle owns buffers), **RenderListBuilder** (build `std::vector<DrawCall>` from scene, vertex buffer + draw params per mesh, sort by pipeline/mesh). Material = pipeline key + layout; objects hold `shared_ptr<MaterialHandle>` and `shared_ptr<MeshHandle>`. See [plan-editor-and-scene.md](plan-editor-and-scene.md). **Not yet**: blend (transparency), instancing.
 
 ---
 

@@ -14,20 +14,37 @@ The app is split into modules so it stays maintainable and can grow (multiple ca
 | **VulkanRenderPass** | Render pass (attachments, subpasses). Create from descriptor (color format + optional depth format, load/store ops). | Recreated when swapchain or target config is recreated. |
 | **VulkanDepthImage** | Depth image + view for render pass attachment. Created from device, physical device, format, extent. `FindSupportedFormat` for format selection. | Recreated when extent changes (with swapchain). |
 | **VulkanPipeline** | Graphics pipeline (vert+frag, params: topology, rasterization, depth state, MSAA). Pipeline layout from descriptor (push constant ranges; later descriptor set layouts). Viewport/scissor dynamic. | Recreated when render pass, pipeline params, or layout descriptor change. |
-| **PipelineManager** | Get-or-create pipeline by key; stores layout descriptor per key (push ranges, later set layouts). Caller passes `GraphicsPipelineParams` and layout at get/request time. Ref-counts shaders. | Pipelines destroyed on swapchain recreate; recreated when shaders ready and GetPipelineIfReady called. |
+| **PipelineManager** | Get-or-create pipeline by key; returns `VkPipeline` and `VkPipelineLayout` when shaders are ready. Caches `VulkanPipeline` per key. **DestroyPipelines()** on swapchain recreate. | Pipelines destroyed on swapchain recreate. |
+| **MaterialManager** | Registry: material id → `shared_ptr<MaterialHandle>`. Material = pipeline key + layout + rendering state. Resolves to `VkPipeline`/`VkPipelineLayout` via PipelineManager. **TrimUnused()** drops materials no object uses. | Materials released when ref count 0 after trim. |
 | **VulkanFramebuffers** | One framebuffer per swapchain image (or per offscreen target). Create from list of attachment views (color + optional depth) + extent. | Recreated when swapchain or target extent is recreated. |
-| **VulkanCommandBuffers** | Command pool + one primary command buffer per swapchain image. `Record(index, renderPass, framebuffer, renderArea, viewport, scissor, drawCalls, clearValues, clearValueCount)`. Multi-viewport-ready. | Recreated when swapchain is recreated. |
+| **VulkanCommandBuffers** | Command pool + one primary command buffer per swapchain image. `Record(...)` binds vertex buffers per draw then records draw. Each `DrawCall` includes `vertexBuffer`, `vertexBufferOffset`, draw params. | Recreated when swapchain is recreated. |
 | **VulkanSync** | Per-frame-in-flight fences and semaphores (image available, render finished). Render-finished semaphores are per swapchain image. | Recreated when swapchain is recreated (new image count). |
-| **Scene / ObjectManager** | List of renderables: each has mesh id, material id, per-object GPU data (e.g. transform). No Vulkan types; editor adds/removes/updates objects. | N/A (data only). |
-| **RenderListBuilder** | Builds `std::vector<DrawCall>` from scene: resolve pipeline/layout per object via material, resolve mesh draw params, sort by pipeline (and optionally mesh), optional instancing. Uses PipelineManager and MeshManager. | N/A (stateless or reuses one buffer per frame). |
-| **MeshManager** | Load mesh by path (or create procedurally); returns mesh id and draw params (vertex count, first vertex, index count, etc.). Owns vertex/index buffers. | Buffers recreated only on device/context change or explicit reload. |
-| **VulkanApp** | Owns all of the above. Init order, main loop, build draw list (or delegate to RenderListBuilder), `DrawFrame(drawCalls)`, `RecreateSwapchainAndDependents()`, cleanup. | Orchestrates when to reconstruct. |
+| **Scene** | Container for objects (and later lights): `std::vector<Object>`, name. **Clear()** drops refs so managers can TrimUnused. Data only; no Vulkan types. | N/A (data only). |
+| **SceneManager** | Owns current scene; **LoadSceneAsync(path)** (file load via JobQueue, parse on main when ready); **UnloadScene()**, **SetCurrentScene()**, **CreateDefaultScene()**; **AddObject** / **RemoveObject**. SetDependencies(JobQueue, MaterialManager, MeshManager) before use. | Scene swap on load; unload drops refs. |
+| **RenderListBuilder** | Builds `std::vector<DrawCall>` from scene: resolve pipeline/layout per object via material, mesh → draw params; **sorts by (pipeline, mesh)** to reduce binds. App reuses one vector per frame. | N/A (stateless). |
+| **VulkanShaderManager** | Load SPIR-V via job queue; returns `shared_ptr<VkShaderModule>` with custom deleter (no manual Release). Cache holds shared_ptrs; **TrimUnused()** drops shaders no pipeline uses. | Shaders released when ref count 0; deleter destroys module. |
+| **MeshManager** | **MeshHandle** (class) owns `VkBuffer` and `VkDeviceMemory`; destructor destroys them. **SetDevice** / **SetPhysicalDevice** / **SetQueue** / **SetQueueFamilyIndex** before use. **GetOrCreateProcedural(key)** builds vertex buffers (triangle, circle, rectangle, cube); **RequestLoadMesh(path)** + **OnCompletedMeshFile(path, data)** parse .obj and upload vertex buffer. Caches `shared_ptr<MeshHandle>` by key/path. **Destroy()** clears cache (call before device destroy). **TrimUnused()** when no object uses mesh. | UnloadScene() before Destroy() so no scene refs keep MeshHandles alive. |
+| **Camera** | World-space position; **GetViewMatrix(out16)** writes column-major view matrix (translate by -position). Config supplies initial position. | Data only; no Vulkan. |
+| **CameraController** | **CameraController_Update(camera, keyState, panSpeed)** updates camera position from keyboard (WASD / arrows / QE). Key state from SDL_GetKeyboardState; pan speed from config. | Stateless; app calls each frame. |
+| **VulkanApp** | Owns window, Vulkan stack, managers, scene, **Camera**. Main loop: ProcessCompletedJobs, TrimUnused, PollEvents, **CameraController_Update**, resize/swapchain check, build projection + **camera.GetViewMatrix** → viewProj, FillPushData, RenderListBuilder.Build, **DrawFrame** (always, empty list = clear only), FPS title. **RecreateSwapchainAndDependents()**, **Cleanup()**. | Orchestrates init, loop, and teardown. |
 
 ## Init and cleanup order
 
 **Init:** Window → Instance → Window.CreateSurface → Device → Swapchain → RenderPass → DepthImage (if depth) → Framebuffers → CommandBuffers → Sync.
 
-**Cleanup (reverse):** Sync → CommandBuffers → Framebuffers → DepthImage → Pipeline → RenderPass → Swapchain → Device → Window.DestroySurface → Instance → Window.
+**Cleanup (reverse, single path):** Sync → CommandBuffers → Framebuffers → DepthImage → Pipelines (DestroyPipelines) → RenderPass → Swapchain → **SceneManager.UnloadScene()** (drops scene refs to MeshHandles) → **MeshManager.Destroy()** (clears cache, destroying all vertex buffers) → **ShaderManager** (so all VkShaderModules are destroyed) → Device → Window.DestroySurface → Instance → Window → JobQueue. Only `Cleanup()` tears down; exit loop then `Run()` calls `Cleanup()`.
+
+## Manager lifecycle: smart pointers, release when unused
+
+Asset managers use `shared_ptr` so resources are released when nothing uses them; no manual ref-count or `Release()`.
+
+- **Shaders**: VulkanShaderManager caches `shared_ptr<VkShaderModule>` with a custom deleter (destroys module when last ref drops). Pipelines hold these shared_ptrs. **TrimUnused()** removes cache entries where `use_count() == 1`. No RAII handle struct—just shared_ptr + deleter.
+- **Pipelines**: PipelineManager stores `VulkanPipeline` per key; returns raw `VkPipeline`/`VkPipelineLayout`. Pipelines are destroyed in **DestroyPipelines()** (e.g. on swapchain recreate). No pipeline trim in the hot path (pipelines may still be in use by submitted command buffers).
+- **Materials**: MaterialManager registry material id → `shared_ptr<MaterialHandle>`. Material resolves to `VkPipeline`/`VkPipelineLayout` via PipelineManager. **TrimUnused()** drops materials no object uses.
+- **Draw list**: Each `DrawCall` holds pipeline, pipeline layout, vertex buffer + offset, draw params (vertex count, instance count, first vertex, first instance), and push constant data. Built each frame from scene: material → pipeline/layout, mesh → vertex buffer and draw params. **VulkanCommandBuffers::Record** binds vertex buffers before each draw.
+- **Cleanup order**: Unload scene first so no objects hold `shared_ptr<MeshHandle>`. Then MeshManager.Destroy() clears its cache and all MeshHandle destructors run (destroying VkBuffer/VkDeviceMemory). Shader manager must be destroyed **before** the device so all `VkShaderModule`s are freed. See Init and cleanup order above.
+
+See [plan-loading-and-managers.md](plan-loading-and-managers.md) for the implementation plan.
 
 ## Swapchain extent and aspect ratio
 
@@ -63,7 +80,7 @@ Config uses **two files**: a read-only default and a user config that can be upd
 |            | `title` | string |
 | `swapchain`| `image_count` | 2 or 3 (double/triple buffering); driver must return this exact count or app fails |
 |            | `max_frames_in_flight` | e.g. 2; must be at least 1 (0 is treated as 1) |
-|            | `present_mode` | `fifo` \| `mailbox` \| `immediate` \| `fifo_relaxed` |
+|            | `present_mode` | `fifo` (vsync) \| `mailbox` \| `immediate` (no vsync, default) \| `fifo_relaxed` |
 |            | `preferred_format` | e.g. `B8G8R8A8_SRGB`, `B8G8R8A8_UNORM`, `R8G8B8A8_SRGB` |
 |            | `preferred_color_space` | `SRGB_NONLINEAR`, `DISPLAY_P3`, `EXTENDED_SRGB` |
 | `camera`   | `use_perspective` | bool (perspective vs orthographic) |
@@ -85,9 +102,9 @@ See also [plan-rendering-and-materials.md](plan-rendering-and-materials.md) and 
 
 ## Rendering and draw list
 
-- **Draw list**: Each frame the app (or a RenderListBuilder) produces a `std::vector<DrawCall>`. Each `DrawCall` holds: pipeline, pipeline layout, optional push constant data (pointer + size), and draw params (vertex count, instance count, first vertex, first instance). No hardcoded pipeline or single draw; multiple objects with different pipelines and push data are supported.
+- **Draw list**: Each frame the app (or a RenderListBuilder) produces a `std::vector<DrawCall>`. Each `DrawCall` holds: pipeline, pipeline layout, vertex buffer + offset, draw params (vertex count, instance count, first vertex, first instance), and optional push constant data (pointer + size). Built from scene: material → pipeline/layout, mesh → vertex buffer and draw params. Record binds vertex buffers before each draw. No hardcoded pipeline or single draw; multiple objects with different pipelines and push data are supported.
 - **Material**: Conceptually “how to draw”—maps to a pipeline key and a pipeline layout descriptor. Objects reference a material id; when building the draw list, material id resolves to pipeline + layout; per-object data (e.g. transform) is the push constant source.
-- **Scene**: List of renderables (mesh id, material id, per-object GPU data). Editor or game code adds/edits objects; the list is the single source of truth for “what to draw.” Pipeline layout definition stays in pipeline land; the scene only holds references (material id) and data to push.
+- **Scene**: Container (objects, optional name). Each object holds shared_ptr to material and mesh plus per-object data (transform, color). **SceneManager** owns current scene; LoadSceneAsync(path), UnloadScene, SetCurrentScene, CreateDefaultScene, AddObject/RemoveObject. The list is the single source of truth for “what to draw.” Pipeline layout definition stays in pipeline land; the scene only holds references (material id) and data to push.
 
 ## Implemented (Phase 1.5 and camera)
 
@@ -96,7 +113,7 @@ See also [plan-rendering-and-materials.md](plan-rendering-and-materials.md) and 
 
 ## Future extensions (not implemented yet)
 
-- **Phase 2** — MeshManager, material notion, Scene, RenderListBuilder. See [plan-editor-and-scene.md](plan-editor-and-scene.md).
+- **Phase 2** — MeshManager, MaterialManager, Scene, SceneManager, draw list from scene: **implemented**. See [plan-editor-and-scene.md](plan-editor-and-scene.md). Scene file format: JSON with `name` and `objects` array (mesh, material, position, color); load via **LoadSceneAsync** (JobQueue).
 - **Multiple cameras and viewports** — The design should support as many cameras as the user wants. Each camera can have its own projection (ortho or perspective) and view; each may render to its own target or share the swapchain. A second viewport (e.g. to show where the main camera is and what it is looking at) or depth visualization are planned: same render-area/viewport/scissor parameterization and optional extra passes (sample depth texture, draw into a subregion) will support this without changing the core recording API.
 - **Shadow maps** — Offscreen render targets (images + framebuffers + pipeline); separate from main swapchain, owned by a dedicated module.
 - **Raytracing** — Acceleration structures, raytracing pipeline; separate module, composed in VulkanApp.

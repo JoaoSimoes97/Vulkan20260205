@@ -3,6 +3,12 @@
 #include <cstring>
 #include <stdexcept>
 
+void ShaderModuleDeleter::operator()(VkShaderModule* p) const {
+    if (p && *p != VK_NULL_HANDLE && device != VK_NULL_HANDLE)
+        vkDestroyShaderModule(device, *p, nullptr);
+    delete p;
+}
+
 void VulkanShaderManager::Create(JobQueue* pJobQueue) {
     VulkanUtils::LogTrace("VulkanShaderManager::Create");
     if (pJobQueue == nullptr) {
@@ -14,8 +20,6 @@ void VulkanShaderManager::Create(JobQueue* pJobQueue) {
 
 void VulkanShaderManager::Destroy() {
     VulkanUtils::LogTrace("VulkanShaderManager::Destroy");
-    for (auto& kv : this->m_cache)
-        this->DestroyCached(kv.second);
     this->m_cache.clear();
     this->m_pending.clear();
     this->m_pJobQueue = nullptr;
@@ -40,15 +44,6 @@ VkShaderModule VulkanShaderManager::CreateModuleFromSpirv(VkDevice device, const
         return VK_NULL_HANDLE;
     }
     return module;
-}
-
-void VulkanShaderManager::DestroyCached(CachedShader& stCached) {
-    if (stCached.module != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(stCached.device, stCached.module, nullptr);
-        stCached.module = VK_NULL_HANDLE;
-    }
-    stCached.device = VK_NULL_HANDLE;
-    stCached.lRefCount = static_cast<uint32_t>(0);
 }
 
 void VulkanShaderManager::RequestLoad(const std::string& sPath) {
@@ -76,18 +71,18 @@ bool VulkanShaderManager::IsLoadReady(const std::string& sPath) {
     return it->second->bDone;
 }
 
-VkShaderModule VulkanShaderManager::CompletePendingLoad(VkDevice device, const std::string& sPath) {
+ShaderModulePtr VulkanShaderManager::CompletePendingLoad(VkDevice device, const std::string& sPath) {
     auto itPending = this->m_pending.find(sPath);
     if (itPending == this->m_pending.end())
-        return VK_NULL_HANDLE;
+        return nullptr;
     std::shared_ptr<LoadFileResult> pResult = itPending->second;
     std::unique_lock<std::mutex> rlock(pResult->mtx);
     if (pResult->bDone == false)
-        return VK_NULL_HANDLE;
+        return nullptr;
     if (pResult->vecData.empty() == true) {
         VulkanUtils::LogErr("Shader file not found or empty: {}", sPath);
         this->m_pending.erase(itPending);
-        return VK_NULL_HANDLE;
+        return nullptr;
     }
     std::vector<uint8_t> vecCopy = pResult->vecData;
     rlock.unlock();
@@ -95,42 +90,35 @@ VkShaderModule VulkanShaderManager::CompletePendingLoad(VkDevice device, const s
 
     VkShaderModule module = this->CreateModuleFromSpirv(device, vecCopy.data(), vecCopy.size());
     if (module == VK_NULL_HANDLE)
-        return VK_NULL_HANDLE;
+        return nullptr;
 
-    CachedShader stCached;
-    stCached.device = device;
-    stCached.module = module;
-    stCached.lRefCount = static_cast<uint32_t>(1);
-    this->m_cache[sPath] = stCached;
-    return module;
+    ShaderModulePtr ptr(new VkShaderModule(module), ShaderModuleDeleter{device});
+    this->m_cache[sPath] = ptr;
+    return ptr;
 }
 
-VkShaderModule VulkanShaderManager::GetShaderIfReady(VkDevice device, const std::string& sPath) {
+ShaderModulePtr VulkanShaderManager::GetShaderIfReady(VkDevice device, const std::string& sPath) {
     if (this->m_pJobQueue == nullptr || device == VK_NULL_HANDLE)
-        return VK_NULL_HANDLE;
+        return nullptr;
     std::lock_guard<std::mutex> lock(this->m_mutex);
     auto itCache = this->m_cache.find(sPath);
-    if (itCache != this->m_cache.end()) {
-        itCache->second.lRefCount++;
-        return itCache->second.module;
-    }
+    if (itCache != this->m_cache.end())
+        return itCache->second;
     return this->CompletePendingLoad(device, sPath);
 }
 
-VkShaderModule VulkanShaderManager::GetShader(VkDevice device, const std::string& sPath) {
+ShaderModulePtr VulkanShaderManager::GetShader(VkDevice device, const std::string& sPath) {
     if (this->m_pJobQueue == nullptr) {
         VulkanUtils::LogErr("VulkanShaderManager::GetShader: not created");
-        return VK_NULL_HANDLE;
+        return nullptr;
     }
     if (device == VK_NULL_HANDLE)
-        return VK_NULL_HANDLE;
+        return nullptr;
 
     std::lock_guard<std::mutex> lock(this->m_mutex);
     auto it = this->m_cache.find(sPath);
-    if (it != this->m_cache.end()) {
-        it->second.lRefCount++;
-        return it->second.module;
-    }
+    if (it != this->m_cache.end())
+        return it->second;
 
     auto itPending = this->m_pending.find(sPath);
     if (itPending == this->m_pending.end()) {
@@ -148,15 +136,13 @@ VkShaderModule VulkanShaderManager::GetShader(VkDevice device, const std::string
     return this->CompletePendingLoad(device, sPath);
 }
 
-void VulkanShaderManager::Release(const std::string& sPath) {
+void VulkanShaderManager::TrimUnused() {
     std::lock_guard<std::mutex> lock(this->m_mutex);
-    auto it = this->m_cache.find(sPath);
-    if (it == this->m_cache.end())
-        return;
-    it->second.lRefCount--;
-    if (it->second.lRefCount == static_cast<uint32_t>(0)) {
-        this->DestroyCached(it->second);
-        this->m_cache.erase(it);
+    for (auto it = this->m_cache.begin(); it != this->m_cache.end(); ) {
+        if (it->second.use_count() == 1u)
+            it = this->m_cache.erase(it);
+        else
+            ++it;
     }
 }
 

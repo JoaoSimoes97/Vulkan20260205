@@ -73,8 +73,8 @@ void VulkanCommandBuffers::Record(uint32_t index, VkRenderPass renderPass, VkFra
         throw std::runtime_error("VulkanCommandBuffers::Record: invalid clear values");
     }
     for (const auto& d : drawCalls) {
-        if (d.pipeline == VK_NULL_HANDLE || d.pipelineLayout == VK_NULL_HANDLE || d.vertexCount == 0) {
-            VulkanUtils::LogErr("VulkanCommandBuffers::Record: invalid DrawCall (pipeline/layout/vertexCount)");
+        if (d.pipeline == VK_NULL_HANDLE || d.pipelineLayout == VK_NULL_HANDLE || d.vertexCount == 0 || d.vertexBuffer == VK_NULL_HANDLE) {
+            VulkanUtils::LogErr("VulkanCommandBuffers::Record: invalid DrawCall (pipeline/layout/vertexCount/vertexBuffer)");
             throw std::runtime_error("VulkanCommandBuffers::Record: invalid DrawCall");
         }
     }
@@ -115,7 +115,8 @@ void VulkanCommandBuffers::Record(uint32_t index, VkRenderPass renderPass, VkFra
 
     for (const auto& d : drawCalls) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
-        /* Push constants: vertex + fragment stages when layout includes both (e.g. mat4 + color). */
+        if (d.vertexBuffer != VK_NULL_HANDLE)
+            vkCmdBindVertexBuffers(cmd, 0, 1, &d.vertexBuffer, &d.vertexBufferOffset);
         if (d.pPushConstants != nullptr && d.pushConstantSize > 0)
             vkCmdPushConstants(cmd, d.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, d.pushConstantSize, d.pPushConstants);
         vkCmdDraw(cmd, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);

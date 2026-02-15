@@ -1,6 +1,11 @@
 #pragma once
 
+#include "camera/camera.h"
+#include "managers/material_manager.h"
+#include "managers/mesh_manager.h"
 #include "managers/pipeline_manager.h"
+#include "managers/scene_manager.h"
+#include "render/render_list_builder.h"
 #include "thread/job_queue.h"
 #include "vulkan_config.h"
 #include "vulkan_command_buffers.h"
@@ -8,18 +13,18 @@
 #include "vulkan_device.h"
 #include "vulkan_framebuffers.h"
 #include "vulkan_instance.h"
-#include "scene/object.h"
 #include "vulkan_render_pass.h"
 #include "vulkan_shader_manager.h"
 #include "vulkan_sync.h"
 #include "vulkan_swapchain.h"
 #include "window.h"
+#include <chrono>
 #include <memory>
 #include <vector>
 
 /**
- * Main application: owns window, Vulkan instance/device/swapchain, render pass, pipeline manager,
- * framebuffers, command buffers, sync, and job queue (async shader loads).
+ * Main application: owns window, Vulkan instance/device/swapchain, render pass,
+ * pipeline/material/mesh managers, scene, camera, and frame loop.
  * See docs/architecture.md for init order and swapchain rebuild flow.
  */
 class VulkanApp {
@@ -28,8 +33,6 @@ public:
     ~VulkanApp();
 
     void Run();
-
-    /** Apply config at runtime; resizes window if needed and sets bSwapchainDirty for next-frame recreate. */
     void ApplyConfig(const VulkanConfig& newConfig);
 
 private:
@@ -50,10 +53,16 @@ private:
     VulkanRenderPass m_renderPass;
     VulkanDepthImage m_depthImage;
     PipelineManager m_pipelineManager;
+    MaterialManager m_materialManager;
+    MeshManager m_meshManager;
+    SceneManager m_sceneManager;
+    RenderListBuilder m_renderListBuilder;
+    std::vector<DrawCall> m_drawCalls;
     VulkanFramebuffers m_framebuffers;
     VulkanCommandBuffers m_commandBuffers;
     VulkanSync m_sync;
-    std::vector<Object> m_objects;
-    /** Camera position (world space); set from config at init, updated by WASD / arrows / QE. */
-    float m_cameraPosition[3] = { 0.f, 0.f, 0.f };
+
+    Camera m_camera;
+    float m_avgFrameTimeSec = 1.f / 60.f;
+    std::chrono::steady_clock::time_point m_lastFpsTitleUpdate;
 };

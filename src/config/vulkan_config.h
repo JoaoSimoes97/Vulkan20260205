@@ -21,7 +21,7 @@ struct VulkanConfig {
     uint32_t lImageCount = static_cast<uint32_t>(3);
     /** Max frames in flight (e.g. 2). Must be at least 1; typically 2. */
     uint32_t lMaxFramesInFlight = static_cast<uint32_t>(2);
-    VkPresentModeKHR ePresentMode = VK_PRESENT_MODE_FIFO_KHR;
+    VkPresentModeKHR ePresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;  /* no vsync; use "fifo" for vsync */
     /* Preferred surface format (e.g. "B8G8R8A8_SRGB"). Empty = driver default. */
     std::string sPreferredFormat = "B8G8R8A8_SRGB";
     /* Preferred color space (e.g. "SRGB_NONLINEAR"). Empty = driver default. */

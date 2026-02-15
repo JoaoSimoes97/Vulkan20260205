@@ -7,28 +7,27 @@
  */
 #include "vulkan_app.h"
 #include "config_loader.h"
-#include "vulkan_utils.h"
+#include "camera/camera_controller.h"
+#include "scene/object.h"
+#include "vulkan/vulkan_utils.h"
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_stdinc.h>
 #include <array>
-#include <cstring>
 #include <chrono>
+#include <cmath>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
-// -----------------------------------------------------------------------------
-// Constants (paths resolved via VulkanUtils::GetResourcePath; 0 = no time limit)
-// -----------------------------------------------------------------------------
-static constexpr int MAIN_LOOP_MAX_SECONDS = 0;
-static constexpr float FALLBACK_PAN_SPEED = 0.012f;
-static const char* CONFIG_PATH_USER       = "config/config.json";
-static const char* CONFIG_PATH_DEFAULT    = "config/default.json";
-static const char* SHADER_VERT_PATH       = "shaders/vert.spv";
-static const char* SHADER_FRAG_PATH       = "shaders/frag.spv";
-static const char* SHADER_FRAG_ALT_PATH   = "shaders/frag_alt.spv";
-static const char* PIPELINE_KEY_MAIN      = "main";
-static const char* PIPELINE_KEY_WIRE      = "wire";
-static const char* PIPELINE_KEY_ALT       = "alt";
+static const char* CONFIG_PATH_USER     = "config/config.json";
+static const char* CONFIG_PATH_DEFAULT  = "config/default.json";
+static const char* SHADER_VERT_PATH     = "shaders/vert.spv";
+static const char* SHADER_FRAG_PATH     = "shaders/frag.spv";
+static const char* SHADER_FRAG_ALT_PATH = "shaders/frag_alt.spv";
+static const char* PIPELINE_KEY_MAIN    = "main";
+static const char* PIPELINE_KEY_WIRE    = "wire";
+static const char* PIPELINE_KEY_ALT     = "alt";
+static constexpr float kDefaultPanSpeed = 0.012f;
 static constexpr float kOrthoFallbackHalfExtent = 8.f;
 
 VulkanApp::VulkanApp() {
@@ -36,9 +35,7 @@ VulkanApp::VulkanApp() {
     std::string userPath   = VulkanUtils::GetResourcePath(CONFIG_PATH_USER);
     std::string defaultPath = VulkanUtils::GetResourcePath(CONFIG_PATH_DEFAULT);
     m_config = LoadConfigFromFileOrCreate(userPath, defaultPath);
-    m_cameraPosition[0] = m_config.fInitialCameraX;
-    m_cameraPosition[1] = m_config.fInitialCameraY;
-    m_cameraPosition[2] = m_config.fInitialCameraZ;
+    m_camera.SetPosition(m_config.fInitialCameraX, m_config.fInitialCameraY, m_config.fInitialCameraZ);
     m_jobQueue.Start();
     m_shaderManager.Create(&m_jobQueue);
     InitWindow();
@@ -102,12 +99,45 @@ void VulkanApp::InitVulkan() {
     if (depthFormat != VK_FORMAT_UNDEFINED)
         m_depthImage.Create(m_device.GetDevice(), m_device.GetPhysicalDevice(), depthFormat, initExtent);
 
-    std::string vertPath = VulkanUtils::GetResourcePath(SHADER_VERT_PATH);
-    std::string fragPath = VulkanUtils::GetResourcePath(SHADER_FRAG_PATH);
+    std::string vertPath   = VulkanUtils::GetResourcePath(SHADER_VERT_PATH);
+    std::string fragPath   = VulkanUtils::GetResourcePath(SHADER_FRAG_PATH);
     std::string fragAltPath = VulkanUtils::GetResourcePath(SHADER_FRAG_ALT_PATH);
     m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN, &m_shaderManager, vertPath, fragPath);
     m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE, &m_shaderManager, vertPath, fragPath);
     m_pipelineManager.RequestPipeline(PIPELINE_KEY_ALT, &m_shaderManager, vertPath, fragAltPath);
+
+    constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
+    PipelineLayoutDescriptor mainLayoutDesc = {
+        .pushConstantRanges = {
+            { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
+        }
+    };
+    GraphicsPipelineParams pipeParamsMain = {
+        .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable  = VK_FALSE,
+        .polygonMode             = VK_POLYGON_MODE_FILL,
+        .cullMode                = m_config.bCullBackFaces ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE,
+        .frontFace               = VK_FRONT_FACE_CLOCKWISE,
+        .lineWidth               = 1.0f,
+        .rasterizationSamples    = VK_SAMPLE_COUNT_1_BIT,
+    };
+    GraphicsPipelineParams pipeParamsWire = pipeParamsMain;
+    pipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
+    m_materialManager.RegisterMaterial("main", PIPELINE_KEY_MAIN, mainLayoutDesc, pipeParamsMain);
+    m_materialManager.RegisterMaterial("wire", PIPELINE_KEY_WIRE, mainLayoutDesc, pipeParamsWire);
+    m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  mainLayoutDesc, pipeParamsMain);
+    m_meshManager.SetDevice(m_device.GetDevice());
+    m_meshManager.SetPhysicalDevice(m_device.GetPhysicalDevice());
+    m_meshManager.SetQueue(m_device.GetGraphicsQueue());
+    m_meshManager.SetQueueFamilyIndex(m_device.GetQueueFamilyIndices().graphicsFamily);
+    (void)m_meshManager.GetOrCreateProcedural("triangle");
+    (void)m_meshManager.GetOrCreateProcedural("circle");
+    (void)m_meshManager.GetOrCreateProcedural("rectangle");
+    (void)m_meshManager.GetOrCreateProcedural("cube");
+
+    m_sceneManager.SetDependencies(&m_jobQueue, &m_materialManager, &m_meshManager);
+    m_meshManager.SetJobQueue(&m_jobQueue);
+    m_sceneManager.SetCurrentScene(m_sceneManager.CreateDefaultScene());
 
     m_framebuffers.Create(m_device.GetDevice(), m_renderPass.Get(),
                           m_swapchain.GetImageViews(),
@@ -120,67 +150,6 @@ void VulkanApp::InitVulkan() {
     uint32_t maxFramesInFlight = (m_config.lMaxFramesInFlight >= 1u) ? m_config.lMaxFramesInFlight : 1u;
     m_sync.Create(m_device.GetDevice(), maxFramesInFlight, m_swapchain.GetImageCount());
 
-    /* 8 objects: 2 per type (first = main, second = wire). Spread in world ±4 XY, ±2 Z. 9th = alt shader. */
-    {
-        Object o = MakeTriangle();
-        ObjectSetTranslation(o.localTransform, -2.5f, 1.2f, -0.8f);
-        o.pipelineKey = PIPELINE_KEY_MAIN;
-        m_objects.push_back(o);
-    }
-    {
-        Object o = MakeTriangle();
-        ObjectSetTranslation(o.localTransform,  2.5f, 1.2f,  0.4f);
-        o.color[0]=1.f; o.color[1]=0.5f; o.color[2]=0.f; o.color[3]=1.f;
-        o.pipelineKey = PIPELINE_KEY_WIRE;
-        m_objects.push_back(o);
-    }
-    {
-        Object o = MakeCircle();
-        ObjectSetTranslation(o.localTransform, -2.8f, 0.f,  0.6f);
-        o.pipelineKey = PIPELINE_KEY_MAIN;
-        m_objects.push_back(o);
-    }
-    {
-        Object o = MakeCircle();
-        ObjectSetTranslation(o.localTransform, -0.8f, 2.5f, -0.4f);
-        o.color[0]=0.5f; o.color[1]=1.f; o.color[2]=0.5f; o.color[3]=1.f;
-        o.pipelineKey = PIPELINE_KEY_WIRE;
-        m_objects.push_back(o);
-    }
-    {
-        Object o = MakeRectangle();
-        ObjectSetTranslation(o.localTransform, 2.2f, 0.f, -1.f);
-        o.pipelineKey = PIPELINE_KEY_MAIN;
-        m_objects.push_back(o);
-    }
-    {
-        Object o = MakeRectangle();
-        ObjectSetTranslation(o.localTransform, 3.5f, 1.2f,  0.2f);
-        o.color[0]=0.5f; o.color[1]=0.5f; o.color[2]=1.f; o.color[3]=1.f;
-        o.pipelineKey = PIPELINE_KEY_WIRE;
-        m_objects.push_back(o);
-    }
-    {
-        Object o = MakeCube();
-        ObjectSetTranslation(o.localTransform, 0.f, 1.5f,  0.8f);
-        o.pipelineKey = PIPELINE_KEY_MAIN;
-        m_objects.push_back(o);
-    }
-    {
-        Object o = MakeCube();
-        ObjectSetTranslation(o.localTransform, 1.2f, -1.2f, -0.6f);
-        o.color[0]=1.f; o.color[1]=0.8f; o.color[2]=0.2f; o.color[3]=1.f;
-        o.pipelineKey = PIPELINE_KEY_WIRE;
-        m_objects.push_back(o);
-    }
-    /* One object with alt shader (grayscale). */
-    {
-        Object o = MakeTriangle();
-        ObjectSetTranslation(o.localTransform, 0.f, -2.2f,  1.f);
-        o.color[0]=0.8f; o.color[1]=0.2f; o.color[2]=0.8f; o.color[3]=1.f;
-        o.pipelineKey = PIPELINE_KEY_ALT;
-        m_objects.push_back(o);
-    }
 }
 
 void VulkanApp::RecreateSwapchainAndDependents() {
@@ -236,40 +205,24 @@ void VulkanApp::RecreateSwapchainAndDependents() {
 void VulkanApp::MainLoop() {
     VulkanUtils::LogTrace("MainLoop");
     bool quit = false;
-    const auto loopStart = std::chrono::steady_clock::now();
-
     while (!quit) {
-        if (MAIN_LOOP_MAX_SECONDS > 0) {
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::steady_clock::now() - loopStart).count();
-            if (elapsed >= MAIN_LOOP_MAX_SECONDS) {
-                VulkanUtils::LogInfo("Max run time ({} s) reached, exiting", MAIN_LOOP_MAX_SECONDS);
-                break;
-            }
-        }
+        const auto frameStart = std::chrono::steady_clock::now();
 
-        /* Process completed load jobs, poll events, update camera, handle resize, then record and present. */
-        m_jobQueue.ProcessCompletedJobs([](LoadJobType, const std::string&, std::vector<uint8_t>) {});
+        m_jobQueue.ProcessCompletedJobs([this](LoadJobType type, const std::string& path, std::vector<uint8_t> data) {
+            m_sceneManager.OnCompletedLoad(type, path, data);
+            m_meshManager.OnCompletedMeshFile(path, std::move(data));
+        });
+        m_shaderManager.TrimUnused();
+        m_pipelineManager.TrimUnused();
+        m_materialManager.TrimUnused();
+        m_meshManager.TrimUnused();
 
         quit = m_pWindow->PollEvents();
-        if (quit) {
-            VulkanUtils::LogTrace("Quitting main loop");
+        if (quit)
             break;
-        }
 
-        /* Camera: W/S = forward/back (Z), A/D = left/right (X), Q/E = down/up (Y). */
-        const float panSpeed = (m_config.fPanSpeed > 0.f) ? m_config.fPanSpeed : FALLBACK_PAN_SPEED;
-        const bool* keyState = SDL_GetKeyboardState(nullptr);
-        if (keyState[SDL_SCANCODE_W]) m_cameraPosition[2] -= panSpeed;  /* forward */
-        if (keyState[SDL_SCANCODE_S]) m_cameraPosition[2] += panSpeed;  /* back */
-        if (keyState[SDL_SCANCODE_A]) m_cameraPosition[0] -= panSpeed;  /* left */
-        if (keyState[SDL_SCANCODE_D]) m_cameraPosition[0] += panSpeed;  /* right */
-        if (keyState[SDL_SCANCODE_Q]) m_cameraPosition[1] -= panSpeed;  /* down */
-        if (keyState[SDL_SCANCODE_E]) m_cameraPosition[1] += panSpeed;  /* up */
-        if (keyState[SDL_SCANCODE_LEFT])  m_cameraPosition[0] -= panSpeed;
-        if (keyState[SDL_SCANCODE_RIGHT]) m_cameraPosition[0] += panSpeed;
-        if (keyState[SDL_SCANCODE_UP])    m_cameraPosition[1] += panSpeed;
-        if (keyState[SDL_SCANCODE_DOWN])  m_cameraPosition[1] -= panSpeed;
+        const float panSpeed = (m_config.fPanSpeed > 0.f) ? m_config.fPanSpeed : kDefaultPanSpeed;
+        CameraController_Update(m_camera, SDL_GetKeyboardState(nullptr), panSpeed);
 
         if (m_pWindow->GetWindowMinimized()) {
             VulkanUtils::LogTrace("Window minimized, skipping draw");
@@ -295,93 +248,53 @@ void VulkanApp::MainLoop() {
             RecreateSwapchainAndDependents();
         }
 
-        /* Pipelines: main (fill), wire (line), alt (different frag). Cull mode from config. */
-        GraphicsPipelineParams pipeParamsMain = {
-            .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-            .primitiveRestartEnable  = VK_FALSE,
-            .polygonMode             = VK_POLYGON_MODE_FILL,
-            .cullMode                = m_config.bCullBackFaces ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE,
-            .frontFace               = VK_FRONT_FACE_CLOCKWISE,
-            .lineWidth               = 1.0f,
-            .rasterizationSamples    = VK_SAMPLE_COUNT_1_BIT,
-        };
-        GraphicsPipelineParams pipeParamsWire = pipeParamsMain;
-        pipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
-        constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
-        PipelineLayoutDescriptor mainLayoutDesc = {
-            .pushConstantRanges = {
-                { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
-            }
-        };
-        VkPipeline pipelineMain = m_pipelineManager.GetPipelineIfReady(
-            PIPELINE_KEY_MAIN, m_device.GetDevice(), m_renderPass.Get(), &m_shaderManager, pipeParamsMain, mainLayoutDesc,
-            m_renderPass.HasDepthAttachment());
-        VkPipeline pipelineWire = m_pipelineManager.GetPipelineIfReady(
-            PIPELINE_KEY_WIRE, m_device.GetDevice(), m_renderPass.Get(), &m_shaderManager, pipeParamsWire, mainLayoutDesc,
-            m_renderPass.HasDepthAttachment());
-        VkPipeline pipelineAlt = m_pipelineManager.GetPipelineIfReady(
-            PIPELINE_KEY_ALT, m_device.GetDevice(), m_renderPass.Get(), &m_shaderManager, pipeParamsMain, mainLayoutDesc,
-            m_renderPass.HasDepthAttachment());
-        VkPipelineLayout layoutMain = m_pipelineManager.GetPipelineLayoutIfReady(PIPELINE_KEY_MAIN);
-        VkPipelineLayout layoutWire = m_pipelineManager.GetPipelineLayoutIfReady(PIPELINE_KEY_WIRE);
-        VkPipelineLayout layoutAlt  = m_pipelineManager.GetPipelineLayoutIfReady(PIPELINE_KEY_ALT);
-        bool anyPipelineReady = (pipelineMain != VK_NULL_HANDLE || pipelineWire != VK_NULL_HANDLE || pipelineAlt != VK_NULL_HANDLE) && !m_objects.empty();
-        if (anyPipelineReady) {
-            const float aspect = static_cast<float>(drawW) / static_cast<float>(drawH);
-            alignas(16) float projMat4[16];
-            if (m_config.bUsePerspective) {
-                ObjectSetPerspective(projMat4, m_config.fCameraFovYRad, aspect, m_config.fCameraNearZ, m_config.fCameraFarZ);
-            } else {
-                const float h = (m_config.fOrthoHalfExtent > 0.f) ? m_config.fOrthoHalfExtent : kOrthoFallbackHalfExtent;
-                ObjectSetOrtho(projMat4,
-                    -h * aspect, h * aspect,
-                    -h, h,
-                    m_config.fOrthoNear, m_config.fOrthoFar);
-            }
-            alignas(16) float viewMat4[16];
-            ObjectSetViewTranslation(viewMat4, m_cameraPosition[0], m_cameraPosition[1], m_cameraPosition[2]);
-            alignas(16) float viewProj[16];
-            ObjectMat4Multiply(viewProj, projMat4, viewMat4);
+        /* Build view-projection and per-object push data. */
+        const float aspect = static_cast<float>(drawW) / static_cast<float>(drawH);
+        alignas(16) float projMat4[16];
+        if (m_config.bUsePerspective) {
+            ObjectSetPerspective(projMat4, m_config.fCameraFovYRad, aspect, m_config.fCameraNearZ, m_config.fCameraFarZ);
+        } else {
+            const float h = (m_config.fOrthoHalfExtent > 0.f) ? m_config.fOrthoHalfExtent : kOrthoFallbackHalfExtent;
+            ObjectSetOrtho(projMat4,
+                -h * aspect, h * aspect,
+                -h, h,
+                m_config.fOrthoNear, m_config.fOrthoFar);
+        }
+        alignas(16) float viewMat4[16];
+        m_camera.GetViewMatrix(viewMat4);
+        alignas(16) float viewProj[16];
+        ObjectMat4Multiply(viewProj, projMat4, viewMat4);
 
-            for (auto& obj : m_objects) {
-                if (obj.pushData.size() >= kObjectPushConstantSize) {
-                    ObjectMat4Multiply(reinterpret_cast<float*>(obj.pushData.data()), viewProj, obj.localTransform);
-                    std::memcpy(obj.pushData.data() + kObjectMat4Bytes, obj.color, kObjectColorBytes);
-                }
-            }
+        Scene* pScene = m_sceneManager.GetCurrentScene();
+        if (pScene)
+            pScene->FillPushDataForAllObjects(viewProj);
 
-            std::vector<DrawCall> drawCalls;
-            drawCalls.reserve(m_objects.size());
-            for (const auto& obj : m_objects) {
-                if (obj.pushDataSize == 0u || obj.pushData.empty() || obj.vertexCount == 0u)
-                    continue;
-                VkPipeline pipe = VK_NULL_HANDLE;
-                VkPipelineLayout layout = VK_NULL_HANDLE;
-                if (obj.pipelineKey == PIPELINE_KEY_WIRE) { pipe = pipelineWire; layout = layoutWire; }
-                else if (obj.pipelineKey == PIPELINE_KEY_ALT) { pipe = pipelineAlt; layout = layoutAlt; }
-                else { pipe = pipelineMain; layout = layoutMain; }
-                if (pipe == VK_NULL_HANDLE || layout == VK_NULL_HANDLE)
-                    continue;
-                drawCalls.push_back({
-                    .pipeline         = pipe,
-                    .pipelineLayout   = layout,
-                    .pPushConstants   = obj.pushData.data(),
-                    .pushConstantSize = obj.pushDataSize,
-                    .vertexCount      = obj.vertexCount,
-                    .instanceCount   = obj.instanceCount,
-                    .firstVertex     = obj.firstVertex,
-                    .firstInstance   = obj.firstInstance
-                });
-            }
+        /* Build draw list from scene (sorted by pipeline, mesh); reuse m_drawCalls. */
+        m_renderListBuilder.Build(m_drawCalls, pScene,
+                                  m_device.GetDevice(), m_renderPass.Get(), m_renderPass.HasDepthAttachment(),
+                                  &m_pipelineManager, &m_materialManager, &m_shaderManager);
 
-            if (!drawCalls.empty())
-                DrawFrame(drawCalls);
+        /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
+        DrawFrame(m_drawCalls);
+
+        /* FPS in window title (smoothed, update every 0.25 s). */
+        const auto frameEnd = std::chrono::steady_clock::now();
+        const double dt = std::chrono::duration<double>(frameEnd - frameStart).count();
+        if (dt > 0.0)
+            m_avgFrameTimeSec = 0.9f * m_avgFrameTimeSec + 0.1f * static_cast<float>(dt);
+        constexpr double kFpsTitleIntervalSec = 0.25;
+        if (std::chrono::duration<double>(frameEnd - m_lastFpsTitleUpdate).count() >= kFpsTitleIntervalSec) {
+            const int fps = static_cast<int>(std::round(1.0 / static_cast<double>(m_avgFrameTimeSec)));
+            const std::string baseTitle = m_config.sWindowTitle.empty() ? "Vulkan App" : m_config.sWindowTitle;
+            m_pWindow->SetTitle((baseTitle + " - " + std::to_string(fps) + " FPS").c_str());
+            m_lastFpsTitleUpdate = frameEnd;
         }
     }
 }
 
 void VulkanApp::Run() {
     MainLoop();
+    Cleanup();
 }
 
 void VulkanApp::ApplyConfig(const VulkanConfig& newConfig) {
@@ -399,11 +312,11 @@ void VulkanApp::ApplyConfig(const VulkanConfig& newConfig) {
 }
 
 void VulkanApp::Cleanup() {
-    if (m_device.IsValid()) {
-        VkResult r = vkDeviceWaitIdle(m_device.GetDevice());
-        if (r != VK_SUCCESS)
-            VulkanUtils::LogErr("vkDeviceWaitIdle before cleanup failed: {}", static_cast<int>(r));
-    }
+    if (!m_device.IsValid())
+        return;
+    VkResult r = vkDeviceWaitIdle(m_device.GetDevice());
+    if (r != VK_SUCCESS)
+        VulkanUtils::LogErr("vkDeviceWaitIdle before cleanup failed: {}", static_cast<int>(r));
     m_sync.Destroy();
     m_commandBuffers.Destroy();
     m_framebuffers.Destroy();
@@ -411,12 +324,15 @@ void VulkanApp::Cleanup() {
     m_pipelineManager.DestroyPipelines();
     m_renderPass.Destroy();
     m_swapchain.Destroy();
+    /* Drop scene refs so MeshHandles are only owned by MeshManager; then clear cache to destroy buffers. */
+    m_sceneManager.UnloadScene();
+    m_meshManager.Destroy();
+    m_shaderManager.Destroy();
     m_device.Destroy();
     if (m_pWindow && m_instance.IsValid())
         m_pWindow->DestroySurface(m_instance.Get());
     m_instance.Destroy();
     m_pWindow.reset();
-    m_shaderManager.Destroy();
     m_jobQueue.Stop();
 }
 
@@ -427,7 +343,9 @@ void VulkanApp::DrawFrame(const std::vector<DrawCall>& drawCalls) {
     VkSemaphore imageAvailable = m_sync.GetImageAvailableSemaphore(frameIndex);
 
     constexpr uint64_t timeout = UINT64_MAX;
-    VkResult r = vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, timeout);
+    /* Wait for all in-flight frames so no command buffer still uses buffers/pipelines we are about to destroy. */
+    const uint32_t maxFrames = m_sync.GetMaxFramesInFlight();
+    VkResult r = vkWaitForFences(device, maxFrames, m_sync.GetInFlightFencePtr(), VK_TRUE, timeout);
     if (r != VK_SUCCESS) {
         VulkanUtils::LogErr("vkWaitForFences failed: {}", static_cast<int>(r));
         return;
@@ -437,6 +355,9 @@ void VulkanApp::DrawFrame(const std::vector<DrawCall>& drawCalls) {
         VulkanUtils::LogErr("vkResetFences failed: {}", static_cast<int>(r));
         return;
     }
+    /* Safe to destroy pipelines and mesh buffers that were trimmed (all in-flight work finished). */
+    m_pipelineManager.ProcessPendingDestroys();
+    m_meshManager.ProcessPendingDestroys();
 
     uint32_t imageIndex = 0;
     r = vkAcquireNextImageKHR(device, m_swapchain.GetSwapchain(), timeout,

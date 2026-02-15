@@ -2,13 +2,17 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
+struct MaterialHandle;
+class MeshHandle;
+
 /**
- * General drawable object for debugging and future scene/render list.
- * Holds pipeline key, shape tag, arbitrary push data, and draw params.
- * Will be extended (mesh id, material id, descriptor sets, etc.) per docs.
+ * General drawable object: owns refs to material and mesh; per-object data (transform, color).
+ * Scene/object manager is the center: when all objects using a material/mesh are removed, refs drop and managers can trim.
  */
 enum class Shape {
     Triangle,
@@ -18,7 +22,10 @@ enum class Shape {
 };
 
 struct Object {
-    std::string              pipelineKey   = "main";
+    /** Material and mesh refs; draw list resolves these to VkPipeline and draw params. */
+    std::shared_ptr<MaterialHandle> pMaterial;
+    std::shared_ptr<MeshHandle>    pMesh;
+
     Shape                    shape         = Shape::Triangle;
     /** Local transform (column-major mat4). Used with projection to fill pushData each frame. */
     alignas(16) float        localTransform[16] = {
@@ -30,6 +37,7 @@ struct Object {
     /** Arbitrary data pushed to the GPU (e.g. mat4 + color). Filled each frame from projection * localTransform + color. */
     std::vector<uint8_t>     pushData;
     uint32_t                 pushDataSize  = 0u;
+    /** Fallback draw params when pMesh is null (e.g. legacy or tests). */
     uint32_t                 vertexCount   = 3u;
     uint32_t                 instanceCount = 1u;
     uint32_t                 firstVertex   = 0u;
@@ -104,6 +112,18 @@ inline void ObjectMat4Multiply(float* out16, const float* proj16, const float* m
 constexpr uint32_t kObjectMat4Bytes       = 64u;
 constexpr uint32_t kObjectColorBytes      = 16u;
 constexpr uint32_t kObjectPushConstantSize = kObjectMat4Bytes + kObjectColorBytes;
+
+/** Fill object pushData from viewProj * localTransform and color. Ensures pushData is sized; call each frame before draw. */
+inline void ObjectFillPushData(Object& obj, const float* viewProj) {
+    if (obj.pushData.size() < kObjectPushConstantSize) {
+        obj.pushData.resize(kObjectPushConstantSize);
+        obj.pushDataSize = kObjectPushConstantSize;
+    }
+    if (viewProj && obj.pushData.size() >= kObjectPushConstantSize) {
+        ObjectMat4Multiply(reinterpret_cast<float*>(obj.pushData.data()), viewProj, obj.localTransform);
+        std::memcpy(obj.pushData.data() + kObjectMat4Bytes, obj.color, kObjectColorBytes);
+    }
+}
 
 inline Object MakeTriangle() {
     Object o;

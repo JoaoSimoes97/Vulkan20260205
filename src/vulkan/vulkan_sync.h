@@ -25,6 +25,8 @@ public:
     }
 
     VkFence GetInFlightFence(uint32_t frameIndex) const;
+    /** Pointer to all in-flight fences (size = GetMaxFramesInFlight()). Wait for all before destroying trimmed resources. */
+    const VkFence* GetInFlightFencePtr() const { return m_inFlightFences.data(); }
     VkSemaphore GetImageAvailableSemaphore(uint32_t frameIndex) const;
     /** Per swapchain image; use the acquired imageIndex, not frame index. */
     VkSemaphore GetRenderFinishedSemaphore(uint32_t imageIndex) const;
