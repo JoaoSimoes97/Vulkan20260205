@@ -25,6 +25,7 @@ Placeholder for later improvements. Not in scope for current learning path.
 - **Vertex buffers** – Render more complex geometry with real vertex data (Phase 2: MeshManager).
 - **Textures** – Load and sample textures (Phase 5: descriptors).
 - **Uniform buffers** – Push transforms (MVP, etc.) to shaders; descriptor set layouts in pipeline.
+- **Indirect buffers** – Draw (or dispatch) parameters live in a GPU buffer; the CPU records `vkCmdDrawIndirect(buffer, offset, drawCount, stride)` (or `vkCmdDrawIndexedIndirect`) and the GPU reads the buffer to execute one draw per entry. **Use when:** batching many draws (one indirect multi-draw instead of thousands of `vkCmdDraw*`), or GPU-driven pipelines (compute writes the indirect buffer for culling/LOD). **Performance:** reduces CPU work and command count when draw count is very high; does not change the amount of raster work. Consider after instancing and descriptor sets if still CPU-bound on draw count. See [Indirect buffers](indirect-buffers.md) for details.
 
 ---
 

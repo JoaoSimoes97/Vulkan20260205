@@ -7,16 +7,24 @@
 #include <vector>
 
 struct PipelineLayoutDescriptor {
-    std::vector<VkPushConstantRange> pushConstantRanges;
+    std::vector<VkPushConstantRange>    pushConstantRanges;
+    /** Optional descriptor set layouts (e.g. for textures/UBOs). Empty = no descriptor sets. */
+    std::vector<VkDescriptorSetLayout>  descriptorSetLayouts;
 };
 
 inline bool operator==(const PipelineLayoutDescriptor& a, const PipelineLayoutDescriptor& b) {
     if (a.pushConstantRanges.size() != b.pushConstantRanges.size())
         return false;
+    if (a.descriptorSetLayouts.size() != b.descriptorSetLayouts.size())
+        return false;
     for (size_t i = 0; i < a.pushConstantRanges.size(); ++i) {
         const auto& ra = a.pushConstantRanges[i];
         const auto& rb = b.pushConstantRanges[i];
         if (ra.stageFlags != rb.stageFlags || ra.offset != rb.offset || ra.size != rb.size)
+            return false;
+    }
+    for (size_t i = 0; i < a.descriptorSetLayouts.size(); ++i) {
+        if (a.descriptorSetLayouts[i] != b.descriptorSetLayouts[i])
             return false;
     }
     return true;

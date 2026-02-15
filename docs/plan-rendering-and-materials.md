@@ -7,7 +7,7 @@ Roadmap for the draw loop, pipeline state (including blend), and materials. Comp
 ## Current state
 
 - **Done**: Swapchain, render pass (from descriptor: color + optional depth), **VulkanDepthImage**, framebuffers (color + optional depth views), pipeline with `GraphicsPipelineParams` (including **depth state**, **blend state**, and vertex input), pipeline manager (get by key, returns VkPipeline/VkPipelineLayout; shaders via shared_ptr + deleter, TrimUnused). **Pipeline layout parameterization**: `PipelineLayoutDescriptor` (push ranges). Draw loop: acquire → record (render area, viewport, scissor, clear values, draw list; **vertex buffer bind per draw**) → submit → present; out-of-date handling. **DrawCall** includes vertex buffer + offset; command buffers bind vertex buffers then draw. **MeshManager** (MeshHandle owns VkBuffer/VkDeviceMemory), **MaterialManager**, **TextureManager** (TextureHandle: image/view/sampler; stb_image, TrimUnused), **Scene**/SceneManager, **RenderListBuilder** (build draw list from scene, sort by pipeline/mesh; optional frustum culling and push constant size validation). Perspective and orthographic projection (config-driven); view matrix from camera position; initial camera and pan speed from config. Resize syncs swapchain to drawable size every frame. **Single Cleanup() path**: UnloadScene → MeshManager.Destroy() → TextureManager.Destroy() → ShaderManager.Destroy() → Device.
-- **Not yet**: Descriptor sets (textures in shaders); instancing.
+- **Not yet**: Materials + textures (bind texture to descriptor set, add set layout to pipeline, bind set in Record); instancing. Descriptor set infrastructure (layout, pool, one set) is in place.
 
 ---
 

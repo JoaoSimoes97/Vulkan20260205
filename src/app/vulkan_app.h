@@ -67,6 +67,11 @@ private:
     VulkanCommandBuffers m_commandBuffers;
     VulkanSync m_sync;
 
+    /* Descriptor set infrastructure for materials + textures (layout/pool ready; sets used when pipeline has descriptor set layout). */
+    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool      m_descriptorPool      = VK_NULL_HANDLE;
+    VkDescriptorSet       m_descriptorSet       = VK_NULL_HANDLE;
+
     Camera m_camera;
     float m_avgFrameTimeSec = 1.f / 60.f;
     std::chrono::steady_clock::time_point m_lastFpsTitleUpdate;

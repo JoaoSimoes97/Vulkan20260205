@@ -111,7 +111,8 @@ void VulkanApp::InitVulkan() {
     PipelineLayoutDescriptor stMainLayoutDesc = {
         .pushConstantRanges = {
             { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
-        }
+        },
+        .descriptorSetLayouts = {},
     };
     GraphicsPipelineParams stPipeParamsMain = {
         .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -144,6 +145,65 @@ void VulkanApp::InitVulkan() {
     this->m_meshManager.SetJobQueue(&this->m_jobQueue);
     this->m_textureManager.SetJobQueue(&this->m_jobQueue);
     this->m_sceneManager.SetCurrentScene(this->m_sceneManager.CreateDefaultScene());
+
+    /* Descriptor set layout (1 binding: combined image sampler for fragment) and pool; one set allocated for future texture binding. */
+    {
+        VkDescriptorSetLayoutBinding stBinding = {
+            .binding            = static_cast<uint32_t>(0),
+            .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount    = static_cast<uint32_t>(1),
+            .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        };
+        VkDescriptorSetLayoutCreateInfo stLayoutInfo = {
+            .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext        = nullptr,
+            .flags        = static_cast<VkDescriptorSetLayoutCreateFlags>(0),
+            .bindingCount = static_cast<uint32_t>(1),
+            .pBindings    = &stBinding,
+        };
+        VkResult rLayout = vkCreateDescriptorSetLayout(this->m_device.GetDevice(), &stLayoutInfo, nullptr, &this->m_descriptorSetLayout);
+        if (rLayout != VK_SUCCESS) {
+            VulkanUtils::LogErr("vkCreateDescriptorSetLayout failed: {}", static_cast<int>(rLayout));
+            throw std::runtime_error("VulkanApp::InitVulkan: descriptor set layout failed");
+        }
+        VkDescriptorPoolSize stPoolSize = {
+            .type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = static_cast<uint32_t>(2),
+        };
+        VkDescriptorPoolCreateInfo stPoolInfo = {
+            .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .pNext         = nullptr,
+            .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+            .maxSets       = static_cast<uint32_t>(2),
+            .poolSizeCount = static_cast<uint32_t>(1),
+            .pPoolSizes    = &stPoolSize,
+        };
+        VkResult rPool = vkCreateDescriptorPool(this->m_device.GetDevice(), &stPoolInfo, nullptr, &this->m_descriptorPool);
+        if (rPool != VK_SUCCESS) {
+            vkDestroyDescriptorSetLayout(this->m_device.GetDevice(), this->m_descriptorSetLayout, nullptr);
+            this->m_descriptorSetLayout = VK_NULL_HANDLE;
+            VulkanUtils::LogErr("vkCreateDescriptorPool failed: {}", static_cast<int>(rPool));
+            throw std::runtime_error("VulkanApp::InitVulkan: descriptor pool failed");
+        }
+        VkDescriptorSetLayout pLayout = this->m_descriptorSetLayout;
+        VkDescriptorSetAllocateInfo stAllocInfo = {
+            .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .pNext              = nullptr,
+            .descriptorPool     = this->m_descriptorPool,
+            .descriptorSetCount  = static_cast<uint32_t>(1),
+            .pSetLayouts        = &pLayout,
+        };
+        VkResult rAlloc = vkAllocateDescriptorSets(this->m_device.GetDevice(), &stAllocInfo, &this->m_descriptorSet);
+        if (rAlloc != VK_SUCCESS) {
+            vkDestroyDescriptorPool(this->m_device.GetDevice(), this->m_descriptorPool, nullptr);
+            this->m_descriptorPool = VK_NULL_HANDLE;
+            vkDestroyDescriptorSetLayout(this->m_device.GetDevice(), this->m_descriptorSetLayout, nullptr);
+            this->m_descriptorSetLayout = VK_NULL_HANDLE;
+            VulkanUtils::LogErr("vkAllocateDescriptorSets failed: {}", static_cast<int>(rAlloc));
+            throw std::runtime_error("VulkanApp::InitVulkan: descriptor set allocation failed");
+        }
+    }
 
     this->m_framebuffers.Create(this->m_device.GetDevice(), this->m_renderPass.Get(),
                           this->m_swapchain.GetImageViews(),
@@ -351,6 +411,18 @@ void VulkanApp::Cleanup() {
     this->m_sceneManager.UnloadScene();
     this->m_meshManager.Destroy();
     this->m_textureManager.Destroy();
+    if (this->m_descriptorPool != VK_NULL_HANDLE) {
+        if (this->m_descriptorSet != VK_NULL_HANDLE) {
+            vkFreeDescriptorSets(this->m_device.GetDevice(), this->m_descriptorPool, 1, &this->m_descriptorSet);
+            this->m_descriptorSet = VK_NULL_HANDLE;
+        }
+        vkDestroyDescriptorPool(this->m_device.GetDevice(), this->m_descriptorPool, nullptr);
+        this->m_descriptorPool = VK_NULL_HANDLE;
+    }
+    if (this->m_descriptorSetLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(this->m_device.GetDevice(), this->m_descriptorSetLayout, nullptr);
+        this->m_descriptorSetLayout = VK_NULL_HANDLE;
+    }
     this->m_shaderManager.Destroy();
     this->m_device.Destroy();
     if ((this->m_pWindow != nullptr) && (this->m_instance.IsValid() == true))

@@ -51,7 +51,7 @@ To support an editor with many objects and different GPU data per object: MeshMa
 
 ## 4. Not done yet
 
-- **Descriptor sets**: Pipeline layout has only push constants; no descriptor set layouts yet. Materials cannot bind textures in shaders until descriptor sets and bindings are added.
+- **Descriptor sets**: Infrastructure in place (optional descriptor set layouts in `PipelineLayoutDescriptor`; app creates one layout + pool + one set for combined image sampler). Pipelines can now include descriptor set layouts; next: bind texture to the set, add layout to material pipeline, and bind set in command buffer (materials + textures).
 - **Instancing**: RenderListBuilder still emits one draw per object; no grouping by (mesh, material) with instanceCount > 1.
 
 ---
@@ -65,4 +65,5 @@ To support an editor with many objects and different GPU data per object: MeshMa
 5. **Done**: Smart pointers; MeshManager (procedural + RequestLoadMesh/OnCompletedMeshFile, .obj parse); Scene + SceneManager; **RenderListBuilder** (sort by pipeline/mesh, frustum culling, push size validation, reuse vector). Single Cleanup() path. See §0 and [architecture.md](architecture.md).
 6. **Done**: Mesh vertex buffer upload and pipeline vertex input; MeshHandle owns buffers; DrawCall vertex buffer binding; UnloadScene before MeshManager.Destroy() in cleanup. See [plan-editor-and-scene.md](plan-editor-and-scene.md).
 7. **Done**: Texture manager (stb_image, TextureHandle, cache, async load, TrimUnused, Destroy before device).
-8. **Next**: Descriptor sets and materials + textures; then instancing.
+8. **Done**: Descriptor set infrastructure (layout, pool, one set; pipeline layout supports optional descriptor set layouts).
+9. **Next**: Materials + textures (bind texture to set, add layout to pipeline, bind set in Record); then instancing.

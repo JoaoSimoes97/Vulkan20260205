@@ -4,7 +4,7 @@ Overview of project documentation. All paths are relative to the project root.
 
 ## Next up
 
-**Managers and draw path done** — MeshManager, TextureManager (stb_image, async load, TrimUnused), Scene, SceneManager, RenderListBuilder (sort by pipeline/mesh, frustum culling, push size validation), typed JobQueue (LoadFile/LoadMesh/LoadTexture), blend in pipeline params. **Next**: descriptor sets and materials + textures (bind textures in shaders); then instancing. See [plan-editor-and-scene.md](plan-editor-and-scene.md) and [plan-loading-and-managers.md](plan-loading-and-managers.md).
+**Managers and draw path done** — MeshManager, TextureManager (stb_image, async load, TrimUnused), Scene, SceneManager, RenderListBuilder (sort by pipeline/mesh, frustum culling, push size validation), typed JobQueue (LoadFile/LoadMesh/LoadTexture), blend in pipeline params. **Descriptor set infrastructure** in place (layout, pool, one set; pipeline layout supports optional descriptor set layouts). **Next**: materials + textures (bind texture to set, add layout to pipeline, bind set in Record); then instancing. See [plan-editor-and-scene.md](plan-editor-and-scene.md) and [plan-loading-and-managers.md](plan-loading-and-managers.md).
 
 ---
 
