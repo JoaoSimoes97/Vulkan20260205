@@ -31,5 +31,6 @@ public:
                PipelineManager* pPipelineManager_ic,
                MaterialManager* pMaterialManager_ic,
                VulkanShaderManager* pShaderManager_ic,
-               const float* pViewProj_ic = nullptr);
+               const float* pViewProj_ic = nullptr,
+               VkDescriptorSet pDescriptorSetForMain_ic = VK_NULL_HANDLE);
 };

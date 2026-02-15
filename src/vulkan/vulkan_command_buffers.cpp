@@ -115,6 +115,8 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
 
     for (const auto& stD : vecDrawCalls_ic) {
         vkCmdBindPipeline(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipeline);
+        if ((stD.descriptorSetCount > 0) && (stD.descriptorSet != VK_NULL_HANDLE))
+            vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipelineLayout, 0, stD.descriptorSetCount, &stD.descriptorSet, 0, nullptr);
         if (stD.vertexBuffer != VK_NULL_HANDLE)
             vkCmdBindVertexBuffers(pCmd, 0, 1, &stD.vertexBuffer, &stD.vertexBufferOffset);
         if ((stD.pPushConstants != nullptr) && (stD.pushConstantSize > 0))

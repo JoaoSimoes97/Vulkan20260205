@@ -197,6 +197,18 @@ std::shared_ptr<TextureHandle> TextureManager::GetTexture(const std::string& pat
     return it->second;
 }
 
+std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultTexture() {
+    const char* sDefaultKey = "__default";
+    auto it = m_cache.find(sDefaultKey);
+    if (it != m_cache.end())
+        return it->second;
+    unsigned char whitePixel[4] = { 255, 255, 255, 255 };
+    std::shared_ptr<TextureHandle> pHandle = UploadTexture(1, 1, 4, whitePixel);
+    if (pHandle != nullptr)
+        m_cache[sDefaultKey] = pHandle;
+    return pHandle;
+}
+
 void TextureManager::RequestLoadTexture(const std::string& path) {
     if (m_pJobQueue == nullptr) return;
     if (m_pendingPaths.count(path) != 0) return;

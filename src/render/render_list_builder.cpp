@@ -60,7 +60,8 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
                               PipelineManager* pPipelineManager_ic,
                               MaterialManager* pMaterialManager_ic,
                               VulkanShaderManager* pShaderManager_ic,
-                              const float* pViewProj_ic) {
+                              const float* pViewProj_ic,
+                              VkDescriptorSet pDescriptorSetForMain_ic) {
     vecOutDrawCalls_out.clear();
     if ((pScene_ic == nullptr) || (pPipelineManager_ic == nullptr) || (pMaterialManager_ic == nullptr) || (pShaderManager_ic == nullptr))
         return;
@@ -96,7 +97,7 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
         const uint32_t lVc = obj.pMesh->GetVertexCount();
         if (lVc == 0u)
             continue;
-        vecOutDrawCalls_out.push_back({
+        DrawCall stD = {
             .pipeline          = pPipe,
             .pipelineLayout    = pLayout,
             .vertexBuffer      = obj.pMesh->GetVertexBuffer(),
@@ -106,8 +107,15 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
             .vertexCount       = lVc,
             .instanceCount     = obj.pMesh->GetInstanceCount(),
             .firstVertex       = obj.pMesh->GetFirstVertex(),
-            .firstInstance     = obj.pMesh->GetFirstInstance()
-        });
+            .firstInstance     = obj.pMesh->GetFirstInstance(),
+            .descriptorSetCount = 0,
+            .descriptorSet     = VK_NULL_HANDLE,
+        };
+        if ((pDescriptorSetForMain_ic != VK_NULL_HANDLE) && (obj.pMaterial->pipelineKey == "main")) {
+            stD.descriptorSetCount = 1;
+            stD.descriptorSet     = pDescriptorSetForMain_ic;
+        }
+        vecOutDrawCalls_out.push_back(stD);
     }
 
     std::sort(vecOutDrawCalls_out.begin(), vecOutDrawCalls_out.end(), DrawCallOrder);

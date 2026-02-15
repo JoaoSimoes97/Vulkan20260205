@@ -55,6 +55,8 @@ public:
 
     /** Return cached texture or nullptr if not loaded yet. */
     std::shared_ptr<TextureHandle> GetTexture(const std::string& path) const;
+    /** Create and cache a 1x1 white texture for default/fallback (e.g. descriptor set). Returns nullptr if device not set. */
+    std::shared_ptr<TextureHandle> GetOrCreateDefaultTexture();
     void RequestLoadTexture(const std::string& path);
     void OnCompletedTexture(const std::string& sPath_ic, std::vector<uint8_t> vecData_in);
 

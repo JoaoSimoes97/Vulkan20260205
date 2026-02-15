@@ -17,6 +17,9 @@ struct DrawCall {
     uint32_t          instanceCount    = 1;
     uint32_t          firstVertex      = 0;
     uint32_t          firstInstance    = 0;
+    /** Descriptor set(s) to bind when pipeline layout has descriptor set layouts. Set count must match layout. */
+    uint32_t          descriptorSetCount = 0;
+    VkDescriptorSet   descriptorSet     = VK_NULL_HANDLE;
 };
 
 /*

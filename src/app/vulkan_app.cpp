@@ -107,46 +107,7 @@ void VulkanApp::InitVulkan() {
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_ALT, &this->m_shaderManager, sVertPath, sFragAltPath);
 
-    constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
-    PipelineLayoutDescriptor stMainLayoutDesc = {
-        .pushConstantRanges = {
-            { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
-        },
-        .descriptorSetLayouts = {},
-    };
-    GraphicsPipelineParams stPipeParamsMain = {
-        .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-        .primitiveRestartEnable  = VK_FALSE,
-        .polygonMode             = VK_POLYGON_MODE_FILL,
-        .cullMode                = (this->m_config.bCullBackFaces == true) ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE,
-        .frontFace               = VK_FRONT_FACE_CLOCKWISE,
-        .lineWidth               = static_cast<float>(1.0f),
-        .rasterizationSamples    = VK_SAMPLE_COUNT_1_BIT,
-    };
-    GraphicsPipelineParams stPipeParamsWire = stPipeParamsMain;
-    stPipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
-    this->m_materialManager.RegisterMaterial("main", PIPELINE_KEY_MAIN, stMainLayoutDesc, stPipeParamsMain);
-    this->m_materialManager.RegisterMaterial("wire", PIPELINE_KEY_WIRE, stMainLayoutDesc, stPipeParamsWire);
-    this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stMainLayoutDesc, stPipeParamsMain);
-    this->m_meshManager.SetDevice(this->m_device.GetDevice());
-    this->m_meshManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
-    this->m_meshManager.SetQueue(this->m_device.GetGraphicsQueue());
-    this->m_meshManager.SetQueueFamilyIndex(this->m_device.GetQueueFamilyIndices().graphicsFamily);
-    this->m_textureManager.SetDevice(this->m_device.GetDevice());
-    this->m_textureManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
-    this->m_textureManager.SetQueue(this->m_device.GetGraphicsQueue());
-    this->m_textureManager.SetQueueFamilyIndex(this->m_device.GetQueueFamilyIndices().graphicsFamily);
-    (void)this->m_meshManager.GetOrCreateProcedural("triangle");
-    (void)this->m_meshManager.GetOrCreateProcedural("circle");
-    (void)this->m_meshManager.GetOrCreateProcedural("rectangle");
-    (void)this->m_meshManager.GetOrCreateProcedural("cube");
-
-    this->m_sceneManager.SetDependencies(&this->m_jobQueue, &this->m_materialManager, &this->m_meshManager);
-    this->m_meshManager.SetJobQueue(&this->m_jobQueue);
-    this->m_textureManager.SetJobQueue(&this->m_jobQueue);
-    this->m_sceneManager.SetCurrentScene(this->m_sceneManager.CreateDefaultScene());
-
-    /* Descriptor set layout (1 binding: combined image sampler for fragment) and pool; one set allocated for future texture binding. */
+    /* Descriptor set layout (1 binding: combined image sampler for fragment). Created before materials so main pipeline can use it. */
     {
         VkDescriptorSetLayoutBinding stBinding = {
             .binding            = static_cast<uint32_t>(0),
@@ -167,6 +128,55 @@ void VulkanApp::InitVulkan() {
             VulkanUtils::LogErr("vkCreateDescriptorSetLayout failed: {}", static_cast<int>(rLayout));
             throw std::runtime_error("VulkanApp::InitVulkan: descriptor set layout failed");
         }
+    }
+
+    constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
+    PipelineLayoutDescriptor stMainLayoutDesc = {
+        .pushConstantRanges = {
+            { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
+        },
+        .descriptorSetLayouts = { this->m_descriptorSetLayout },
+    };
+    PipelineLayoutDescriptor stWireAltLayoutDesc = {
+        .pushConstantRanges = {
+            { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
+        },
+        .descriptorSetLayouts = {},
+    };
+    GraphicsPipelineParams stPipeParamsMain = {
+        .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable  = VK_FALSE,
+        .polygonMode             = VK_POLYGON_MODE_FILL,
+        .cullMode                = (this->m_config.bCullBackFaces == true) ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE,
+        .frontFace               = VK_FRONT_FACE_CLOCKWISE,
+        .lineWidth               = static_cast<float>(1.0f),
+        .rasterizationSamples    = VK_SAMPLE_COUNT_1_BIT,
+    };
+    GraphicsPipelineParams stPipeParamsWire = stPipeParamsMain;
+    stPipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
+    this->m_materialManager.RegisterMaterial("main", PIPELINE_KEY_MAIN, stMainLayoutDesc, stPipeParamsMain);
+    this->m_materialManager.RegisterMaterial("wire", PIPELINE_KEY_WIRE, stWireAltLayoutDesc, stPipeParamsWire);
+    this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stWireAltLayoutDesc, stPipeParamsMain);
+    this->m_meshManager.SetDevice(this->m_device.GetDevice());
+    this->m_meshManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
+    this->m_meshManager.SetQueue(this->m_device.GetGraphicsQueue());
+    this->m_meshManager.SetQueueFamilyIndex(this->m_device.GetQueueFamilyIndices().graphicsFamily);
+    this->m_textureManager.SetDevice(this->m_device.GetDevice());
+    this->m_textureManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
+    this->m_textureManager.SetQueue(this->m_device.GetGraphicsQueue());
+    this->m_textureManager.SetQueueFamilyIndex(this->m_device.GetQueueFamilyIndices().graphicsFamily);
+    (void)this->m_meshManager.GetOrCreateProcedural("triangle");
+    (void)this->m_meshManager.GetOrCreateProcedural("circle");
+    (void)this->m_meshManager.GetOrCreateProcedural("rectangle");
+    (void)this->m_meshManager.GetOrCreateProcedural("cube");
+
+    this->m_sceneManager.SetDependencies(&this->m_jobQueue, &this->m_materialManager, &this->m_meshManager);
+    this->m_meshManager.SetJobQueue(&this->m_jobQueue);
+    this->m_textureManager.SetJobQueue(&this->m_jobQueue);
+    this->m_sceneManager.SetCurrentScene(this->m_sceneManager.CreateDefaultScene());
+
+    /* Descriptor pool and one set allocated for texture binding (layout already created above). */
+    {
         VkDescriptorPoolSize stPoolSize = {
             .type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = static_cast<uint32_t>(2),
@@ -203,6 +213,29 @@ void VulkanApp::InitVulkan() {
             VulkanUtils::LogErr("vkAllocateDescriptorSets failed: {}", static_cast<int>(rAlloc));
             throw std::runtime_error("VulkanApp::InitVulkan: descriptor set allocation failed");
         }
+    }
+
+    /* Write default texture into the descriptor set so it can be bound for "main" pipeline. */
+    std::shared_ptr<TextureHandle> pDefaultTex = this->m_textureManager.GetOrCreateDefaultTexture();
+    if (pDefaultTex != nullptr && pDefaultTex->IsValid() == true) {
+        VkDescriptorImageInfo stImageInfo = {
+            .sampler     = pDefaultTex->GetSampler(),
+            .imageView   = pDefaultTex->GetView(),
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+        VkWriteDescriptorSet stWrite = {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = this->m_descriptorSet,
+            .dstBinding       = 0,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &stImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        };
+        vkUpdateDescriptorSets(this->m_device.GetDevice(), 1, &stWrite, 0, nullptr);
     }
 
     this->m_framebuffers.Create(this->m_device.GetDevice(), this->m_renderPass.Get(),
@@ -339,7 +372,7 @@ void VulkanApp::MainLoop() {
         this->m_renderListBuilder.Build(this->m_drawCalls, pScene,
                                   this->m_device.GetDevice(), this->m_renderPass.Get(), this->m_renderPass.HasDepthAttachment(),
                                   &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
-                                  fViewProj);
+                                  fViewProj, this->m_descriptorSet);
 
         /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
         DrawFrame(this->m_drawCalls);
