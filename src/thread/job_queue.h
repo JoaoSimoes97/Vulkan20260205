@@ -56,9 +56,12 @@ public:
     /* Post a load-file job; returns shared result. Caller may wait on result->cv until result->bDone, then use result->vecData. */
     std::shared_ptr<LoadFileResult> SubmitLoadFile(const std::string& sPath);
 
+    /* Post a load-texture job (I/O only; decode/upload on main thread via ProcessCompletedJobs). No wait handle. */
+    void SubmitLoadTexture(const std::string& sPath);
+
     /* Drain completed jobs and call handler for each (type, path, data). Call from main thread; handler may create Vulkan objects. */
     using CompletedJobHandler = std::function<void(LoadJobType, const std::string&, std::vector<uint8_t>)>;
-    void ProcessCompletedJobs(CompletedJobHandler handler);
+    void ProcessCompletedJobs(const CompletedJobHandler& pHandler_ic);
 
 private:
     struct Job {

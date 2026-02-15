@@ -133,13 +133,13 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
     };
 
     VkPipelineColorBlendAttachmentState stBlendAttachment = {
-        .blendEnable         = VK_FALSE,
-        .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
-        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
-        .colorBlendOp        = VK_BLEND_OP_ADD,
-        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-        .alphaBlendOp        = VK_BLEND_OP_ADD,
+        .blendEnable         = pipelineParams.blendEnable,
+        .srcColorBlendFactor = pipelineParams.srcColorBlendFactor,
+        .dstColorBlendFactor = pipelineParams.dstColorBlendFactor,
+        .colorBlendOp        = pipelineParams.colorBlendOp,
+        .srcAlphaBlendFactor = pipelineParams.srcAlphaBlendFactor,
+        .dstAlphaBlendFactor = pipelineParams.dstAlphaBlendFactor,
+        .alphaBlendOp        = pipelineParams.alphaBlendOp,
         .colorWriteMask      = static_cast<VkColorComponentFlags>(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT),
     };
     VkPipelineColorBlendStateCreateInfo stColorBlend = {

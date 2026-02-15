@@ -25,10 +25,11 @@ public:
     }
 
     /** Fill push data for all objects (viewProj * localTransform, color). Call each frame before building draw list. */
-    void FillPushDataForAllObjects(const float* viewProj) {
-        if (!viewProj) return;
+    void FillPushDataForAllObjects(const float* pViewProj_ic) {
+        if (pViewProj_ic == nullptr)
+            return;
         for (auto& obj : m_objects)
-            ObjectFillPushData(obj, viewProj);
+            ObjectFillPushData(obj, pViewProj_ic);
     }
 
 private:

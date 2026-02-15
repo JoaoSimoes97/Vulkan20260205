@@ -28,6 +28,23 @@
 - **Classes / types**: PascalCase (e.g. `VulkanApp`).
 - **Constants / macros**: UPPER_SNAKE_CASE (e.g. `WINDOW_WIDTH`).
 
+## Parameters and arguments (input/output suffixes)
+
+All function parameters and call-site arguments must be clearly identifiable as input, output, or in-out. Use the following suffixes in addition to the type prefix (e.g. `p`, `vec`, `s`):
+
+- **`_ic`** — **input const**: read-only input. Use for `const T&`, `const T*`, and value parameters that are not modified (e.g. `sPath_ic`, `pScene_ic`, `vecData_ic`).
+- **`_in`** — **input**: non-const input that the function may read but does not take ownership of or use as primary output (e.g. when a non-const reference is required by an API but the logical role is input).
+- **`_out`** — **output**: parameter that the function writes into; caller provides storage (e.g. `vecOutDrawCalls_out`, `pResult_out`). The type prefix still applies (e.g. `vec` for vector).
+- **`_io`** — **in-out**: parameter that is both read and written by the function (e.g. `stState_io`).
+
+Examples:
+
+- `void Build(std::vector<DrawCall>& vecOutDrawCalls_out, const Scene* pScene_ic, const float* pViewProj_ic);`
+- `void OnCompletedLoad(LoadJobType eType_ic, const std::string& sPath_ic, const std::vector<uint8_t>& vecData_ic);`
+- `bool Parse(const uint8_t* pData_ic, size_t zSize_ic, std::vector<float>& vecPositions_out, uint32_t& lVertexCount_out);`
+
+When the name already implies direction (e.g. `outDrawCalls`), the suffix still applies for consistency: `vecOutDrawCalls_out`.
+
 ## Classes
 
 - **Always use `this->`** when accessing member variables or member functions inside the class (e.g. `this->pWindow`, `this->InitVulkan()`).
@@ -71,5 +88,6 @@ Validation layer setup: [docs/vulkan/validation-layers.md](../vulkan/validation-
 
 ## C++ style (additional)
 
+- **No lambda functions**: Do not use lambda expressions (e.g. `[this](...) { ... }`). Use named functions or static member functions instead. If a callback or one-off logic is needed, define a private member function or a free function in an anonymous namespace and pass it by address (e.g. `std::function` or function pointer). This improves readability, testability, and stack traces, and keeps the guidelines for naming and parameter suffixes applicable.
 - **auto**: Prefer `auto` for range-for and when the type is obvious from context; keeps names consistent with type prefixes.
 - **Avoid redundant API calls**: Cache results when you would otherwise call the same Vulkan (or other) API again with the same inputs in the same scope.

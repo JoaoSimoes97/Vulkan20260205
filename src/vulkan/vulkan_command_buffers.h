@@ -32,10 +32,10 @@ public:
     void Destroy();
 
     /** Record buffer: begin render pass (renderArea, clearValues), set viewport/scissor, then for each DrawCall: bind pipeline, push constants (if any), draw. */
-    void Record(uint32_t index, VkRenderPass renderPass, VkFramebuffer framebuffer,
-                VkRect2D renderArea, VkViewport viewport, VkRect2D scissor,
-                const std::vector<DrawCall>& drawCalls,
-                const VkClearValue* pClearValues, uint32_t clearValueCount);
+    void Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_ic, VkFramebuffer pFramebuffer_ic,
+                VkRect2D stRenderArea_ic, VkViewport stViewport_ic, VkRect2D stScissor_ic,
+                const std::vector<DrawCall>& vecDrawCalls_ic,
+                const VkClearValue* pClearValues_ic, uint32_t lClearValueCount_ic);
 
     VkCommandBuffer Get(uint32_t index) const;
     uint32_t GetCount() const { return static_cast<uint32_t>(m_commandBuffers.size()); }

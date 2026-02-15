@@ -42,6 +42,14 @@ find_package(Vulkan REQUIRED)
 # JSON config: nlohmann/json (required; must be installed — see README for per-OS package names)
 find_package(nlohmann_json 3.11 REQUIRED)
 
+# stb_image (header-only; no build)
+include(FetchContent)
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb
+    GIT_TAG        master
+)
+FetchContent_MakeAvailable(stb)
+
 # Vulkan: Linux/Windows use native drivers (no MoltenVK). macOS uses Vulkan SDK which uses MoltenVK (Vulkan → Metal).
 # Same Vulkan code everywhere; zero cost on Linux/Windows.
 if(APPLE)
@@ -85,6 +93,7 @@ set(SOURCES
     src/managers/material_manager.cpp
     src/managers/mesh_manager.cpp
     src/managers/scene_manager.cpp
+    src/managers/texture_manager.cpp
     src/render/render_list_builder.cpp
 )
 
@@ -98,6 +107,7 @@ set(HEADERS
     src/managers/material_manager.h
     src/managers/mesh_manager.h
     src/managers/scene_manager.h
+    src/managers/texture_manager.h
     src/scene/scene.h
     src/render/render_list_builder.h
     src/thread/job_queue.h
@@ -120,7 +130,7 @@ set(HEADERS
 # Create executable
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
-# Set include directories for the target
+# Set include directories for the target (stb_SOURCE_DIR set by FetchContent_MakeAvailable(stb))
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/app
@@ -131,6 +141,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src/scene
     ${CMAKE_SOURCE_DIR}/src/render
     ${CMAKE_SOURCE_DIR}/src/vulkan
+    ${stb_SOURCE_DIR}
     ${Vulkan_INCLUDE_DIRS}
 )
 

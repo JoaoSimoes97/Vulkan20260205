@@ -31,8 +31,15 @@ struct GraphicsPipelineParams {
     float                  lineWidth;
     VkSampleCountFlagBits  rasterizationSamples;
     VkBool32               depthTestEnable  = VK_TRUE;
-    VkBool32               depthWriteEnable = VK_TRUE;
-    VkCompareOp            depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
+    VkBool32               depthWriteEnable  = VK_TRUE;
+    VkCompareOp            depthCompareOp    = VK_COMPARE_OP_LESS_OR_EQUAL;
+    VkBool32               blendEnable       = VK_FALSE;
+    VkBlendFactor          srcColorBlendFactor  = VK_BLEND_FACTOR_SRC_ALPHA;
+    VkBlendFactor          dstColorBlendFactor  = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    VkBlendOp              colorBlendOp     = VK_BLEND_OP_ADD;
+    VkBlendFactor          srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    VkBlendFactor          dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    VkBlendOp              alphaBlendOp     = VK_BLEND_OP_ADD;
 };
 
 inline bool operator==(const GraphicsPipelineParams& a, const GraphicsPipelineParams& b) {
@@ -40,7 +47,11 @@ inline bool operator==(const GraphicsPipelineParams& a, const GraphicsPipelinePa
         && a.polygonMode == b.polygonMode && a.cullMode == b.cullMode && a.frontFace == b.frontFace
         && a.lineWidth == b.lineWidth && a.rasterizationSamples == b.rasterizationSamples
         && a.depthTestEnable == b.depthTestEnable && a.depthWriteEnable == b.depthWriteEnable
-        && a.depthCompareOp == b.depthCompareOp;
+        && a.depthCompareOp == b.depthCompareOp
+        && a.blendEnable == b.blendEnable && a.srcColorBlendFactor == b.srcColorBlendFactor
+        && a.dstColorBlendFactor == b.dstColorBlendFactor && a.colorBlendOp == b.colorBlendOp
+        && a.srcAlphaBlendFactor == b.srcAlphaBlendFactor && a.dstAlphaBlendFactor == b.dstAlphaBlendFactor
+        && a.alphaBlendOp == b.alphaBlendOp;
 }
 
 /*

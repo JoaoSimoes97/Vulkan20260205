@@ -19,15 +19,17 @@ public:
 
     /**
      * Build draw calls from current scene. Fills outDrawCalls (cleared first).
+     * viewProj: optional column-major 4x4 for frustum culling (object position in clip space); null = no culling.
      * Objects must have pushData already filled (e.g. viewProj * transform, color).
-     * Sort order: pipeline, then vertexCount/firstVertex (mesh proxy).
+     * Push constant size is validated against material layout; oversized pushes are skipped.
      */
-    void Build(std::vector<DrawCall>& outDrawCalls,
-               const Scene* pScene,
-               VkDevice device,
-               VkRenderPass renderPass,
-               bool renderPassHasDepth,
-               PipelineManager* pPipelineManager,
-               MaterialManager* pMaterialManager,
-               VulkanShaderManager* pShaderManager);
+    void Build(std::vector<DrawCall>& vecOutDrawCalls_out,
+               const Scene* pScene_ic,
+               VkDevice pDevice_ic,
+               VkRenderPass pRenderPass_ic,
+               bool bRenderPassHasDepth_ic,
+               PipelineManager* pPipelineManager_ic,
+               MaterialManager* pMaterialManager_ic,
+               VulkanShaderManager* pShaderManager_ic,
+               const float* pViewProj_ic = nullptr);
 };

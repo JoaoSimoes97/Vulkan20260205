@@ -17,13 +17,13 @@ public:
     SceneManager() = default;
 
     /** Set job queue and managers (for async load and resolving material/mesh refs). Call before LoadSceneAsync or CreateDefaultScene. */
-    void SetDependencies(JobQueue* pJobQueue, MaterialManager* pMaterialManager, MeshManager* pMeshManager);
+    void SetDependencies(JobQueue* pJobQueue_ic, MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic);
 
     /** Load scene from file asynchronously. When the file is ready, main thread parses and sets current scene. */
     void LoadSceneAsync(const std::string& path);
 
     /** Called by app from ProcessCompletedJobs handler. Dispatches completed file load to pending scene load if path matches. */
-    void OnCompletedLoad(LoadJobType type, const std::string& path, std::vector<uint8_t> data);
+    void OnCompletedLoad(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in);
 
     /** Unload current scene (drops refs; managers can TrimUnused). */
     void UnloadScene();

@@ -32,14 +32,13 @@ void JobQueue::WorkerLoop() {
             this->m_queue.pop();
         }
         std::vector<uint8_t> vecData = ReadFileBinary(stJob.sPath);
-        
-        //VulkanUtils::LogTrace("Loader: loaded {}", stJob.sPath);
-        {
+
+        if (stJob.pResult != nullptr) {
             std::lock_guard<std::mutex> lock(stJob.pResult->mtx);
             stJob.pResult->vecData = vecData;
             stJob.pResult->bDone = true;
+            stJob.pResult->cv.notify_all();
         }
-        stJob.pResult->cv.notify_all();
 
         {
             CompletedLoadJob stCompleted;
@@ -91,7 +90,17 @@ std::shared_ptr<LoadFileResult> JobQueue::SubmitLoadFile(const std::string& sPat
     return pResult;
 }
 
-void JobQueue::ProcessCompletedJobs(CompletedJobHandler handler) {
+void JobQueue::SubmitLoadTexture(const std::string& sPath) {
+    std::lock_guard<std::mutex> lock(this->m_mutex);
+    Job stJob;
+    stJob.eType = LoadJobType::LoadTexture;
+    stJob.sPath = sPath;
+    stJob.pResult = nullptr;  /* no wait handle for texture loads */
+    this->m_queue.push(std::move(stJob));
+    this->m_cv.notify_all();
+}
+
+void JobQueue::ProcessCompletedJobs(const CompletedJobHandler& pHandler_ic) {
     std::queue<CompletedLoadJob> vecBatch;
     {
         std::lock_guard<std::mutex> lock(this->m_completedMutex);
@@ -102,7 +111,7 @@ void JobQueue::ProcessCompletedJobs(CompletedJobHandler handler) {
     }
     while (vecBatch.empty() == false) {
         CompletedLoadJob& st = vecBatch.front();
-        handler(st.eType, st.sPath, std::move(st.vecData));
+        pHandler_ic(st.eType, st.sPath, std::move(st.vecData));
         vecBatch.pop();
     }
 }

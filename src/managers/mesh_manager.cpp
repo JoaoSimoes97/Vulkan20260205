@@ -120,9 +120,13 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
     {
         VkBufferCreateInfo bufInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = static_cast<VkBufferCreateFlags>(0),
             .size = bufferSize,
             .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = nullptr,
         };
         VkResult r = vkCreateBuffer(m_device, &bufInfo, nullptr, &stagingBuffer);
         if (r != VK_SUCCESS) return nullptr;
@@ -130,6 +134,7 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
         vkGetBufferMemoryRequirements(m_device, stagingBuffer, &memReqs);
         VkMemoryAllocateInfo allocInfo = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = nullptr,
             .allocationSize = memReqs.size,
             .memoryTypeIndex = FindMemoryType(m_physicalDevice, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
         };
@@ -152,9 +157,13 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
     {
         VkBufferCreateInfo bufInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = static_cast<VkBufferCreateFlags>(0),
             .size = bufferSize,
             .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = nullptr,
         };
         VkResult r = vkCreateBuffer(m_device, &bufInfo, nullptr, &vertexBuffer);
         if (r != VK_SUCCESS) {
@@ -166,6 +175,7 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
         vkGetBufferMemoryRequirements(m_device, vertexBuffer, &memReqs);
         VkMemoryAllocateInfo allocInfo = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = nullptr,
             .allocationSize = memReqs.size,
             .memoryTypeIndex = FindMemoryType(m_physicalDevice, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
         };
@@ -184,6 +194,7 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
     {
         VkCommandPoolCreateInfo poolInfo = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .pNext = nullptr,
             .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
             .queueFamilyIndex = m_queueFamilyIndex,
         };
@@ -197,6 +208,7 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
         }
         VkCommandBufferAllocateInfo allocInfo = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext = nullptr,
             .commandPool = cmdPool,
             .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             .commandBufferCount = 1,
@@ -221,7 +233,11 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
 
     VkFence fence = VK_NULL_HANDLE;
     {
-        VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        VkFenceCreateInfo fenceInfo = {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = static_cast<VkFenceCreateFlags>(0),
+        };
         VkResult r = vkCreateFence(m_device, &fenceInfo, nullptr, &fence);
         if (r != VK_SUCCESS) {
             vkDestroyCommandPool(m_device, cmdPool, nullptr);
@@ -233,8 +249,14 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
         }
         VkSubmitInfo submit = {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = nullptr,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = nullptr,
+            .pWaitDstStageMask = nullptr,
             .commandBufferCount = 1,
             .pCommandBuffers = &cmdBuf,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = nullptr,
         };
         vkQueueSubmit(m_queue, 1, &submit, fence);
         vkWaitForFences(m_device, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -302,18 +324,19 @@ void MeshManager::RequestLoadMesh(const std::string& path) {
     m_pJobQueue->SubmitLoadFile(path);
 }
 
-void MeshManager::OnCompletedMeshFile(const std::string& path, std::vector<uint8_t> data) {
-    if (m_pendingMeshPaths.erase(path) == 0) return;
-    std::vector<float> positions;
-    uint32_t vertexCount = 0u;
-    if (!ParseObj(data.data(), data.size(), positions, vertexCount) || vertexCount == 0u) {
-        VulkanUtils::LogErr("MeshManager: failed to parse {}", path);
+void MeshManager::OnCompletedMeshFile(const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
+    if (this->m_pendingMeshPaths.erase(sPath_ic) == 0)
+        return;
+    std::vector<float> vecPositions;
+    uint32_t lVertexCount = static_cast<uint32_t>(0u);
+    if ((ParseObj(vecData_in.data(), vecData_in.size(), vecPositions, lVertexCount) == false) || (lVertexCount == 0u)) {
+        VulkanUtils::LogErr("MeshManager: failed to parse {}", sPath_ic);
         return;
     }
-    std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(positions.data(), vertexCount);
-    if (p) {
-        m_cache[path] = p;
-        VulkanUtils::LogInfo("MeshManager: loaded {} ({} verts)", path, vertexCount);
+    std::shared_ptr<MeshHandle> pHandle = CreateVertexBufferFromData(vecPositions.data(), lVertexCount);
+    if (pHandle != nullptr) {
+        this->m_cache[sPath_ic] = pHandle;
+        VulkanUtils::LogInfo("MeshManager: loaded {} ({} verts)", sPath_ic, lVertexCount);
     }
 }
 

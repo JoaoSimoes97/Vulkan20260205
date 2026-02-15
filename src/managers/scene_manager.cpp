@@ -12,10 +12,10 @@
 
 using json = nlohmann::json;
 
-void SceneManager::SetDependencies(JobQueue* pJobQueue, MaterialManager* pMaterialManager, MeshManager* pMeshManager) {
-    m_pJobQueue = pJobQueue;
-    m_pMaterialManager = pMaterialManager;
-    m_pMeshManager = pMeshManager;
+void SceneManager::SetDependencies(JobQueue* pJobQueue_ic, MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic) {
+    this->m_pJobQueue = pJobQueue_ic;
+    this->m_pMaterialManager = pMaterialManager_ic;
+    this->m_pMeshManager = pMeshManager_ic;
 }
 
 void SceneManager::LoadSceneAsync(const std::string& path) {
@@ -27,17 +27,17 @@ void SceneManager::LoadSceneAsync(const std::string& path) {
     m_pJobQueue->SubmitLoadFile(path);
 }
 
-void SceneManager::OnCompletedLoad(LoadJobType type, const std::string& path, std::vector<uint8_t> data) {
-    if (type != LoadJobType::LoadFile || path != m_pendingScenePath || m_pendingScenePath.empty())
+void SceneManager::OnCompletedLoad(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
+    if ((eType_ic != LoadJobType::LoadFile) || (sPath_ic != this->m_pendingScenePath) || (this->m_pendingScenePath.empty() == true))
         return;
-    m_pendingScenePath.clear();
-    auto scene = std::make_unique<Scene>();
-    if (!ParseSceneJson(path, data.data(), data.size(), *scene)) {
-        VulkanUtils::LogErr("SceneManager: failed to parse scene {}", path);
+    this->m_pendingScenePath.clear();
+    auto pScene = std::make_unique<Scene>();
+    if (ParseSceneJson(sPath_ic, vecData_in.data(), vecData_in.size(), *pScene) == false) {
+        VulkanUtils::LogErr("SceneManager: failed to parse scene {}", sPath_ic);
         return;
     }
-    SetCurrentScene(std::move(scene));
-    VulkanUtils::LogInfo("SceneManager: loaded scene {}", path);
+    SetCurrentScene(std::move(pScene));
+    VulkanUtils::LogInfo("SceneManager: loaded scene {}", sPath_ic);
 }
 
 void SceneManager::UnloadScene() {

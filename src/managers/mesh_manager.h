@@ -63,7 +63,7 @@ public:
 
     std::shared_ptr<MeshHandle> GetOrCreateProcedural(const std::string& key);
     void RequestLoadMesh(const std::string& path);
-    void OnCompletedMeshFile(const std::string& path, std::vector<uint8_t> data);
+    void OnCompletedMeshFile(const std::string& sPath_ic, std::vector<uint8_t> vecData_in);
 
     std::shared_ptr<MeshHandle> GetMesh(const std::string& key) const;
     void TrimUnused();

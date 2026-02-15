@@ -32,12 +32,13 @@ static constexpr float kOrthoFallbackHalfExtent = 8.f;
 
 VulkanApp::VulkanApp() {
     VulkanUtils::LogTrace("VulkanApp constructor");
-    std::string userPath   = VulkanUtils::GetResourcePath(CONFIG_PATH_USER);
-    std::string defaultPath = VulkanUtils::GetResourcePath(CONFIG_PATH_DEFAULT);
-    m_config = LoadConfigFromFileOrCreate(userPath, defaultPath);
-    m_camera.SetPosition(m_config.fInitialCameraX, m_config.fInitialCameraY, m_config.fInitialCameraZ);
-    m_jobQueue.Start();
-    m_shaderManager.Create(&m_jobQueue);
+    std::string sUserPath   = VulkanUtils::GetResourcePath(CONFIG_PATH_USER);
+    std::string sDefaultPath = VulkanUtils::GetResourcePath(CONFIG_PATH_DEFAULT);
+    this->m_config = LoadConfigFromFileOrCreate(sUserPath, sDefaultPath);
+    this->m_camera.SetPosition(this->m_config.fInitialCameraX, this->m_config.fInitialCameraY, this->m_config.fInitialCameraZ);
+    this->m_completedJobHandler = std::bind(&VulkanApp::OnCompletedLoadJob, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+    this->m_jobQueue.Start();
+    this->m_shaderManager.Create(&this->m_jobQueue);
     InitWindow();
     InitVulkan();
 }
@@ -49,8 +50,8 @@ VulkanApp::~VulkanApp() {
 
 void VulkanApp::InitWindow() {
     VulkanUtils::LogTrace("InitWindow");
-    const char* title = m_config.sWindowTitle.empty() ? "Vulkan App" : m_config.sWindowTitle.c_str();
-    m_pWindow = std::make_unique<Window>(m_config.lWidth, m_config.lHeight, title);
+    const char* pTitle = (this->m_config.sWindowTitle.empty() == true) ? "Vulkan App" : this->m_config.sWindowTitle.c_str();
+    this->m_pWindow = std::make_unique<Window>(this->m_config.lWidth, this->m_config.lHeight, pTitle);
 }
 
 void VulkanApp::InitVulkan() {
@@ -58,7 +59,7 @@ void VulkanApp::InitVulkan() {
 
     uint32_t extCount = 0;
     const char* const* extNames = SDL_Vulkan_GetInstanceExtensions(&extCount);
-    if (!extNames || extCount == 0) {
+    if ((extNames == nullptr) || (extCount == 0)) {
         VulkanUtils::LogErr("SDL_Vulkan_GetInstanceExtensions failed or returned no extensions");
         throw std::runtime_error("SDL_Vulkan_GetInstanceExtensions failed");
     }
@@ -72,7 +73,7 @@ void VulkanApp::InitVulkan() {
 
     /* Use window drawable size for swapchain so extent always matches what we display (no aspect mismatch). */
     m_pWindow->GetDrawableSize(&m_config.lWidth, &m_config.lHeight);
-    if (m_config.lWidth == 0 || m_config.lHeight == 0) {
+    if ((this->m_config.lWidth == 0) || (this->m_config.lHeight == 0)) {
         VulkanUtils::LogErr("Window drawable size is 0x0; cannot create swapchain");
         throw std::runtime_error("Window drawable size is zero");
     }
@@ -130,6 +131,10 @@ void VulkanApp::InitVulkan() {
     m_meshManager.SetPhysicalDevice(m_device.GetPhysicalDevice());
     m_meshManager.SetQueue(m_device.GetGraphicsQueue());
     m_meshManager.SetQueueFamilyIndex(m_device.GetQueueFamilyIndices().graphicsFamily);
+    m_textureManager.SetDevice(m_device.GetDevice());
+    m_textureManager.SetPhysicalDevice(m_device.GetPhysicalDevice());
+    m_textureManager.SetQueue(m_device.GetGraphicsQueue());
+    m_textureManager.SetQueueFamilyIndex(m_device.GetQueueFamilyIndices().graphicsFamily);
     (void)m_meshManager.GetOrCreateProcedural("triangle");
     (void)m_meshManager.GetOrCreateProcedural("circle");
     (void)m_meshManager.GetOrCreateProcedural("rectangle");
@@ -137,6 +142,7 @@ void VulkanApp::InitVulkan() {
 
     m_sceneManager.SetDependencies(&m_jobQueue, &m_materialManager, &m_meshManager);
     m_meshManager.SetJobQueue(&m_jobQueue);
+    m_textureManager.SetJobQueue(&m_jobQueue);
     m_sceneManager.SetCurrentScene(m_sceneManager.CreateDefaultScene());
 
     m_framebuffers.Create(m_device.GetDevice(), m_renderPass.Get(),
@@ -204,90 +210,90 @@ void VulkanApp::RecreateSwapchainAndDependents() {
 
 void VulkanApp::MainLoop() {
     VulkanUtils::LogTrace("MainLoop");
-    bool quit = false;
-    while (!quit) {
+    bool bQuit = static_cast<bool>(false);
+    while (bQuit == false) {
         const auto frameStart = std::chrono::steady_clock::now();
 
-        m_jobQueue.ProcessCompletedJobs([this](LoadJobType type, const std::string& path, std::vector<uint8_t> data) {
-            m_sceneManager.OnCompletedLoad(type, path, data);
-            m_meshManager.OnCompletedMeshFile(path, std::move(data));
-        });
-        m_shaderManager.TrimUnused();
-        m_pipelineManager.TrimUnused();
-        m_materialManager.TrimUnused();
-        m_meshManager.TrimUnused();
+        this->m_jobQueue.ProcessCompletedJobs(this->m_completedJobHandler);
+        this->m_shaderManager.TrimUnused();
+        this->m_pipelineManager.TrimUnused();
+        this->m_materialManager.TrimUnused();
+        this->m_meshManager.TrimUnused();
+        this->m_textureManager.TrimUnused();
 
-        quit = m_pWindow->PollEvents();
-        if (quit)
+        bQuit = this->m_pWindow->PollEvents();
+        if (bQuit == true)
             break;
 
-        const float panSpeed = (m_config.fPanSpeed > 0.f) ? m_config.fPanSpeed : kDefaultPanSpeed;
-        CameraController_Update(m_camera, SDL_GetKeyboardState(nullptr), panSpeed);
+        const float fPanSpeed = (this->m_config.fPanSpeed > 0.f) ? this->m_config.fPanSpeed : kDefaultPanSpeed;
+        CameraController_Update(this->m_camera, SDL_GetKeyboardState(nullptr), fPanSpeed);
 
-        if (m_pWindow->GetWindowMinimized()) {
+        if (this->m_pWindow->GetWindowMinimized() == true) {
             VulkanUtils::LogTrace("Window minimized, skipping draw");
             continue;
         }
 
         /* Resize: always sync swapchain to current drawable size (catches shrink/grow even if event was missed). */
-        uint32_t drawW = 0, drawH = 0;
-        m_pWindow->GetDrawableSize(&drawW, &drawH);
-        if (drawW > 0 && drawH > 0) {
-            const VkExtent2D current = m_swapchain.GetExtent();
-            if (drawW != current.width || drawH != current.height) {
-                VulkanUtils::LogInfo("Resize: {}x{} -> {}x{}, recreating swapchain", current.width, current.height, drawW, drawH);
-                m_config.lWidth  = drawW;
-                m_config.lHeight = drawH;
+        uint32_t lDrawW = static_cast<uint32_t>(0);
+        uint32_t lDrawH = static_cast<uint32_t>(0);
+        this->m_pWindow->GetDrawableSize(&lDrawW, &lDrawH);
+        if ((lDrawW > 0) && (lDrawH > 0)) {
+            const VkExtent2D stCurrent = this->m_swapchain.GetExtent();
+            if ((lDrawW != stCurrent.width) || (lDrawH != stCurrent.height)) {
+                VulkanUtils::LogInfo("Resize: {}x{} -> {}x{}, recreating swapchain", stCurrent.width, stCurrent.height, lDrawW, lDrawH);
+                this->m_config.lWidth  = lDrawW;
+                this->m_config.lHeight = lDrawH;
                 RecreateSwapchainAndDependents();
             }
         }
-        if (drawW == 0 || drawH == 0)
+        if ((lDrawW == 0) || (lDrawH == 0))
             continue;
-        if (m_config.bSwapchainDirty) {
-            m_config.bSwapchainDirty = false;
+        if (this->m_config.bSwapchainDirty == true) {
+            this->m_config.bSwapchainDirty = false;
             RecreateSwapchainAndDependents();
         }
 
         /* Build view-projection and per-object push data. */
-        const float aspect = static_cast<float>(drawW) / static_cast<float>(drawH);
-        alignas(16) float projMat4[16];
-        if (m_config.bUsePerspective) {
-            ObjectSetPerspective(projMat4, m_config.fCameraFovYRad, aspect, m_config.fCameraNearZ, m_config.fCameraFarZ);
+        const float fAspect = static_cast<float>(lDrawW) / static_cast<float>(lDrawH);
+        alignas(16) float fProjMat4[16];
+        if (this->m_config.bUsePerspective == true) {
+            ObjectSetPerspective(fProjMat4, this->m_config.fCameraFovYRad, fAspect, this->m_config.fCameraNearZ, this->m_config.fCameraFarZ);
         } else {
-            const float h = (m_config.fOrthoHalfExtent > 0.f) ? m_config.fOrthoHalfExtent : kOrthoFallbackHalfExtent;
-            ObjectSetOrtho(projMat4,
-                -h * aspect, h * aspect,
-                -h, h,
-                m_config.fOrthoNear, m_config.fOrthoFar);
+            const float fH = (this->m_config.fOrthoHalfExtent > 0.f) ? this->m_config.fOrthoHalfExtent : kOrthoFallbackHalfExtent;
+            ObjectSetOrtho(fProjMat4,
+                -fH * fAspect, fH * fAspect,
+                -fH, fH,
+                this->m_config.fOrthoNear, this->m_config.fOrthoFar);
         }
-        alignas(16) float viewMat4[16];
-        m_camera.GetViewMatrix(viewMat4);
-        alignas(16) float viewProj[16];
-        ObjectMat4Multiply(viewProj, projMat4, viewMat4);
+        alignas(16) float fViewMat4[16];
+        this->m_camera.GetViewMatrix(fViewMat4);
+        alignas(16) float fViewProj[16];
+        ObjectMat4Multiply(fViewProj, fProjMat4, fViewMat4);
 
-        Scene* pScene = m_sceneManager.GetCurrentScene();
-        if (pScene)
-            pScene->FillPushDataForAllObjects(viewProj);
+        Scene* pScene = this->m_sceneManager.GetCurrentScene();
+        if (pScene != nullptr)
+            pScene->FillPushDataForAllObjects(fViewProj);
 
-        /* Build draw list from scene (sorted by pipeline, mesh); reuse m_drawCalls. */
-        m_renderListBuilder.Build(m_drawCalls, pScene,
-                                  m_device.GetDevice(), m_renderPass.Get(), m_renderPass.HasDepthAttachment(),
-                                  &m_pipelineManager, &m_materialManager, &m_shaderManager);
+        /* Build draw list from scene (frustum culling, push size validation, sort by pipeline/mesh). */
+        this->m_renderListBuilder.Build(this->m_drawCalls, pScene,
+                                  this->m_device.GetDevice(), this->m_renderPass.Get(), this->m_renderPass.HasDepthAttachment(),
+                                  &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
+                                  fViewProj);
 
         /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
-        DrawFrame(m_drawCalls);
+        DrawFrame(this->m_drawCalls);
 
         /* FPS in window title (smoothed, update every 0.25 s). */
         const auto frameEnd = std::chrono::steady_clock::now();
-        const double dt = std::chrono::duration<double>(frameEnd - frameStart).count();
-        if (dt > 0.0)
-            m_avgFrameTimeSec = 0.9f * m_avgFrameTimeSec + 0.1f * static_cast<float>(dt);
+        const double dDt = std::chrono::duration<double>(frameEnd - frameStart).count();
+        if (dDt > static_cast<double>(0.0))
+            this->m_avgFrameTimeSec = static_cast<float>(0.9f) * this->m_avgFrameTimeSec + static_cast<float>(0.1f) * static_cast<float>(dDt);
         constexpr double kFpsTitleIntervalSec = 0.25;
-        if (std::chrono::duration<double>(frameEnd - m_lastFpsTitleUpdate).count() >= kFpsTitleIntervalSec) {
-            const int fps = static_cast<int>(std::round(1.0 / static_cast<double>(m_avgFrameTimeSec)));
-            const std::string baseTitle = m_config.sWindowTitle.empty() ? "Vulkan App" : m_config.sWindowTitle;
-            m_pWindow->SetTitle((baseTitle + " - " + std::to_string(fps) + " FPS").c_str());
-            m_lastFpsTitleUpdate = frameEnd;
+        if (std::chrono::duration<double>(frameEnd - this->m_lastFpsTitleUpdate).count() >= kFpsTitleIntervalSec) {
+            const int iFps = static_cast<int>(std::round(static_cast<double>(1.0) / static_cast<double>(this->m_avgFrameTimeSec)));
+            const std::string sBaseTitle = (this->m_config.sWindowTitle.empty() == true) ? std::string("Vulkan App") : this->m_config.sWindowTitle;
+            this->m_pWindow->SetTitle((sBaseTitle + " - " + std::to_string(iFps) + " FPS").c_str());
+            this->m_lastFpsTitleUpdate = frameEnd;
         }
     }
 }
@@ -297,152 +303,169 @@ void VulkanApp::Run() {
     Cleanup();
 }
 
-void VulkanApp::ApplyConfig(const VulkanConfig& newConfig) {
-    m_config = newConfig;
-    if (m_pWindow) {
-        uint32_t w = 0, h = 0;
-        m_pWindow->GetDrawableSize(&w, &h);
-        if (m_config.lWidth != w || m_config.lHeight != h)
-            m_pWindow->SetSize(m_config.lWidth, m_config.lHeight);
-        m_pWindow->SetFullscreen(m_config.bFullscreen);
-        if (!m_config.sWindowTitle.empty())
-            m_pWindow->SetTitle(m_config.sWindowTitle.c_str());
+void VulkanApp::OnCompletedLoadJob(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
+    switch (eType_ic) {
+    case LoadJobType::LoadFile:
+        this->m_sceneManager.OnCompletedLoad(eType_ic, sPath_ic, vecData_in);
+        this->m_meshManager.OnCompletedMeshFile(sPath_ic, std::move(vecData_in));
+        break;
+    case LoadJobType::LoadTexture:
+        this->m_textureManager.OnCompletedTexture(sPath_ic, std::move(vecData_in));
+        break;
+    case LoadJobType::LoadMesh:
+        this->m_meshManager.OnCompletedMeshFile(sPath_ic, std::move(vecData_in));
+        break;
     }
-    m_config.bSwapchainDirty = true;
+}
+
+void VulkanApp::ApplyConfig(const VulkanConfig& stNewConfig_ic) {
+    this->m_config = stNewConfig_ic;
+    if (this->m_pWindow != nullptr) {
+        uint32_t lW = static_cast<uint32_t>(0);
+        uint32_t lH = static_cast<uint32_t>(0);
+        this->m_pWindow->GetDrawableSize(&lW, &lH);
+        if ((this->m_config.lWidth != lW) || (this->m_config.lHeight != lH))
+            this->m_pWindow->SetSize(this->m_config.lWidth, this->m_config.lHeight);
+        this->m_pWindow->SetFullscreen(this->m_config.bFullscreen);
+        if (this->m_config.sWindowTitle.empty() == false)
+            this->m_pWindow->SetTitle(this->m_config.sWindowTitle.c_str());
+    }
+    this->m_config.bSwapchainDirty = true;
 }
 
 void VulkanApp::Cleanup() {
-    if (!m_device.IsValid())
+    if (this->m_device.IsValid() == false)
         return;
-    VkResult r = vkDeviceWaitIdle(m_device.GetDevice());
+    VkResult r = vkDeviceWaitIdle(this->m_device.GetDevice());
     if (r != VK_SUCCESS)
         VulkanUtils::LogErr("vkDeviceWaitIdle before cleanup failed: {}", static_cast<int>(r));
-    m_sync.Destroy();
-    m_commandBuffers.Destroy();
-    m_framebuffers.Destroy();
-    m_depthImage.Destroy();
-    m_pipelineManager.DestroyPipelines();
-    m_renderPass.Destroy();
-    m_swapchain.Destroy();
+    this->m_sync.Destroy();
+    this->m_commandBuffers.Destroy();
+    this->m_framebuffers.Destroy();
+    this->m_depthImage.Destroy();
+    this->m_pipelineManager.DestroyPipelines();
+    this->m_renderPass.Destroy();
+    this->m_swapchain.Destroy();
     /* Drop scene refs so MeshHandles are only owned by MeshManager; then clear cache to destroy buffers. */
-    m_sceneManager.UnloadScene();
-    m_meshManager.Destroy();
-    m_shaderManager.Destroy();
-    m_device.Destroy();
-    if (m_pWindow && m_instance.IsValid())
-        m_pWindow->DestroySurface(m_instance.Get());
-    m_instance.Destroy();
-    m_pWindow.reset();
-    m_jobQueue.Stop();
+    this->m_sceneManager.UnloadScene();
+    this->m_meshManager.Destroy();
+    this->m_textureManager.Destroy();
+    this->m_shaderManager.Destroy();
+    this->m_device.Destroy();
+    if ((this->m_pWindow != nullptr) && (this->m_instance.IsValid() == true))
+        this->m_pWindow->DestroySurface(this->m_instance.Get());
+    this->m_instance.Destroy();
+    this->m_pWindow.reset();
+    this->m_jobQueue.Stop();
 }
 
-void VulkanApp::DrawFrame(const std::vector<DrawCall>& drawCalls) {
-    VkDevice device = m_device.GetDevice();
-    uint32_t frameIndex = m_sync.GetCurrentFrameIndex();
-    VkFence inFlightFence = m_sync.GetInFlightFence(frameIndex);
-    VkSemaphore imageAvailable = m_sync.GetImageAvailableSemaphore(frameIndex);
+void VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
+    VkDevice pDevice = this->m_device.GetDevice();
+    uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
+    VkFence pInFlightFence = this->m_sync.GetInFlightFence(lFrameIndex);
+    VkSemaphore pImageAvailable = this->m_sync.GetImageAvailableSemaphore(lFrameIndex);
 
-    constexpr uint64_t timeout = UINT64_MAX;
+    constexpr uint64_t uTimeout = UINT64_MAX;
     /* Wait for all in-flight frames so no command buffer still uses buffers/pipelines we are about to destroy. */
-    const uint32_t maxFrames = m_sync.GetMaxFramesInFlight();
-    VkResult r = vkWaitForFences(device, maxFrames, m_sync.GetInFlightFencePtr(), VK_TRUE, timeout);
+    const uint32_t lMaxFrames = this->m_sync.GetMaxFramesInFlight();
+    VkResult r = vkWaitForFences(pDevice, lMaxFrames, this->m_sync.GetInFlightFencePtr(), VK_TRUE, uTimeout);
     if (r != VK_SUCCESS) {
         VulkanUtils::LogErr("vkWaitForFences failed: {}", static_cast<int>(r));
         return;
     }
-    r = vkResetFences(device, 1, &inFlightFence);
+    r = vkResetFences(pDevice, 1, &pInFlightFence);
     if (r != VK_SUCCESS) {
         VulkanUtils::LogErr("vkResetFences failed: {}", static_cast<int>(r));
         return;
     }
     /* Safe to destroy pipelines and mesh buffers that were trimmed (all in-flight work finished). */
-    m_pipelineManager.ProcessPendingDestroys();
-    m_meshManager.ProcessPendingDestroys();
+    this->m_pipelineManager.ProcessPendingDestroys();
+    this->m_meshManager.ProcessPendingDestroys();
 
-    uint32_t imageIndex = 0;
-    r = vkAcquireNextImageKHR(device, m_swapchain.GetSwapchain(), timeout,
-                              imageAvailable, VK_NULL_HANDLE, &imageIndex);
+    uint32_t lImageIndex = static_cast<uint32_t>(0);
+    r = vkAcquireNextImageKHR(pDevice, this->m_swapchain.GetSwapchain(), uTimeout,
+                              pImageAvailable, VK_NULL_HANDLE, &lImageIndex);
     if (r == VK_ERROR_OUT_OF_DATE_KHR) {
         RecreateSwapchainAndDependents();
         return;
     }
-    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) {
+    if ((r != VK_SUCCESS) && (r != VK_SUBOPTIMAL_KHR)) {
         VulkanUtils::LogErr("vkAcquireNextImageKHR failed: {}", static_cast<int>(r));
         return;
     }
-    if (imageIndex >= m_framebuffers.GetCount() || imageIndex >= m_commandBuffers.GetCount()) {
-        VulkanUtils::LogErr("Acquired imageIndex {} out of range", imageIndex);
+    if ((lImageIndex >= this->m_framebuffers.GetCount()) || (lImageIndex >= this->m_commandBuffers.GetCount())) {
+        VulkanUtils::LogErr("Acquired imageIndex {} out of range", lImageIndex);
         RecreateSwapchainAndDependents();
         return;
     }
 
-    VkSemaphore renderFinished = m_sync.GetRenderFinishedSemaphore(imageIndex);
-    if (renderFinished == VK_NULL_HANDLE) {
-        VulkanUtils::LogErr("No render-finished semaphore for imageIndex {}", imageIndex);
-        m_sync.AdvanceFrame();
+    VkSemaphore pRenderFinished = this->m_sync.GetRenderFinishedSemaphore(lImageIndex);
+    if (pRenderFinished == VK_NULL_HANDLE) {
+        VulkanUtils::LogErr("No render-finished semaphore for imageIndex {}", lImageIndex);
+        this->m_sync.AdvanceFrame();
         return;
     }
 
-    const VkExtent2D extent = m_swapchain.GetExtent();
-    const VkRect2D renderArea = { .offset = { 0, 0 }, .extent = extent };
-    const VkViewport viewport = {
-        .x        = 0.0f,
-        .y        = 0.0f,
-        .width    = static_cast<float>(extent.width),
-        .height   = static_cast<float>(extent.height),
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f,
+    const VkExtent2D stExtent = this->m_swapchain.GetExtent();
+    const VkRect2D stRenderArea = { .offset = { 0, 0 }, .extent = stExtent };
+    const VkViewport stViewport = {
+        .x        = static_cast<float>(0.0f),
+        .y        = static_cast<float>(0.0f),
+        .width    = static_cast<float>(stExtent.width),
+        .height   = static_cast<float>(stExtent.height),
+        .minDepth = static_cast<float>(0.0f),
+        .maxDepth = static_cast<float>(1.0f),
     };
-    const VkRect2D scissor = { .offset = { 0, 0 }, .extent = extent };
-    std::array<VkClearValue, 2> clearValues = {};
-    clearValues[0].color.float32[0] = m_config.fClearColorR;
-    clearValues[0].color.float32[1] = m_config.fClearColorG;
-    clearValues[0].color.float32[2] = m_config.fClearColorB;
-    clearValues[0].color.float32[3] = m_config.fClearColorA;
-    clearValues[1].depthStencil = { .depth = 1.0f, .stencil = 0 };
-    const uint32_t clearValueCount = m_renderPass.HasDepthAttachment() ? 2u : 1u;
+    const VkRect2D stScissor = { .offset = { 0, 0 }, .extent = stExtent };
+    std::array<VkClearValue, 2> vecClearValues = {};
+    vecClearValues[0].color.float32[0] = this->m_config.fClearColorR;
+    vecClearValues[0].color.float32[1] = this->m_config.fClearColorG;
+    vecClearValues[0].color.float32[2] = this->m_config.fClearColorB;
+    vecClearValues[0].color.float32[3] = this->m_config.fClearColorA;
+    vecClearValues[1].depthStencil = { .depth = static_cast<float>(1.0f), .stencil = static_cast<uint32_t>(0) };
+    const uint32_t lClearValueCount = (this->m_renderPass.HasDepthAttachment() == true) ? static_cast<uint32_t>(2u) : static_cast<uint32_t>(1u);
 
-    m_commandBuffers.Record(imageIndex, m_renderPass.Get(),
-                            m_framebuffers.Get()[imageIndex],
-                            renderArea, viewport, scissor, drawCalls,
-                            clearValues.data(), clearValueCount);
+    this->m_commandBuffers.Record(lImageIndex, this->m_renderPass.Get(),
+                            this->m_framebuffers.Get()[lImageIndex],
+                            stRenderArea, stViewport, stScissor, vecDrawCalls_ic,
+                            vecClearValues.data(), lClearValueCount);
 
-    VkCommandBuffer cmd = m_commandBuffers.Get(imageIndex);
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo submitInfo = {
+    VkCommandBuffer pCmd = this->m_commandBuffers.Get(lImageIndex);
+    VkPipelineStageFlags uWaitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo stSubmitInfo = {
         .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .pNext                = nullptr,
         .waitSemaphoreCount   = 1,
-        .pWaitSemaphores      = &imageAvailable,
-        .pWaitDstStageMask    = &waitStage,
+        .pWaitSemaphores      = &pImageAvailable,
+        .pWaitDstStageMask    = &uWaitStage,
         .commandBufferCount   = 1,
-        .pCommandBuffers      = &cmd,
+        .pCommandBuffers      = &pCmd,
         .signalSemaphoreCount = 1,
-        .pSignalSemaphores    = &renderFinished,
+        .pSignalSemaphores    = &pRenderFinished,
     };
-    r = vkQueueSubmit(m_device.GetGraphicsQueue(), 1, &submitInfo, inFlightFence);
+    r = vkQueueSubmit(this->m_device.GetGraphicsQueue(), 1, &stSubmitInfo, pInFlightFence);
     if (r != VK_SUCCESS) {
         VulkanUtils::LogErr("vkQueueSubmit failed: {}", static_cast<int>(r));
         RecreateSwapchainAndDependents();
         return;
     }
 
-    VkSwapchainKHR swapchain = m_swapchain.GetSwapchain();
-    VkPresentInfoKHR presentInfo = {
+    VkSwapchainKHR pSwapchain = this->m_swapchain.GetSwapchain();
+    VkPresentInfoKHR stPresentInfo = {
         .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .pNext              = nullptr,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores    = &renderFinished,
+        .pWaitSemaphores    = &pRenderFinished,
         .swapchainCount     = 1,
-        .pSwapchains        = &swapchain,
-        .pImageIndices      = &imageIndex,
+        .pSwapchains        = &pSwapchain,
+        .pImageIndices      = &lImageIndex,
         .pResults           = nullptr,
     };
-    r = vkQueuePresentKHR(m_device.GetPresentQueue(), &presentInfo);
-    if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR)
+    r = vkQueuePresentKHR(this->m_device.GetPresentQueue(), &stPresentInfo);
+    if ((r == VK_ERROR_OUT_OF_DATE_KHR) || (r == VK_SUBOPTIMAL_KHR))
         RecreateSwapchainAndDependents();
     else if (r != VK_SUCCESS)
         VulkanUtils::LogErr("vkQueuePresentKHR failed: {}", static_cast<int>(r));
 
-    m_sync.AdvanceFrame();
+    this->m_sync.AdvanceFrame();
 }
