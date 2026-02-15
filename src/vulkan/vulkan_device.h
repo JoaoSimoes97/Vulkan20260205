@@ -14,20 +14,20 @@ public:
     ~VulkanDevice();
 
     /* Create and pick physical device, create logical device. Optionally pass surface to set presentFamily. */
-    void Create(VkInstance instance, VkSurfaceKHR surface = VK_NULL_HANDLE);
+    void Create(VkInstance pInstance_ic, VkSurfaceKHR surface_ic = VK_NULL_HANDLE);
     void Destroy();
 
-    VkPhysicalDevice GetPhysicalDevice() const { return m_physicalDevice; }
-    VkDevice GetDevice() const { return m_logicalDevice; }
-    VkQueue GetGraphicsQueue() const { return m_graphicsQueue; }
+    VkPhysicalDevice GetPhysicalDevice() const { return this->m_physicalDevice; }
+    VkDevice GetDevice() const { return this->m_logicalDevice; }
+    VkQueue GetGraphicsQueue() const { return this->m_graphicsQueue; }
     /** Queue to use for vkQueuePresentKHR; same as graphics when presentFamily == graphicsFamily. */
-    VkQueue GetPresentQueue() const { return m_presentQueue; }
-    const QueueFamilyIndices& GetQueueFamilyIndices() const { return m_queueFamilyIndices; }
-    bool IsValid() const { return m_logicalDevice != VK_NULL_HANDLE; }
+    VkQueue GetPresentQueue() const { return this->m_presentQueue; }
+    const QueueFamilyIndices& GetQueueFamilyIndices() const { return this->m_queueFamilyIndices; }
+    bool IsValid() const { return this->m_logicalDevice != VK_NULL_HANDLE; }
 
 private:
-    uint32_t RateSuitability(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceProperties& props);
-    QueueFamilyIndices FindQueueFamilyIndices(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
+    uint32_t RateSuitability(VkPhysicalDevice pPhysicalDevice_ic, const VkPhysicalDeviceProperties& stProps_ic);
+    QueueFamilyIndices FindQueueFamilyIndices(VkPhysicalDevice pPhysicalDevice_ic, VkSurfaceKHR surface_ic);
 
     VkInstance m_instance = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;

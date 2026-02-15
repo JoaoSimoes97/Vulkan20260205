@@ -4,6 +4,20 @@ Common issues and fixes. For setup and build see [getting-started.md](getting-st
 
 ---
 
+## "SDL_Init failed: no display or video subsystem"
+
+The app needs a **graphical display** to create a window. This error usually means it was started without access to one.
+
+**Do this:**
+
+1. **Run from a terminal inside your desktop session** (logged in to your graphical session), not from SSH without X11/Wayland forwarding, and not from a headless server.
+2. **X11:** Ensure `DISPLAY` is set (e.g. `echo $DISPLAY` shows `:0` or similar). If you use SSH, connect with `ssh -X` or `ssh -Y` for X11 forwarding.
+3. **Wayland:** Normally the session sets the display; run the app from a terminal in that same session.
+4. **WSL:** Use WSLg so the app can open a window, or set `DISPLAY` if you run an X server on Windows.
+5. **IDE / launcher:** If your IDE runs the app in a sandbox or without the display env, run `./install/Debug/bin/VulkanApp` (or your build path) from a normal terminal instead.
+
+---
+
 ## "WARNING: radv is not a conformant Vulkan implementation"
 
 On **Linux with an AMD GPU**, the Mesa **RADV** driver may print this when Vulkan initializes. It is **harmless**: RADV is widely used and works for development. The message is hardcoded in the driver. You can ignore it. For official conformance use AMD’s proprietary driver or AMDVLK.

@@ -12,30 +12,30 @@
  */
 class Window {
 public:
-    Window(uint32_t width, uint32_t height, const char* title = "Vulkan App");
+    Window(uint32_t lWidth_ic, uint32_t lHeight_ic, const char* pTitle_ic = "Vulkan App");
     ~Window();
 
     /* Create Vulkan surface (call after VkInstance is created). */
-    void CreateSurface(VkInstance instance);
-    void DestroySurface(VkInstance instance);
+    void CreateSurface(VkInstance pInstance_ic);
+    void DestroySurface(VkInstance pInstance_ic);
 
     /* Process events; returns true if quit requested. */
     bool PollEvents();
 
-    void SetSize(uint32_t width, uint32_t height);
-    void SetFullscreen(bool fullscreen);
-    void SetTitle(const char* title);
+    void SetSize(uint32_t lWidth_ic, uint32_t lHeight_ic);
+    void SetFullscreen(bool bFullscreen_ic);
+    void SetTitle(const char* pTitle_ic);
 
-    VkSurfaceKHR GetSurface() const { return m_surface; }
-    SDL_Window* GetSDLWindow() { return m_pWindow; }
-    uint32_t GetWidth() const { return m_width; }
-    uint32_t GetHeight() const { return m_height; }
+    VkSurfaceKHR GetSurface() const { return this->m_surface; }
+    SDL_Window* GetSDLWindow() { return this->m_pWindow; }
+    uint32_t GetWidth() const { return this->m_width; }
+    uint32_t GetHeight() const { return this->m_height; }
     /** Current drawable size in pixels (for swapchain extent). */
-    void GetDrawableSize(uint32_t* outWidth, uint32_t* outHeight) const;
+    void GetDrawableSize(uint32_t* pOutWidth_out, uint32_t* pOutHeight_out) const;
 
-    bool GetFramebufferResized() const { return m_bFramebufferResized; }
-    void SetFramebufferResized(bool b) { m_bFramebufferResized = b; }
-    bool GetWindowMinimized() const { return m_bWindowMinimized; }
+    bool GetFramebufferResized() const { return this->m_bFramebufferResized; }
+    void SetFramebufferResized(bool b_ic) { this->m_bFramebufferResized = b_ic; }
+    bool GetWindowMinimized() const { return this->m_bWindowMinimized; }
 
 private:
     SDL_Window* m_pWindow = static_cast<SDL_Window*>(nullptr);

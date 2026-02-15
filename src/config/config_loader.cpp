@@ -113,25 +113,25 @@ VulkanConfig GetDefaultConfig() {
     return stCfg;
 }
 
-void EnsureDefaultConfigFile(const std::string& sDefaultPath) {
-    std::ifstream stmIn(sDefaultPath);
+void EnsureDefaultConfigFile(const std::string& sDefaultPath_ic) {
+    std::ifstream stmIn(sDefaultPath_ic);
     if (stmIn.is_open() == true) {
         stmIn.close();
         return;
     }
     VulkanConfig stDefault = GetDefaultConfig();
-    SaveConfigToFile(sDefaultPath, stDefault);
-    VulkanUtils::LogInfo("Default config not found at \"{}\"; created. This file is not overwritten by the app.", sDefaultPath);
+    SaveConfigToFile(sDefaultPath_ic, stDefault);
+    VulkanUtils::LogInfo("Default config not found at \"{}\"; created. This file is not overwritten by the app.", sDefaultPath_ic);
 }
 
-VulkanConfig LoadConfigFromFileOrCreate(const std::string& sUserPath, const std::string& sDefaultPath) {
-    EnsureDefaultConfigFile(sDefaultPath);
-    VulkanConfig stResult = LoadConfigFromFile(sDefaultPath);
+VulkanConfig LoadConfigFromFileOrCreate(const std::string& sUserPath_ic, const std::string& sDefaultPath_ic) {
+    EnsureDefaultConfigFile(sDefaultPath_ic);
+    VulkanConfig stResult = LoadConfigFromFile(sDefaultPath_ic);
 
-    std::ifstream stmUser(sUserPath);
+    std::ifstream stmUser(sUserPath_ic);
     if (stmUser.is_open() == false) {
-        SaveConfigToFile(sUserPath, stResult);
-        VulkanUtils::LogInfo("User config not found at \"{}\"; created from default. Edit the file and restart to change settings.", sUserPath);
+        SaveConfigToFile(sUserPath_ic, stResult);
+        VulkanUtils::LogInfo("User config not found at \"{}\"; created from default. Edit the file and restart to change settings.", sUserPath_ic);
         return stResult;
     }
     try {
@@ -143,9 +143,9 @@ VulkanConfig LoadConfigFromFileOrCreate(const std::string& sUserPath, const std:
     return stResult;
 }
 
-VulkanConfig LoadConfigFromFile(const std::string& sPath) {
+VulkanConfig LoadConfigFromFile(const std::string& sPath_ic) {
     VulkanConfig stConfig;
-    std::ifstream stmIn(sPath);
+    std::ifstream stmIn(sPath_ic);
     if (stmIn.is_open() == false)
         return stConfig;
     try {
@@ -157,48 +157,48 @@ VulkanConfig LoadConfigFromFile(const std::string& sPath) {
     return stConfig;
 }
 
-void SaveConfigToFile(const std::string& sPath, const VulkanConfig& stConfig) {
-    std::filesystem::path p(sPath);
+void SaveConfigToFile(const std::string& sPath_ic, const VulkanConfig& stConfig_ic) {
+    std::filesystem::path p(sPath_ic);
     std::filesystem::path parent = p.parent_path();
     if (parent.empty() == false)
         std::filesystem::create_directories(parent);
     /* Build JSON tree: window and swapchain sections. */
     json jRoot = {
         { "window", {
-            { "width", stConfig.lWidth },
-            { "height", stConfig.lHeight },
-            { "fullscreen", stConfig.bFullscreen },
-            { "title", stConfig.sWindowTitle }
+            { "width", stConfig_ic.lWidth },
+            { "height", stConfig_ic.lHeight },
+            { "fullscreen", stConfig_ic.bFullscreen },
+            { "title", stConfig_ic.sWindowTitle }
         }},
         { "swapchain", {
-            { "image_count", stConfig.lImageCount },
-            { "max_frames_in_flight", stConfig.lMaxFramesInFlight },
-            { "present_mode", PresentModeToString(stConfig.ePresentMode) },
-            { "preferred_format", stConfig.sPreferredFormat.empty() == true ? "B8G8R8A8_SRGB" : stConfig.sPreferredFormat },
-            { "preferred_color_space", stConfig.sPreferredColorSpace.empty() == true ? "SRGB_NONLINEAR" : stConfig.sPreferredColorSpace }
+            { "image_count", stConfig_ic.lImageCount },
+            { "max_frames_in_flight", stConfig_ic.lMaxFramesInFlight },
+            { "present_mode", PresentModeToString(stConfig_ic.ePresentMode) },
+            { "preferred_format", stConfig_ic.sPreferredFormat.empty() == true ? "B8G8R8A8_SRGB" : stConfig_ic.sPreferredFormat },
+            { "preferred_color_space", stConfig_ic.sPreferredColorSpace.empty() == true ? "SRGB_NONLINEAR" : stConfig_ic.sPreferredColorSpace }
         }},
         { "camera", {
-            { "use_perspective", stConfig.bUsePerspective },
-            { "fov_y_rad", stConfig.fCameraFovYRad },
-            { "near_z", stConfig.fCameraNearZ },
-            { "far_z", stConfig.fCameraFarZ },
-            { "ortho_half_extent", stConfig.fOrthoHalfExtent },
-            { "ortho_near", stConfig.fOrthoNear },
-            { "ortho_far", stConfig.fOrthoFar },
-            { "pan_speed", stConfig.fPanSpeed },
-            { "initial_camera_x", stConfig.fInitialCameraX },
-            { "initial_camera_y", stConfig.fInitialCameraY },
-            { "initial_camera_z", stConfig.fInitialCameraZ }
+            { "use_perspective", stConfig_ic.bUsePerspective },
+            { "fov_y_rad", stConfig_ic.fCameraFovYRad },
+            { "near_z", stConfig_ic.fCameraNearZ },
+            { "far_z", stConfig_ic.fCameraFarZ },
+            { "ortho_half_extent", stConfig_ic.fOrthoHalfExtent },
+            { "ortho_near", stConfig_ic.fOrthoNear },
+            { "ortho_far", stConfig_ic.fOrthoFar },
+            { "pan_speed", stConfig_ic.fPanSpeed },
+            { "initial_camera_x", stConfig_ic.fInitialCameraX },
+            { "initial_camera_y", stConfig_ic.fInitialCameraY },
+            { "initial_camera_z", stConfig_ic.fInitialCameraZ }
         }},
         { "render", {
-            { "cull_back_faces", stConfig.bCullBackFaces },
-            { "clear_color_r", stConfig.fClearColorR },
-            { "clear_color_g", stConfig.fClearColorG },
-            { "clear_color_b", stConfig.fClearColorB },
-            { "clear_color_a", stConfig.fClearColorA }
+            { "cull_back_faces", stConfig_ic.bCullBackFaces },
+            { "clear_color_r", stConfig_ic.fClearColorR },
+            { "clear_color_g", stConfig_ic.fClearColorG },
+            { "clear_color_b", stConfig_ic.fClearColorB },
+            { "clear_color_a", stConfig_ic.fClearColorA }
         }}
     };
-    std::ofstream stmOut(sPath);
+    std::ofstream stmOut(sPath_ic);
     if (stmOut.is_open() == true)
         stmOut << jRoot.dump(2);
 }

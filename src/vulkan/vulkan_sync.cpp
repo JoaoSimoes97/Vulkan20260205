@@ -6,108 +6,103 @@
 #include "vulkan_utils.h"
 #include <stdexcept>
 
-void VulkanSync::Create(VkDevice device, uint32_t maxFramesInFlight, uint32_t swapchainImageCount) {
+void VulkanSync::Create(VkDevice pDevice_ic, uint32_t lMaxFramesInFlight_ic, uint32_t lSwapchainImageCount_ic) {
     VulkanUtils::LogTrace("VulkanSync::Create");
-    if (device == VK_NULL_HANDLE || maxFramesInFlight == 0 || swapchainImageCount == 0) {
+    if ((pDevice_ic == VK_NULL_HANDLE) || (lMaxFramesInFlight_ic == 0) || (lSwapchainImageCount_ic == 0)) {
         VulkanUtils::LogErr("VulkanSync::Create: invalid device, maxFramesInFlight, or swapchainImageCount");
         throw std::runtime_error("VulkanSync::Create: invalid parameters");
     }
-    m_device = device;
-    m_maxFramesInFlight = maxFramesInFlight;
-    m_currentFrame = 0;
+    this->m_device = pDevice_ic;
+    this->m_maxFramesInFlight = lMaxFramesInFlight_ic;
+    this->m_currentFrame = static_cast<uint32_t>(0);
 
-    m_imageAvailableSemaphores.resize(maxFramesInFlight);
-    m_renderFinishedSemaphores.resize(swapchainImageCount);
-    m_inFlightFences.resize(maxFramesInFlight);
+    this->m_imageAvailableSemaphores.resize(lMaxFramesInFlight_ic);
+    this->m_renderFinishedSemaphores.resize(lSwapchainImageCount_ic);
+    this->m_inFlightFences.resize(lMaxFramesInFlight_ic);
 
-    VkSemaphoreCreateInfo semaphoreInfo = {
+    VkSemaphoreCreateInfo stSemaphoreInfo = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
     };
-    VkFenceCreateInfo fenceInfo = {
+    VkFenceCreateInfo stFenceInfo = {
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         .pNext = nullptr,
         .flags = VK_FENCE_CREATE_SIGNALED_BIT,
     };
 
-    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
-    {
-        VkResult result = vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]);
-        if (result != VK_SUCCESS)
-        {
-            for (uint32_t j = 0; j < i; ++j) {
-                vkDestroySemaphore(device, m_imageAvailableSemaphores[j], nullptr);
+    for (uint32_t lIdx = static_cast<uint32_t>(0); lIdx < lMaxFramesInFlight_ic; ++lIdx) {
+        VkResult r = vkCreateSemaphore(pDevice_ic, &stSemaphoreInfo, nullptr, &this->m_imageAvailableSemaphores[lIdx]);
+        if (r != VK_SUCCESS) {
+            for (uint32_t lJ = static_cast<uint32_t>(0); lJ < lIdx; ++lJ) {
+                vkDestroySemaphore(pDevice_ic, this->m_imageAvailableSemaphores[lJ], nullptr);
             }
-            VulkanUtils::LogErr("vkCreateSemaphore imageAvailable failed: {}", static_cast<int>(result));
+            VulkanUtils::LogErr("vkCreateSemaphore imageAvailable failed: {}", static_cast<int>(r));
             throw std::runtime_error("VulkanSync::Create: image available semaphore failed");
         }
 
-        result = vkCreateFence(device, &fenceInfo, nullptr, &m_inFlightFences[i]);
-        if (result != VK_SUCCESS)
-        {
-            vkDestroySemaphore(device, m_imageAvailableSemaphores[i], nullptr);
-            for (uint32_t j = 0; j < i; ++j) {
-                vkDestroySemaphore(device, m_imageAvailableSemaphores[j], nullptr);
-                vkDestroyFence(device, m_inFlightFences[j], nullptr);
+        r = vkCreateFence(pDevice_ic, &stFenceInfo, nullptr, &this->m_inFlightFences[lIdx]);
+        if (r != VK_SUCCESS) {
+            vkDestroySemaphore(pDevice_ic, this->m_imageAvailableSemaphores[lIdx], nullptr);
+            for (uint32_t lJ = static_cast<uint32_t>(0); lJ < lIdx; ++lJ) {
+                vkDestroySemaphore(pDevice_ic, this->m_imageAvailableSemaphores[lJ], nullptr);
+                vkDestroyFence(pDevice_ic, this->m_inFlightFences[lJ], nullptr);
             }
-            VulkanUtils::LogErr("vkCreateFence failed: {}", static_cast<int>(result));
+            VulkanUtils::LogErr("vkCreateFence failed: {}", static_cast<int>(r));
             throw std::runtime_error("VulkanSync::Create: fence failed");
         }
     }
 
-    for (uint32_t i = 0; i < swapchainImageCount; ++i)
-    {
-        VkResult result = vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]);
-        if (result != VK_SUCCESS)
-        {
-            for (uint32_t j = 0; j < maxFramesInFlight; ++j) {
-                vkDestroySemaphore(device, m_imageAvailableSemaphores[j], nullptr);
-                vkDestroyFence(device, m_inFlightFences[j], nullptr);
+    for (uint32_t lIdx = static_cast<uint32_t>(0); lIdx < lSwapchainImageCount_ic; ++lIdx) {
+        VkResult r = vkCreateSemaphore(pDevice_ic, &stSemaphoreInfo, nullptr, &this->m_renderFinishedSemaphores[lIdx]);
+        if (r != VK_SUCCESS) {
+            for (uint32_t lJ = static_cast<uint32_t>(0); lJ < lMaxFramesInFlight_ic; ++lJ) {
+                vkDestroySemaphore(pDevice_ic, this->m_imageAvailableSemaphores[lJ], nullptr);
+                vkDestroyFence(pDevice_ic, this->m_inFlightFences[lJ], nullptr);
             }
-            for (uint32_t j = 0; j < i; ++j) {
-                vkDestroySemaphore(device, m_renderFinishedSemaphores[j], nullptr);
+            for (uint32_t lJ = static_cast<uint32_t>(0); lJ < lIdx; ++lJ) {
+                vkDestroySemaphore(pDevice_ic, this->m_renderFinishedSemaphores[lJ], nullptr);
             }
-            VulkanUtils::LogErr("vkCreateSemaphore renderFinished failed: {}", static_cast<int>(result));
+            VulkanUtils::LogErr("vkCreateSemaphore renderFinished failed: {}", static_cast<int>(r));
             throw std::runtime_error("VulkanSync::Create: render finished semaphore failed");
         }
     }
 }
 
 void VulkanSync::Destroy() {
-    if (m_device == VK_NULL_HANDLE)
+    if (this->m_device == VK_NULL_HANDLE)
         return;
-    for (size_t i = 0; i < m_inFlightFences.size(); ++i) {
-        vkDestroyFence(m_device, m_inFlightFences[i], nullptr);
-        vkDestroySemaphore(m_device, m_imageAvailableSemaphores[i], nullptr);
+    for (size_t zIdx = static_cast<size_t>(0); zIdx < this->m_inFlightFences.size(); ++zIdx) {
+        vkDestroyFence(this->m_device, this->m_inFlightFences[zIdx], nullptr);
+        vkDestroySemaphore(this->m_device, this->m_imageAvailableSemaphores[zIdx], nullptr);
     }
-    for (size_t i = 0; i < m_renderFinishedSemaphores.size(); ++i) {
-        vkDestroySemaphore(m_device, m_renderFinishedSemaphores[i], nullptr);
+    for (size_t zIdx = static_cast<size_t>(0); zIdx < this->m_renderFinishedSemaphores.size(); ++zIdx) {
+        vkDestroySemaphore(this->m_device, this->m_renderFinishedSemaphores[zIdx], nullptr);
     }
-    m_inFlightFences.clear();
-    m_imageAvailableSemaphores.clear();
-    m_renderFinishedSemaphores.clear();
-    m_maxFramesInFlight = 0;
-    m_currentFrame = 0;
-    m_device = VK_NULL_HANDLE;
+    this->m_inFlightFences.clear();
+    this->m_imageAvailableSemaphores.clear();
+    this->m_renderFinishedSemaphores.clear();
+    this->m_maxFramesInFlight = static_cast<uint32_t>(0);
+    this->m_currentFrame = static_cast<uint32_t>(0);
+    this->m_device = VK_NULL_HANDLE;
 }
 
-VkFence VulkanSync::GetInFlightFence(uint32_t frameIndex) const {
-    if (frameIndex >= m_inFlightFences.size())
+VkFence VulkanSync::GetInFlightFence(uint32_t lFrameIndex_ic) const {
+    if (lFrameIndex_ic >= this->m_inFlightFences.size())
         return VK_NULL_HANDLE;
-    return m_inFlightFences[frameIndex];
+    return this->m_inFlightFences[lFrameIndex_ic];
 }
 
-VkSemaphore VulkanSync::GetImageAvailableSemaphore(uint32_t frameIndex) const {
-    if (frameIndex >= m_imageAvailableSemaphores.size())
+VkSemaphore VulkanSync::GetImageAvailableSemaphore(uint32_t lFrameIndex_ic) const {
+    if (lFrameIndex_ic >= this->m_imageAvailableSemaphores.size())
         return VK_NULL_HANDLE;
-    return m_imageAvailableSemaphores[frameIndex];
+    return this->m_imageAvailableSemaphores[lFrameIndex_ic];
 }
 
-VkSemaphore VulkanSync::GetRenderFinishedSemaphore(uint32_t imageIndex) const {
-    if (imageIndex >= m_renderFinishedSemaphores.size())
+VkSemaphore VulkanSync::GetRenderFinishedSemaphore(uint32_t lImageIndex_ic) const {
+    if (lImageIndex_ic >= this->m_renderFinishedSemaphores.size())
         return VK_NULL_HANDLE;
-    return m_renderFinishedSemaphores[imageIndex];
+    return this->m_renderFinishedSemaphores[lImageIndex_ic];
 }
 
 VulkanSync::~VulkanSync() {

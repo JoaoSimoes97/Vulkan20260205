@@ -79,7 +79,7 @@ VkPresentModeKHR ChoosePresentMode(VkPhysicalDevice physicalDevice, VkSurfaceKHR
 
 VkExtent2D ChooseExtent(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
                         uint32_t lRequestedWidth, uint32_t lRequestedHeight) {
-    if (lRequestedWidth == 0u || lRequestedHeight == 0u) {
+    if ((lRequestedWidth == 0u) || (lRequestedHeight == 0u)) {
         VulkanUtils::LogErr("ChooseExtent: requested extent {}x{} is invalid; caller must supply non-zero size.",
             lRequestedWidth, lRequestedHeight);
         throw std::runtime_error("ChooseExtent: zero extent not allowed");
@@ -94,7 +94,7 @@ VkExtent2D ChooseExtent(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
     const uint32_t maxH = stCaps.maxImageExtent.height;
 
     /* If requested size is within surface limits, use it exactly (no aspect change). */
-    if (lRequestedWidth >= minW && lRequestedWidth <= maxW && lRequestedHeight >= minH && lRequestedHeight <= maxH)
+    if ((lRequestedWidth >= minW) && (lRequestedWidth <= maxW) && (lRequestedHeight >= minH) && (lRequestedHeight <= maxH))
         return VkExtent2D{ lRequestedWidth, lRequestedHeight };
 
     /* Otherwise fit into [min,max] preserving aspect ratio so the image is never stretched. */
@@ -120,29 +120,29 @@ VkExtent2D ChooseExtent(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
 
 } // namespace
 
-void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
-                             const QueueFamilyIndices& queueFamilyIndices, const VulkanConfig& stConfig) {
+void VulkanSwapchain::Create(VkDevice pDevice_ic, VkPhysicalDevice pPhysicalDevice_ic, VkSurfaceKHR surface_ic,
+                             const QueueFamilyIndices& stQueueFamilyIndices_ic, const VulkanConfig& stConfig_ic) {
     VulkanUtils::LogTrace("VulkanSwapchain::Create");
-    if ((device == VK_NULL_HANDLE) || (physicalDevice == VK_NULL_HANDLE) || (surface == VK_NULL_HANDLE)) {
+    if ((pDevice_ic == VK_NULL_HANDLE) || (pPhysicalDevice_ic == VK_NULL_HANDLE) || (surface_ic == VK_NULL_HANDLE)) {
         VulkanUtils::LogErr("VulkanSwapchain::Create: invalid device/surface");
         throw std::runtime_error("VulkanSwapchain::Create: invalid device/surface");
     }
-    this->m_device = device;
-    this->m_physicalDevice = physicalDevice;
-    this->m_surface = surface;
-    this->m_queueFamilyIndices = queueFamilyIndices;
-    this->m_config = stConfig;
+    this->m_device = pDevice_ic;
+    this->m_physicalDevice = pPhysicalDevice_ic;
+    this->m_surface = surface_ic;
+    this->m_queueFamilyIndices = stQueueFamilyIndices_ic;
+    this->m_config = stConfig_ic;
 
-    VkSurfaceFormatKHR stSurfaceFormat = ChooseSurfaceFormat(physicalDevice, surface,
-                                                          stConfig.sPreferredFormat, stConfig.sPreferredColorSpace);
-    VkPresentModeKHR ePresentMode = ChoosePresentMode(physicalDevice, surface, stConfig.ePresentMode);
-    this->m_extent = ChooseExtent(physicalDevice, surface, stConfig.lWidth, stConfig.lHeight);
+    VkSurfaceFormatKHR stSurfaceFormat = ChooseSurfaceFormat(pPhysicalDevice_ic, surface_ic,
+                                                          stConfig_ic.sPreferredFormat, stConfig_ic.sPreferredColorSpace);
+    VkPresentModeKHR ePresentMode = ChoosePresentMode(pPhysicalDevice_ic, surface_ic, stConfig_ic.ePresentMode);
+    this->m_extent = ChooseExtent(pPhysicalDevice_ic, surface_ic, stConfig_ic.lWidth, stConfig_ic.lHeight);
     this->m_imageFormat = stSurfaceFormat.format;
 
     /* Surface caps: validate config image count; no clamping, fail if invalid. */
     VkSurfaceCapabilitiesKHR stCaps = {};
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &stCaps);
-    uint32_t lRequestedCount = stConfig.lImageCount;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(pPhysicalDevice_ic, surface_ic, &stCaps);
+    uint32_t lRequestedCount = stConfig_ic.lImageCount;
     if (lRequestedCount < stCaps.minImageCount) {
         VulkanUtils::LogErr("Config image_count {} is below surface minImageCount {}. Adjust config and restart.", lRequestedCount, stCaps.minImageCount);
         throw std::runtime_error("VulkanSwapchain::Create: image_count below surface minimum");
@@ -153,18 +153,18 @@ void VulkanSwapchain::Create(VkDevice device, VkPhysicalDevice physicalDevice, V
     }
 
     /* Use present queue if distinct from graphics; else same queue for both. */
-    uint32_t lPresentFamily = (queueFamilyIndices.presentFamily != QUEUE_FAMILY_IGNORED)
-                             ? queueFamilyIndices.presentFamily
-                             : queueFamilyIndices.graphicsFamily;
-    uint32_t lQueueFamilyIndicesArray[] = { queueFamilyIndices.graphicsFamily, lPresentFamily };
-    bool bSameQueue = (queueFamilyIndices.graphicsFamily == lPresentFamily);
+    uint32_t lPresentFamily = (stQueueFamilyIndices_ic.presentFamily != QUEUE_FAMILY_IGNORED)
+                             ? stQueueFamilyIndices_ic.presentFamily
+                             : stQueueFamilyIndices_ic.graphicsFamily;
+    uint32_t lQueueFamilyIndicesArray[] = { stQueueFamilyIndices_ic.graphicsFamily, lPresentFamily };
+    bool bSameQueue = (stQueueFamilyIndices_ic.graphicsFamily == lPresentFamily);
     uint32_t lQueueFamilyIndexCount = (bSameQueue == true) ? static_cast<uint32_t>(1) : static_cast<uint32_t>(2);
 
     VkSwapchainCreateInfoKHR stCreateInfo = {
         .sType                 = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,                                   /* KHR swapchain create. */
         .pNext                 = static_cast<void*>(nullptr),                                                   /* No extension chain. */
         .flags                 = 0,                                                                             /* No create flags. */
-        .surface               = surface,                                                                       /* Target presentation surface. */
+        .surface               = surface_ic,                                                                     /* Target presentation surface. */
         .minImageCount         = lRequestedCount,                                                               /* Exact count from config; validated against caps. */
         .imageFormat           = stSurfaceFormat.format,                                                        /* Chosen surface format. */
         .imageColorSpace       = stSurfaceFormat.colorSpace,                                                    /* Chosen color space. */
@@ -229,9 +229,9 @@ void VulkanSwapchain::CreateImageViews() {
     }
 }
 
-void VulkanSwapchain::RecreateSwapchain(const VulkanConfig& stConfig) {
+void VulkanSwapchain::RecreateSwapchain(const VulkanConfig& stConfig_ic) {
     VulkanUtils::LogTrace("VulkanSwapchain::RecreateSwapchain");
-    this->m_config = stConfig;
+    this->m_config = stConfig_ic;
     for (VkImageView imageView : this->m_imageViews)
         vkDestroyImageView(this->m_device, imageView, nullptr);
     this->m_imageViews.clear();

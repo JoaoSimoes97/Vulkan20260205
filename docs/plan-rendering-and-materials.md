@@ -6,8 +6,8 @@ Roadmap for the draw loop, pipeline state (including blend), and materials. Comp
 
 ## Current state
 
-- **Done**: Swapchain, render pass (from descriptor: color + optional depth), **VulkanDepthImage**, framebuffers (color + optional depth views), pipeline with `GraphicsPipelineParams` (including depth state and vertex input), pipeline manager (get by key, returns VkPipeline/VkPipelineLayout; shaders via shared_ptr + deleter, TrimUnused). **Pipeline layout parameterization**: `PipelineLayoutDescriptor` (push ranges). Draw loop: acquire → record (render area, viewport, scissor, clear values, draw list; **vertex buffer bind per draw**) → submit → present; out-of-date handling. **DrawCall** includes vertex buffer + offset; command buffers bind vertex buffers then draw. **MeshManager** (MeshHandle owns VkBuffer/VkDeviceMemory), **MaterialManager**, **Scene**/SceneManager, **RenderListBuilder** (build draw list from scene, sort by pipeline/mesh). Perspective and orthographic projection (config-driven); view matrix from camera position; initial camera and pan speed from config. Resize syncs swapchain to drawable size every frame. **Single Cleanup() path**: UnloadScene → MeshManager.Destroy() → ShaderManager.Destroy() → Device.
-- **Not yet**: Blend (transparency).
+- **Done**: Swapchain, render pass (from descriptor: color + optional depth), **VulkanDepthImage**, framebuffers (color + optional depth views), pipeline with `GraphicsPipelineParams` (including **depth state**, **blend state**, and vertex input), pipeline manager (get by key, returns VkPipeline/VkPipelineLayout; shaders via shared_ptr + deleter, TrimUnused). **Pipeline layout parameterization**: `PipelineLayoutDescriptor` (push ranges). Draw loop: acquire → record (render area, viewport, scissor, clear values, draw list; **vertex buffer bind per draw**) → submit → present; out-of-date handling. **DrawCall** includes vertex buffer + offset; command buffers bind vertex buffers then draw. **MeshManager** (MeshHandle owns VkBuffer/VkDeviceMemory), **MaterialManager**, **TextureManager** (TextureHandle: image/view/sampler; stb_image, TrimUnused), **Scene**/SceneManager, **RenderListBuilder** (build draw list from scene, sort by pipeline/mesh; optional frustum culling and push constant size validation). Perspective and orthographic projection (config-driven); view matrix from camera position; initial camera and pan speed from config. Resize syncs swapchain to drawable size every frame. **Single Cleanup() path**: UnloadScene → MeshManager.Destroy() → TextureManager.Destroy() → ShaderManager.Destroy() → Device.
+- **Not yet**: Descriptor sets (textures in shaders); instancing.
 
 ---
 
@@ -29,23 +29,15 @@ Render pass descriptor (color + optional depth), framebuffers with attachment li
 
 ---
 
-## 4. Pipeline params — blend (transparency)
+## 4. Pipeline params — blend (transparency) — done
 
-Add blend state to **GraphicsPipelineParams** so opaque vs transparent is caller-driven like other pipeline options.
-
-| Step | What |
-|------|------|
-| Params | Add e.g. `blendEnable`, `srcColorBlendFactor`, `dstColorBlendFactor`, `colorBlendOp` (and alpha factors/op if needed). |
-| Pipeline | In `VulkanPipeline::Create`, build `VkPipelineColorBlendAttachmentState` (and attachment count) from `pipelineParams`. |
-| Caller | Fills params (opaque vs alpha blend); manager already recreates when params change. |
-
-**Goal**: Support opaque and alpha-blend pipelines via params only; no second pipeline API.
+Blend state is in **GraphicsPipelineParams** (`blendEnable`, `srcColorBlendFactor`, `dstColorBlendFactor`, `colorBlendOp`, and alpha factors/op). **VulkanPipeline::Create** builds `VkPipelineColorBlendAttachmentState` from `pipelineParams`. Caller sets params (opaque vs alpha blend); manager recreates when params change. Opaque and alpha-blend pipelines via params only; no second pipeline API.
 
 ---
 
 ## 5. Scene, objects, and draw list (editor)
 
-**Implemented**: **Scene** (list of renderables: mesh + material refs, per-object data), **MeshManager** (vertex buffer upload, MeshHandle owns buffers), **RenderListBuilder** (build `std::vector<DrawCall>` from scene, vertex buffer + draw params per mesh, sort by pipeline/mesh). Material = pipeline key + layout; objects hold `shared_ptr<MaterialHandle>` and `shared_ptr<MeshHandle>`. See [plan-editor-and-scene.md](plan-editor-and-scene.md). **Not yet**: blend (transparency), instancing.
+**Implemented**: **Scene** (list of renderables: mesh + material refs, per-object data), **MeshManager** (vertex buffer upload, MeshHandle owns buffers), **RenderListBuilder** (build `std::vector<DrawCall>` from scene, vertex buffer + draw params per mesh, sort by pipeline/mesh; frustum culling when viewProj passed; push constant size validated). Material = pipeline key + layout; objects hold `shared_ptr<MaterialHandle>` and `shared_ptr<MeshHandle>`. See [plan-editor-and-scene.md](plan-editor-and-scene.md). **Not yet**: descriptor sets (textures in shaders), instancing.
 
 ---
 

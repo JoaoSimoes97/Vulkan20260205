@@ -15,19 +15,19 @@ public:
     ~VulkanSwapchain();
 
     /* Create initial swapchain (call after device and surface exist). */
-    void Create(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
-                const QueueFamilyIndices& queueFamilyIndices, const VulkanConfig& config);
+    void Create(VkDevice pDevice_ic, VkPhysicalDevice pPhysicalDevice_ic, VkSurfaceKHR surface_ic,
+                const QueueFamilyIndices& stQueueFamilyIndices_ic, const VulkanConfig& stConfig_ic);
     void Destroy();
 
     /* Tear down and recreate with current extent/config (e.g. after resize or present mode change). */
-    void RecreateSwapchain(const VulkanConfig& config);
+    void RecreateSwapchain(const VulkanConfig& stConfig_ic);
 
-    VkSwapchainKHR GetSwapchain() const { return m_swapchain; }
-    const std::vector<VkImageView>& GetImageViews() const { return m_imageViews; }
-    VkFormat GetImageFormat() const { return m_imageFormat; }
-    VkExtent2D GetExtent() const { return m_extent; }
-    uint32_t GetImageCount() const { return static_cast<uint32_t>(m_imageViews.size()); }
-    bool IsValid() const { return m_swapchain != VK_NULL_HANDLE; }
+    VkSwapchainKHR GetSwapchain() const { return this->m_swapchain; }
+    const std::vector<VkImageView>& GetImageViews() const { return this->m_imageViews; }
+    VkFormat GetImageFormat() const { return this->m_imageFormat; }
+    VkExtent2D GetExtent() const { return this->m_extent; }
+    uint32_t GetImageCount() const { return static_cast<uint32_t>(this->m_imageViews.size()); }
+    bool IsValid() const { return this->m_swapchain != VK_NULL_HANDLE; }
 
 private:
     void CreateImageViews();

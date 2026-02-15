@@ -63,12 +63,12 @@ public:
     VulkanPipeline() = default;
     ~VulkanPipeline();
 
-    void Create(VkDevice device, VkRenderPass renderPass,
-                VulkanShaderManager* pShaderManager,
-                const std::string& sVertPath, const std::string& sFragPath,
-                const GraphicsPipelineParams& pipelineParams,
-                const PipelineLayoutDescriptor& layoutDescriptor,
-                bool renderPassHasDepth);
+    void Create(VkDevice pDevice_ic, VkRenderPass renderPass_ic,
+                VulkanShaderManager* pShaderManager_ic,
+                const std::string& sVertPath_ic, const std::string& sFragPath_ic,
+                const GraphicsPipelineParams& stPipelineParams_ic,
+                const PipelineLayoutDescriptor& stLayoutDescriptor_ic,
+                bool bRenderPassHasDepth_ic);
     void Destroy();
 
     VkPipeline Get() const { return this->m_pipeline; }

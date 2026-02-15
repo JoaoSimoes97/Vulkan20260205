@@ -11,16 +11,16 @@ public:
     VulkanDepthImage() = default;
     ~VulkanDepthImage();
 
-    void Create(VkDevice device, VkPhysicalDevice physicalDevice, VkFormat depthFormat, VkExtent2D extent);
+    void Create(VkDevice pDevice_ic, VkPhysicalDevice pPhysicalDevice_ic, VkFormat eDepthFormat_ic, VkExtent2D stExtent_ic);
     void Destroy();
 
-    VkImageView GetView() const { return m_view; }
-    VkFormat GetFormat() const { return m_format; }
-    bool IsValid() const { return m_view != VK_NULL_HANDLE; }
+    VkImageView GetView() const { return this->m_view; }
+    VkFormat GetFormat() const { return this->m_format; }
+    bool IsValid() const { return this->m_view != VK_NULL_HANDLE; }
 
     /** Pick a supported depth format (e.g. D32_SFLOAT or D24_UNORM_S8_UINT). Returns VK_FORMAT_UNDEFINED if none. */
-    static VkFormat FindSupportedFormat(VkPhysicalDevice physicalDevice,
-                                       const VkFormat* candidates, uint32_t candidateCount);
+    static VkFormat FindSupportedFormat(VkPhysicalDevice pPhysicalDevice_ic,
+                                       const VkFormat* pCandidates_ic, uint32_t lCandidateCount_ic);
 
 private:
     VkDevice       m_device = VK_NULL_HANDLE;

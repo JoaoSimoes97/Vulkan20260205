@@ -96,9 +96,9 @@ The recording path (render pass, framebuffers, Record) is stable. Phase 2 only a
 
 - [x] Sort draw list by (pipeline, mesh) to minimize pipeline and vertex buffer binds (RenderListBuilder).
 - [x] Reuse single `std::vector<DrawCall>` each frame; avoid per-frame allocations in build path (VulkanApp::m_drawCalls).
-- [ ] Push constant size matches layout (parameterized); no oversized pushes.
+- [x] Push constant size validated against material layout; oversized pushes skipped in RenderListBuilder.
 - [ ] Instancing: one draw per (mesh, material) group when multiple objects share both.
-- [ ] Frustum culling (optional in editor): skip objects outside camera in RenderListBuilder.
+- [x] Frustum culling: optional in RenderListBuilder when viewProj passed; objects outside NDC skipped.
 - [ ] Descriptor sets: shared per material or pooled; bindless only if needed later.
 
 ---

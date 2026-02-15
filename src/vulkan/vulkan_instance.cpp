@@ -3,17 +3,17 @@
 #include <cstring>
 #include <stdexcept>
 
-void VulkanInstance::CheckExtensionsAvailable(const char* const* pExtensionNames, uint32_t extensionCount) {
+void VulkanInstance::CheckExtensionsAvailable(const char* const* pExtensionNames_ic, uint32_t lExtensionCount_ic) {
     VulkanUtils::LogTrace("CheckInstanceExtensionsAvailable");
-    uint32_t availableCount = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &availableCount, nullptr);
-    std::vector<VkExtensionProperties> available(availableCount);
-    vkEnumerateInstanceExtensionProperties(nullptr, &availableCount, available.data());
-    for (uint32_t lIdx = static_cast<uint32_t>(0); lIdx < extensionCount; ++lIdx) {
-        const char* pName = pExtensionNames[lIdx];
+    uint32_t lAvailableCount = static_cast<uint32_t>(0);
+    vkEnumerateInstanceExtensionProperties(nullptr, &lAvailableCount, nullptr);
+    std::vector<VkExtensionProperties> vecAvailable(lAvailableCount);
+    vkEnumerateInstanceExtensionProperties(nullptr, &lAvailableCount, vecAvailable.data());
+    for (uint32_t lIdx = static_cast<uint32_t>(0); lIdx < lExtensionCount_ic; ++lIdx) {
+        const char* pName = pExtensionNames_ic[lIdx];
         bool bFound = false;
-        for (const auto& prop : available) {
-            if (std::strcmp(pName, prop.extensionName) == 0) {
+        for (const auto& stProp : vecAvailable) {
+            if (std::strcmp(pName, stProp.extensionName) == 0) {
                 bFound = true;
                 break;
             }
@@ -25,13 +25,13 @@ void VulkanInstance::CheckExtensionsAvailable(const char* const* pExtensionNames
     }
 }
 
-void VulkanInstance::Create(const char* const* pExtensionNames, uint32_t extensionCount) {
+void VulkanInstance::Create(const char* const* pExtensionNames_ic, uint32_t lExtensionCount_ic) {
     VulkanUtils::LogTrace("CreateVulkanInstance");
-    if ((pExtensionNames == nullptr) || (extensionCount == 0)) {
+    if ((pExtensionNames_ic == nullptr) || (lExtensionCount_ic == 0)) {
         VulkanUtils::LogErr("No Vulkan instance extensions provided");
         throw std::runtime_error("No Vulkan instance extensions provided");
     }
-    CheckExtensionsAvailable(pExtensionNames, extensionCount);
+    CheckExtensionsAvailable(pExtensionNames_ic, lExtensionCount_ic);
 
     if ((VulkanUtils::ENABLE_VALIDATION_LAYERS == true) && (VulkanUtils::CheckValidationLayerSupport() == false)) {
         VulkanUtils::LogErr("Validation layers requested, but not available");
@@ -60,20 +60,20 @@ void VulkanInstance::Create(const char* const* pExtensionNames, uint32_t extensi
         .pApplicationInfo        = &appInfo,
         .enabledLayerCount       = VulkanUtils::ENABLE_VALIDATION_LAYERS ? static_cast<uint32_t>(VulkanUtils::VALIDATION_LAYERS.size()) : 0u,
         .ppEnabledLayerNames     = VulkanUtils::ENABLE_VALIDATION_LAYERS ? VulkanUtils::VALIDATION_LAYERS.data() : nullptr,
-        .enabledExtensionCount   = extensionCount,
-        .ppEnabledExtensionNames = pExtensionNames,
+        .enabledExtensionCount   = lExtensionCount_ic,
+        .ppEnabledExtensionNames = pExtensionNames_ic,
     };
 
-    VkResult result = vkCreateInstance(&createInfo, nullptr, &m_instance);
+    VkResult result = vkCreateInstance(&createInfo, nullptr, &this->m_instance);
     if (result != VK_SUCCESS) {
         VulkanUtils::LogErr("vkCreateInstance failed: {}", static_cast<int>(result));
         throw std::runtime_error("Failed to create Vulkan instance");
     }
 
     if (VulkanUtils::ENABLE_VALIDATION_LAYERS == true) {
-        VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo = {};
-        VulkanUtils::PopulateDebugMessengerCreateInfo(messengerCreateInfo);
-        result = VulkanUtils::CreateDebugUtilsMessengerEXT(m_instance, &messengerCreateInfo, nullptr, &m_debugMessenger);
+        VkDebugUtilsMessengerCreateInfoEXT stMessengerCreateInfo = {};
+        VulkanUtils::PopulateDebugMessengerCreateInfo(stMessengerCreateInfo);
+        result = VulkanUtils::CreateDebugUtilsMessengerEXT(this->m_instance, &stMessengerCreateInfo, nullptr, &this->m_debugMessenger);
         if (result != VK_SUCCESS) {
             VulkanUtils::LogErr("Failed to set up debug messenger");
             Destroy();
@@ -83,13 +83,13 @@ void VulkanInstance::Create(const char* const* pExtensionNames, uint32_t extensi
 }
 
 void VulkanInstance::Destroy() {
-    if ((VulkanUtils::ENABLE_VALIDATION_LAYERS == true) && (m_debugMessenger != VK_NULL_HANDLE)) {
-        VulkanUtils::DestroyDebugUtilsMessengerEXT(m_instance, m_debugMessenger, nullptr);
-        m_debugMessenger = VK_NULL_HANDLE;
+    if ((VulkanUtils::ENABLE_VALIDATION_LAYERS == true) && (this->m_debugMessenger != VK_NULL_HANDLE)) {
+        VulkanUtils::DestroyDebugUtilsMessengerEXT(this->m_instance, this->m_debugMessenger, nullptr);
+        this->m_debugMessenger = VK_NULL_HANDLE;
     }
-    if (m_instance != VK_NULL_HANDLE) {
-        vkDestroyInstance(m_instance, nullptr);
-        m_instance = VK_NULL_HANDLE;
+    if (this->m_instance != VK_NULL_HANDLE) {
+        vkDestroyInstance(this->m_instance, nullptr);
+        this->m_instance = VK_NULL_HANDLE;
     }
 }
 

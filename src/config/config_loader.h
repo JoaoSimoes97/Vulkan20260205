@@ -14,10 +14,10 @@
 VulkanConfig GetDefaultConfig();
 
 /** Ensure default config file exists; create from GetDefaultConfig() only if missing. Never overwrites. */
-void EnsureDefaultConfigFile(const std::string& sDefaultPath);
+void EnsureDefaultConfigFile(const std::string& sDefaultPath_ic);
 
 /** Load user config merged over default. If user file missing, create it from default and return default. */
-VulkanConfig LoadConfigFromFileOrCreate(const std::string& sUserPath, const std::string& sDefaultPath);
+VulkanConfig LoadConfigFromFileOrCreate(const std::string& sUserPath_ic, const std::string& sDefaultPath_ic);
 
-VulkanConfig LoadConfigFromFile(const std::string& sPath);
-void SaveConfigToFile(const std::string& sPath, const VulkanConfig& stConfig);
+VulkanConfig LoadConfigFromFile(const std::string& sPath_ic);
+void SaveConfigToFile(const std::string& sPath_ic, const VulkanConfig& stConfig_ic);

@@ -2,30 +2,30 @@
 #include "vulkan_utils.h"
 #include <stdexcept>
 
-void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
-                            VulkanShaderManager* pShaderManager,
-                            const std::string& sVertPath, const std::string& sFragPath,
-                            const GraphicsPipelineParams& pipelineParams,
-                            const PipelineLayoutDescriptor& layoutDescriptor,
-                            bool renderPassHasDepth) {
+void VulkanPipeline::Create(VkDevice pDevice_ic, VkRenderPass renderPass_ic,
+                            VulkanShaderManager* pShaderManager_ic,
+                            const std::string& sVertPath_ic, const std::string& sFragPath_ic,
+                            const GraphicsPipelineParams& stPipelineParams_ic,
+                            const PipelineLayoutDescriptor& stLayoutDescriptor_ic,
+                            bool bRenderPassHasDepth_ic) {
     VulkanUtils::LogTrace("VulkanPipeline::Create");
-    if (device == VK_NULL_HANDLE) {
+    if (pDevice_ic == VK_NULL_HANDLE) {
         VulkanUtils::LogErr("VulkanPipeline::Create: invalid device");
         throw std::runtime_error("VulkanPipeline::Create: invalid device");
     }
-    if ((pShaderManager == nullptr) || (pShaderManager->IsValid() == false)) {
+    if ((pShaderManager_ic == nullptr) || (pShaderManager_ic->IsValid() == false)) {
         VulkanUtils::LogErr("VulkanPipeline::Create: invalid shader manager");
         throw std::runtime_error("VulkanPipeline::Create: invalid shader manager");
     }
-    if (renderPass == VK_NULL_HANDLE) {
+    if (renderPass_ic == VK_NULL_HANDLE) {
         VulkanUtils::LogErr("VulkanPipeline::Create: invalid render pass");
         throw std::runtime_error("VulkanPipeline::Create: invalid render pass");
     }
 
-    this->m_device = device;
-    this->m_pVertShader = pShaderManager->GetShader(device, sVertPath);
-    this->m_pFragShader = pShaderManager->GetShader(device, sFragPath);
-    if (!this->m_pVertShader || !this->m_pFragShader) {
+    this->m_device = pDevice_ic;
+    this->m_pVertShader = pShaderManager_ic->GetShader(pDevice_ic, sVertPath_ic);
+    this->m_pFragShader = pShaderManager_ic->GetShader(pDevice_ic, sFragPath_ic);
+    if ((this->m_pVertShader == nullptr) || (this->m_pFragShader == nullptr)) {
         this->m_pVertShader.reset();
         this->m_pFragShader.reset();
         VulkanUtils::LogErr("VulkanPipeline::Create: failed to load shaders");
@@ -81,8 +81,8 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         .pNext                  = nullptr,
         .flags                  = static_cast<VkPipelineInputAssemblyStateCreateFlags>(0),
-        .topology               = pipelineParams.topology,
-        .primitiveRestartEnable = pipelineParams.primitiveRestartEnable,
+        .topology               = stPipelineParams_ic.topology,
+        .primitiveRestartEnable = stPipelineParams_ic.primitiveRestartEnable,
     };
 
     VkPipelineViewportStateCreateInfo stViewportState = {
@@ -110,21 +110,21 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .flags                   = static_cast<VkPipelineRasterizationStateCreateFlags>(0),
         .depthClampEnable        = VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
-        .polygonMode             = pipelineParams.polygonMode,
-        .cullMode                = pipelineParams.cullMode,
-        .frontFace               = pipelineParams.frontFace,
+        .polygonMode             = stPipelineParams_ic.polygonMode,
+        .cullMode                = stPipelineParams_ic.cullMode,
+        .frontFace               = stPipelineParams_ic.frontFace,
         .depthBiasEnable         = VK_FALSE,
         .depthBiasConstantFactor = static_cast<float>(0.0),
         .depthBiasClamp          = static_cast<float>(0.0),
         .depthBiasSlopeFactor    = static_cast<float>(0.0),
-        .lineWidth               = pipelineParams.lineWidth,
+        .lineWidth               = stPipelineParams_ic.lineWidth,
     };
 
     VkPipelineMultisampleStateCreateInfo stMultisample = {
         .sType                 = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .pNext                 = nullptr,
         .flags                 = static_cast<VkPipelineMultisampleStateCreateFlags>(0),
-        .rasterizationSamples  = pipelineParams.rasterizationSamples,
+        .rasterizationSamples  = stPipelineParams_ic.rasterizationSamples,
         .sampleShadingEnable   = VK_FALSE,
         .minSampleShading      = static_cast<float>(1.0),
         .pSampleMask           = nullptr,
@@ -133,13 +133,13 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
     };
 
     VkPipelineColorBlendAttachmentState stBlendAttachment = {
-        .blendEnable         = pipelineParams.blendEnable,
-        .srcColorBlendFactor = pipelineParams.srcColorBlendFactor,
-        .dstColorBlendFactor = pipelineParams.dstColorBlendFactor,
-        .colorBlendOp        = pipelineParams.colorBlendOp,
-        .srcAlphaBlendFactor = pipelineParams.srcAlphaBlendFactor,
-        .dstAlphaBlendFactor = pipelineParams.dstAlphaBlendFactor,
-        .alphaBlendOp        = pipelineParams.alphaBlendOp,
+        .blendEnable         = stPipelineParams_ic.blendEnable,
+        .srcColorBlendFactor = stPipelineParams_ic.srcColorBlendFactor,
+        .dstColorBlendFactor = stPipelineParams_ic.dstColorBlendFactor,
+        .colorBlendOp        = stPipelineParams_ic.colorBlendOp,
+        .srcAlphaBlendFactor = stPipelineParams_ic.srcAlphaBlendFactor,
+        .dstAlphaBlendFactor = stPipelineParams_ic.dstAlphaBlendFactor,
+        .alphaBlendOp        = stPipelineParams_ic.alphaBlendOp,
         .colorWriteMask      = static_cast<VkColorComponentFlags>(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT),
     };
     VkPipelineColorBlendStateCreateInfo stColorBlend = {
@@ -157,9 +157,9 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         .pNext                 = nullptr,
         .flags                 = 0,
-        .depthTestEnable       = pipelineParams.depthTestEnable,
-        .depthWriteEnable      = pipelineParams.depthWriteEnable,
-        .depthCompareOp        = pipelineParams.depthCompareOp,
+        .depthTestEnable       = stPipelineParams_ic.depthTestEnable,
+        .depthWriteEnable      = stPipelineParams_ic.depthWriteEnable,
+        .depthCompareOp        = stPipelineParams_ic.depthCompareOp,
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable     = VK_FALSE,
         .front                 = {},
@@ -167,7 +167,7 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .minDepthBounds        = 0.0f,
         .maxDepthBounds        = 1.0f,
     };
-    VkPipelineDepthStencilStateCreateInfo* pDepthStencil = renderPassHasDepth ? &stDepthStencil : nullptr;
+    VkPipelineDepthStencilStateCreateInfo* pDepthStencil = (bRenderPassHasDepth_ic == true) ? &stDepthStencil : nullptr;
 
     VkPipelineLayoutCreateInfo stLayoutInfo = {
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -175,14 +175,14 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .flags                  = static_cast<VkPipelineLayoutCreateFlags>(0),
         .setLayoutCount         = static_cast<uint32_t>(0),
         .pSetLayouts            = nullptr,
-        .pushConstantRangeCount = static_cast<uint32_t>(layoutDescriptor.pushConstantRanges.size()),
-        .pPushConstantRanges    = layoutDescriptor.pushConstantRanges.empty() ? nullptr : layoutDescriptor.pushConstantRanges.data(),
+        .pushConstantRangeCount = static_cast<uint32_t>(stLayoutDescriptor_ic.pushConstantRanges.size()),
+        .pPushConstantRanges    = (stLayoutDescriptor_ic.pushConstantRanges.empty() == true) ? nullptr : stLayoutDescriptor_ic.pushConstantRanges.data(),
     };
-    VkResult result = vkCreatePipelineLayout(device, &stLayoutInfo, nullptr, &this->m_pipelineLayout);
-    if (result != VK_SUCCESS) {
+    VkResult r = vkCreatePipelineLayout(pDevice_ic, &stLayoutInfo, nullptr, &this->m_pipelineLayout);
+    if (r != VK_SUCCESS) {
         this->m_pVertShader.reset();
         this->m_pFragShader.reset();
-        VulkanUtils::LogErr("vkCreatePipelineLayout failed: {}", static_cast<int>(result));
+        VulkanUtils::LogErr("vkCreatePipelineLayout failed: {}", static_cast<int>(r));
         throw std::runtime_error("VulkanPipeline::Create: pipeline layout failed");
     }
 
@@ -202,18 +202,18 @@ void VulkanPipeline::Create(VkDevice device, VkRenderPass renderPass,
         .pColorBlendState    = &stColorBlend,
         .pDynamicState       = &stDynamicState,
         .layout              = this->m_pipelineLayout,
-        .renderPass          = renderPass,
+        .renderPass          = renderPass_ic,
         .subpass             = static_cast<uint32_t>(0),
         .basePipelineHandle  = VK_NULL_HANDLE,
         .basePipelineIndex   = static_cast<int32_t>(-1),
     };
-    result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, static_cast<uint32_t>(1), &stPipelineInfo, nullptr, &this->m_pipeline);
-    if (result != VK_SUCCESS) {
-        vkDestroyPipelineLayout(device, this->m_pipelineLayout, nullptr);
+    r = vkCreateGraphicsPipelines(pDevice_ic, VK_NULL_HANDLE, static_cast<uint32_t>(1), &stPipelineInfo, nullptr, &this->m_pipeline);
+    if (r != VK_SUCCESS) {
+        vkDestroyPipelineLayout(pDevice_ic, this->m_pipelineLayout, nullptr);
         this->m_pipelineLayout = VK_NULL_HANDLE;
         this->m_pVertShader.reset();
         this->m_pFragShader.reset();
-        VulkanUtils::LogErr("vkCreateGraphicsPipelines failed: {}", static_cast<int>(result));
+        VulkanUtils::LogErr("vkCreateGraphicsPipelines failed: {}", static_cast<int>(r));
         throw std::runtime_error("VulkanPipeline::Create: graphics pipeline failed");
     }
 }

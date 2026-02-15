@@ -27,13 +27,13 @@ public:
     VulkanRenderPass() = default;
     ~VulkanRenderPass();
 
-    void Create(VkDevice device, const RenderPassDescriptor& descriptor);
+    void Create(VkDevice pDevice_ic, const RenderPassDescriptor& stDescriptor_ic);
     void Destroy();
 
-    VkRenderPass Get() const { return m_renderPass; }
-    bool IsValid() const { return m_renderPass != VK_NULL_HANDLE; }
+    VkRenderPass Get() const { return this->m_renderPass; }
+    bool IsValid() const { return this->m_renderPass != VK_NULL_HANDLE; }
     /** True if the render pass was created with a depth attachment (pipeline must provide depth state). */
-    bool HasDepthAttachment() const { return m_hasDepth; }
+    bool HasDepthAttachment() const { return this->m_hasDepth; }
 
 private:
     VkDevice m_device = VK_NULL_HANDLE;

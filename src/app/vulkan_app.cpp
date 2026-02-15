@@ -63,149 +63,150 @@ void VulkanApp::InitVulkan() {
         VulkanUtils::LogErr("SDL_Vulkan_GetInstanceExtensions failed or returned no extensions");
         throw std::runtime_error("SDL_Vulkan_GetInstanceExtensions failed");
     }
-    std::vector<const char*> extensions(extNames, extNames + extCount);
-    if (VulkanUtils::ENABLE_VALIDATION_LAYERS)
-        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    std::vector<const char*> vecExtensions(extNames, extNames + extCount);
+    if (VulkanUtils::ENABLE_VALIDATION_LAYERS == true)
+        vecExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
-    m_instance.Create(extensions.data(), static_cast<uint32_t>(extensions.size()));
-    m_pWindow->CreateSurface(m_instance.Get());
-    m_device.Create(m_instance.Get(), m_pWindow->GetSurface());
+    this->m_instance.Create(vecExtensions.data(), static_cast<uint32_t>(vecExtensions.size()));
+    this->m_pWindow->CreateSurface(this->m_instance.Get());
+    this->m_device.Create(this->m_instance.Get(), this->m_pWindow->GetSurface());
 
     /* Use window drawable size for swapchain so extent always matches what we display (no aspect mismatch). */
-    m_pWindow->GetDrawableSize(&m_config.lWidth, &m_config.lHeight);
+    this->m_pWindow->GetDrawableSize(&this->m_config.lWidth, &this->m_config.lHeight);
     if ((this->m_config.lWidth == 0) || (this->m_config.lHeight == 0)) {
         VulkanUtils::LogErr("Window drawable size is 0x0; cannot create swapchain");
         throw std::runtime_error("Window drawable size is zero");
     }
-    VulkanUtils::LogInfo("Init: drawable size {}x{}, creating swapchain", m_config.lWidth, m_config.lHeight);
-    m_swapchain.Create(m_device.GetDevice(), m_device.GetPhysicalDevice(), m_pWindow->GetSurface(),
-                      m_device.GetQueueFamilyIndices(), m_config);
-    VkExtent2D initExtent = m_swapchain.GetExtent();
-    VulkanUtils::LogInfo("Swapchain extent {}x{}", initExtent.width, initExtent.height);
+    VulkanUtils::LogInfo("Init: drawable size {}x{}, creating swapchain", this->m_config.lWidth, this->m_config.lHeight);
+    this->m_swapchain.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(), this->m_pWindow->GetSurface(),
+                      this->m_device.GetQueueFamilyIndices(), this->m_config);
+    VkExtent2D stInitExtent = this->m_swapchain.GetExtent();
+    VulkanUtils::LogInfo("Swapchain extent {}x{}", stInitExtent.width, stInitExtent.height);
 
-    const VkFormat depthCandidates[] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
-    VkFormat depthFormat = VulkanDepthImage::FindSupportedFormat(m_device.GetPhysicalDevice(), depthCandidates, static_cast<uint32_t>(sizeof(depthCandidates) / sizeof(depthCandidates[0])));
-    RenderPassDescriptor rpDesc = {
-        .colorFormat       = m_swapchain.GetImageFormat(),
+    const VkFormat pDepthCandidates[] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
+    VkFormat eDepthFormat = VulkanDepthImage::FindSupportedFormat(this->m_device.GetPhysicalDevice(), pDepthCandidates, static_cast<uint32_t>(sizeof(pDepthCandidates) / sizeof(pDepthCandidates[0])));
+    RenderPassDescriptor stRpDesc = {
+        .colorFormat       = this->m_swapchain.GetImageFormat(),
         .colorLoadOp       = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .colorStoreOp      = VK_ATTACHMENT_STORE_OP_STORE,
         .colorFinalLayout  = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        .depthFormat       = depthFormat,
+        .depthFormat       = eDepthFormat,
         .depthLoadOp       = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .depthStoreOp      = VK_ATTACHMENT_STORE_OP_DONT_CARE,
         .depthFinalLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        .sampleCount      = VK_SAMPLE_COUNT_1_BIT,
+        .sampleCount       = VK_SAMPLE_COUNT_1_BIT,
     };
-    m_renderPass.Create(m_device.GetDevice(), rpDesc);
-    if (depthFormat != VK_FORMAT_UNDEFINED)
-        m_depthImage.Create(m_device.GetDevice(), m_device.GetPhysicalDevice(), depthFormat, initExtent);
+    this->m_renderPass.Create(this->m_device.GetDevice(), stRpDesc);
+    if (eDepthFormat != VK_FORMAT_UNDEFINED)
+        this->m_depthImage.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(), eDepthFormat, stInitExtent);
 
-    std::string vertPath   = VulkanUtils::GetResourcePath(SHADER_VERT_PATH);
-    std::string fragPath   = VulkanUtils::GetResourcePath(SHADER_FRAG_PATH);
-    std::string fragAltPath = VulkanUtils::GetResourcePath(SHADER_FRAG_ALT_PATH);
-    m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN, &m_shaderManager, vertPath, fragPath);
-    m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE, &m_shaderManager, vertPath, fragPath);
-    m_pipelineManager.RequestPipeline(PIPELINE_KEY_ALT, &m_shaderManager, vertPath, fragAltPath);
+    std::string sVertPath   = VulkanUtils::GetResourcePath(SHADER_VERT_PATH);
+    std::string sFragPath   = VulkanUtils::GetResourcePath(SHADER_FRAG_PATH);
+    std::string sFragAltPath = VulkanUtils::GetResourcePath(SHADER_FRAG_ALT_PATH);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_ALT, &this->m_shaderManager, sVertPath, sFragAltPath);
 
     constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
-    PipelineLayoutDescriptor mainLayoutDesc = {
+    PipelineLayoutDescriptor stMainLayoutDesc = {
         .pushConstantRanges = {
             { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
         }
     };
-    GraphicsPipelineParams pipeParamsMain = {
+    GraphicsPipelineParams stPipeParamsMain = {
         .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         .primitiveRestartEnable  = VK_FALSE,
         .polygonMode             = VK_POLYGON_MODE_FILL,
-        .cullMode                = m_config.bCullBackFaces ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE,
+        .cullMode                = (this->m_config.bCullBackFaces == true) ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE,
         .frontFace               = VK_FRONT_FACE_CLOCKWISE,
-        .lineWidth               = 1.0f,
+        .lineWidth               = static_cast<float>(1.0f),
         .rasterizationSamples    = VK_SAMPLE_COUNT_1_BIT,
     };
-    GraphicsPipelineParams pipeParamsWire = pipeParamsMain;
-    pipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
-    m_materialManager.RegisterMaterial("main", PIPELINE_KEY_MAIN, mainLayoutDesc, pipeParamsMain);
-    m_materialManager.RegisterMaterial("wire", PIPELINE_KEY_WIRE, mainLayoutDesc, pipeParamsWire);
-    m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  mainLayoutDesc, pipeParamsMain);
-    m_meshManager.SetDevice(m_device.GetDevice());
-    m_meshManager.SetPhysicalDevice(m_device.GetPhysicalDevice());
-    m_meshManager.SetQueue(m_device.GetGraphicsQueue());
-    m_meshManager.SetQueueFamilyIndex(m_device.GetQueueFamilyIndices().graphicsFamily);
-    m_textureManager.SetDevice(m_device.GetDevice());
-    m_textureManager.SetPhysicalDevice(m_device.GetPhysicalDevice());
-    m_textureManager.SetQueue(m_device.GetGraphicsQueue());
-    m_textureManager.SetQueueFamilyIndex(m_device.GetQueueFamilyIndices().graphicsFamily);
-    (void)m_meshManager.GetOrCreateProcedural("triangle");
-    (void)m_meshManager.GetOrCreateProcedural("circle");
-    (void)m_meshManager.GetOrCreateProcedural("rectangle");
-    (void)m_meshManager.GetOrCreateProcedural("cube");
+    GraphicsPipelineParams stPipeParamsWire = stPipeParamsMain;
+    stPipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
+    this->m_materialManager.RegisterMaterial("main", PIPELINE_KEY_MAIN, stMainLayoutDesc, stPipeParamsMain);
+    this->m_materialManager.RegisterMaterial("wire", PIPELINE_KEY_WIRE, stMainLayoutDesc, stPipeParamsWire);
+    this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stMainLayoutDesc, stPipeParamsMain);
+    this->m_meshManager.SetDevice(this->m_device.GetDevice());
+    this->m_meshManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
+    this->m_meshManager.SetQueue(this->m_device.GetGraphicsQueue());
+    this->m_meshManager.SetQueueFamilyIndex(this->m_device.GetQueueFamilyIndices().graphicsFamily);
+    this->m_textureManager.SetDevice(this->m_device.GetDevice());
+    this->m_textureManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
+    this->m_textureManager.SetQueue(this->m_device.GetGraphicsQueue());
+    this->m_textureManager.SetQueueFamilyIndex(this->m_device.GetQueueFamilyIndices().graphicsFamily);
+    (void)this->m_meshManager.GetOrCreateProcedural("triangle");
+    (void)this->m_meshManager.GetOrCreateProcedural("circle");
+    (void)this->m_meshManager.GetOrCreateProcedural("rectangle");
+    (void)this->m_meshManager.GetOrCreateProcedural("cube");
 
-    m_sceneManager.SetDependencies(&m_jobQueue, &m_materialManager, &m_meshManager);
-    m_meshManager.SetJobQueue(&m_jobQueue);
-    m_textureManager.SetJobQueue(&m_jobQueue);
-    m_sceneManager.SetCurrentScene(m_sceneManager.CreateDefaultScene());
+    this->m_sceneManager.SetDependencies(&this->m_jobQueue, &this->m_materialManager, &this->m_meshManager);
+    this->m_meshManager.SetJobQueue(&this->m_jobQueue);
+    this->m_textureManager.SetJobQueue(&this->m_jobQueue);
+    this->m_sceneManager.SetCurrentScene(this->m_sceneManager.CreateDefaultScene());
 
-    m_framebuffers.Create(m_device.GetDevice(), m_renderPass.Get(),
-                          m_swapchain.GetImageViews(),
-                          m_depthImage.IsValid() ? m_depthImage.GetView() : VK_NULL_HANDLE,
-                          m_swapchain.GetExtent());
-    m_commandBuffers.Create(m_device.GetDevice(),
-                            m_device.GetQueueFamilyIndices().graphicsFamily,
-                            m_swapchain.GetImageCount());
+    this->m_framebuffers.Create(this->m_device.GetDevice(), this->m_renderPass.Get(),
+                          this->m_swapchain.GetImageViews(),
+                          (this->m_depthImage.IsValid() == true) ? this->m_depthImage.GetView() : VK_NULL_HANDLE,
+                          this->m_swapchain.GetExtent());
+    this->m_commandBuffers.Create(this->m_device.GetDevice(),
+                            this->m_device.GetQueueFamilyIndices().graphicsFamily,
+                            this->m_swapchain.GetImageCount());
 
-    uint32_t maxFramesInFlight = (m_config.lMaxFramesInFlight >= 1u) ? m_config.lMaxFramesInFlight : 1u;
-    m_sync.Create(m_device.GetDevice(), maxFramesInFlight, m_swapchain.GetImageCount());
+    uint32_t lMaxFramesInFlight = (this->m_config.lMaxFramesInFlight >= 1u) ? this->m_config.lMaxFramesInFlight : static_cast<uint32_t>(1u);
+    this->m_sync.Create(this->m_device.GetDevice(), lMaxFramesInFlight, this->m_swapchain.GetImageCount());
 
 }
 
 void VulkanApp::RecreateSwapchainAndDependents() {
     VulkanUtils::LogTrace("RecreateSwapchainAndDependents");
     /* Always use current window drawable size so aspect ratio matches after resize or OUT_OF_DATE. */
-    if (m_pWindow) {
-        uint32_t w = 0, h = 0;
-        m_pWindow->GetDrawableSize(&w, &h);
-        if (w > 0 && h > 0) {
-            m_config.lWidth  = w;
-            m_config.lHeight = h;
+    if (this->m_pWindow != nullptr) {
+        uint32_t lW = static_cast<uint32_t>(0);
+        uint32_t lH = static_cast<uint32_t>(0);
+        this->m_pWindow->GetDrawableSize(&lW, &lH);
+        if ((lW > 0) && (lH > 0)) {
+            this->m_config.lWidth  = lW;
+            this->m_config.lHeight = lH;
         }
     }
-    VkResult r = vkDeviceWaitIdle(m_device.GetDevice());
+    VkResult r = vkDeviceWaitIdle(this->m_device.GetDevice());
     if (r != VK_SUCCESS)
         VulkanUtils::LogErr("vkDeviceWaitIdle before recreate failed: {}", static_cast<int>(r));
 
-    m_framebuffers.Destroy();
-    m_depthImage.Destroy();
-    m_pipelineManager.DestroyPipelines();
-    m_swapchain.RecreateSwapchain(m_config);
-    VkExtent2D extent = m_swapchain.GetExtent();
-    const VkFormat depthCandidates[] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
-    VkFormat depthFormat = VulkanDepthImage::FindSupportedFormat(m_device.GetPhysicalDevice(), depthCandidates, static_cast<uint32_t>(sizeof(depthCandidates) / sizeof(depthCandidates[0])));
-    RenderPassDescriptor rpDesc = {
-        .colorFormat       = m_swapchain.GetImageFormat(),
+    this->m_framebuffers.Destroy();
+    this->m_depthImage.Destroy();
+    this->m_pipelineManager.DestroyPipelines();
+    this->m_swapchain.RecreateSwapchain(this->m_config);
+    VkExtent2D stExtent = this->m_swapchain.GetExtent();
+    const VkFormat pDepthCandidates[] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
+    VkFormat eDepthFormat = VulkanDepthImage::FindSupportedFormat(this->m_device.GetPhysicalDevice(), pDepthCandidates, static_cast<uint32_t>(sizeof(pDepthCandidates) / sizeof(pDepthCandidates[0])));
+    RenderPassDescriptor stRpDesc = {
+        .colorFormat       = this->m_swapchain.GetImageFormat(),
         .colorLoadOp       = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .colorStoreOp      = VK_ATTACHMENT_STORE_OP_STORE,
         .colorFinalLayout  = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        .depthFormat       = depthFormat,
+        .depthFormat       = eDepthFormat,
         .depthLoadOp       = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .depthStoreOp      = VK_ATTACHMENT_STORE_OP_DONT_CARE,
         .depthFinalLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        .sampleCount      = VK_SAMPLE_COUNT_1_BIT,
+        .sampleCount       = VK_SAMPLE_COUNT_1_BIT,
     };
-    m_renderPass.Destroy();
-    m_renderPass.Create(m_device.GetDevice(), rpDesc);
-    if (depthFormat != VK_FORMAT_UNDEFINED)
-        m_depthImage.Create(m_device.GetDevice(), m_device.GetPhysicalDevice(), depthFormat, extent);
-    m_framebuffers.Create(m_device.GetDevice(), m_renderPass.Get(),
-                          m_swapchain.GetImageViews(),
-                          m_depthImage.IsValid() ? m_depthImage.GetView() : VK_NULL_HANDLE,
-                          extent);
-    m_commandBuffers.Destroy();
-    m_commandBuffers.Create(m_device.GetDevice(),
-                            m_device.GetQueueFamilyIndices().graphicsFamily,
-                            m_swapchain.GetImageCount());
-    uint32_t maxFramesInFlight = (m_config.lMaxFramesInFlight >= 1u) ? m_config.lMaxFramesInFlight : 1u;
-    m_sync.Destroy();
-    m_sync.Create(m_device.GetDevice(), maxFramesInFlight, m_swapchain.GetImageCount());
+    this->m_renderPass.Destroy();
+    this->m_renderPass.Create(this->m_device.GetDevice(), stRpDesc);
+    if (eDepthFormat != VK_FORMAT_UNDEFINED)
+        this->m_depthImage.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(), eDepthFormat, stExtent);
+    this->m_framebuffers.Create(this->m_device.GetDevice(), this->m_renderPass.Get(),
+                          this->m_swapchain.GetImageViews(),
+                          (this->m_depthImage.IsValid() == true) ? this->m_depthImage.GetView() : VK_NULL_HANDLE,
+                          stExtent);
+    this->m_commandBuffers.Destroy();
+    this->m_commandBuffers.Create(this->m_device.GetDevice(),
+                            this->m_device.GetQueueFamilyIndices().graphicsFamily,
+                            this->m_swapchain.GetImageCount());
+    uint32_t lMaxFramesInFlight = (this->m_config.lMaxFramesInFlight >= 1u) ? this->m_config.lMaxFramesInFlight : static_cast<uint32_t>(1u);
+    this->m_sync.Destroy();
+    this->m_sync.Create(this->m_device.GetDevice(), lMaxFramesInFlight, this->m_swapchain.GetImageCount());
 }
 
 void VulkanApp::MainLoop() {

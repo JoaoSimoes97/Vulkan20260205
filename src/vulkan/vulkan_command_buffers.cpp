@@ -7,64 +7,64 @@
 #include "vulkan_utils.h"
 #include <stdexcept>
 
-void VulkanCommandBuffers::Create(VkDevice device, uint32_t queueFamilyIndex, uint32_t bufferCount) {
+void VulkanCommandBuffers::Create(VkDevice pDevice_ic, uint32_t lQueueFamilyIndex_ic, uint32_t lBufferCount_ic) {
     VulkanUtils::LogTrace("VulkanCommandBuffers::Create");
-    if (device == VK_NULL_HANDLE || bufferCount == 0) {
+    if ((pDevice_ic == VK_NULL_HANDLE) || (lBufferCount_ic == 0)) {
         VulkanUtils::LogErr("VulkanCommandBuffers::Create: invalid device or bufferCount");
         throw std::runtime_error("VulkanCommandBuffers::Create: invalid parameters");
     }
 
-    m_device = device;
+    this->m_device = pDevice_ic;
 
-    VkCommandPoolCreateInfo poolInfo = {
+    VkCommandPoolCreateInfo stPoolInfo = {
         .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .pNext            = nullptr,
         .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-        .queueFamilyIndex = queueFamilyIndex,
+        .queueFamilyIndex = lQueueFamilyIndex_ic,
     };
 
-    VkResult result = vkCreateCommandPool(device, &poolInfo, nullptr, &m_commandPool);
-    if (result != VK_SUCCESS) {
-        VulkanUtils::LogErr("vkCreateCommandPool failed: {}", static_cast<int>(result));
+    VkResult r = vkCreateCommandPool(pDevice_ic, &stPoolInfo, nullptr, &this->m_commandPool);
+    if (r != VK_SUCCESS) {
+        VulkanUtils::LogErr("vkCreateCommandPool failed: {}", static_cast<int>(r));
         throw std::runtime_error("VulkanCommandBuffers::Create: command pool failed");
     }
 
-    m_commandBuffers.resize(bufferCount);
-    VkCommandBufferAllocateInfo allocInfo = {
+    this->m_commandBuffers.resize(lBufferCount_ic);
+    VkCommandBufferAllocateInfo stAllocInfo = {
         .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .pNext              = nullptr,
-        .commandPool        = m_commandPool,
+        .commandPool        = this->m_commandPool,
         .level               = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = bufferCount,
+        .commandBufferCount = lBufferCount_ic,
     };
 
-    result = vkAllocateCommandBuffers(device, &allocInfo, m_commandBuffers.data());
-    if (result != VK_SUCCESS) {
-        vkDestroyCommandPool(device, m_commandPool, nullptr);
-        m_commandPool = VK_NULL_HANDLE;
-        m_commandBuffers.clear();
-        VulkanUtils::LogErr("vkAllocateCommandBuffers failed: {}", static_cast<int>(result));
+    r = vkAllocateCommandBuffers(pDevice_ic, &stAllocInfo, this->m_commandBuffers.data());
+    if (r != VK_SUCCESS) {
+        vkDestroyCommandPool(pDevice_ic, this->m_commandPool, nullptr);
+        this->m_commandPool = VK_NULL_HANDLE;
+        this->m_commandBuffers.clear();
+        VulkanUtils::LogErr("vkAllocateCommandBuffers failed: {}", static_cast<int>(r));
         throw std::runtime_error("VulkanCommandBuffers::Create: allocate failed");
     }
 }
 
 void VulkanCommandBuffers::Destroy() {
-    if (m_device != VK_NULL_HANDLE && m_commandPool != VK_NULL_HANDLE && m_commandBuffers.empty() == false) {
-        vkFreeCommandBuffers(m_device, m_commandPool, static_cast<uint32_t>(m_commandBuffers.size()), m_commandBuffers.data());
-        m_commandBuffers.clear();
+    if ((this->m_device != VK_NULL_HANDLE) && (this->m_commandPool != VK_NULL_HANDLE) && (this->m_commandBuffers.empty() == false)) {
+        vkFreeCommandBuffers(this->m_device, this->m_commandPool, static_cast<uint32_t>(this->m_commandBuffers.size()), this->m_commandBuffers.data());
+        this->m_commandBuffers.clear();
     }
-    if (m_commandPool != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(m_device, m_commandPool, nullptr);
-        m_commandPool = VK_NULL_HANDLE;
+    if (this->m_commandPool != VK_NULL_HANDLE) {
+        vkDestroyCommandPool(this->m_device, this->m_commandPool, nullptr);
+        this->m_commandPool = VK_NULL_HANDLE;
     }
-    m_device = VK_NULL_HANDLE;
+    this->m_device = VK_NULL_HANDLE;
 }
 
 void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_ic, VkFramebuffer pFramebuffer_ic,
                                   VkRect2D stRenderArea_ic, VkViewport stViewport_ic, VkRect2D stScissor_ic,
                                   const std::vector<DrawCall>& vecDrawCalls_ic,
                                   const VkClearValue* pClearValues_ic, uint32_t lClearValueCount_ic) {
-    if ((lIndex_ic >= m_commandBuffers.size()) || (pRenderPass_ic == VK_NULL_HANDLE) || (pFramebuffer_ic == VK_NULL_HANDLE)) {
+    if ((lIndex_ic >= this->m_commandBuffers.size()) || (pRenderPass_ic == VK_NULL_HANDLE) || (pFramebuffer_ic == VK_NULL_HANDLE)) {
         VulkanUtils::LogErr("VulkanCommandBuffers::Record: invalid index or handles");
         throw std::runtime_error("VulkanCommandBuffers::Record: invalid parameters");
     }
@@ -79,7 +79,7 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
         }
     }
 
-    VkCommandBuffer pCmd = m_commandBuffers[lIndex_ic];
+    VkCommandBuffer pCmd = this->m_commandBuffers[lIndex_ic];
 
     VkResult result = vkResetCommandBuffer(pCmd, static_cast<VkCommandBufferResetFlags>(0));
     if (result != VK_SUCCESS) {
@@ -131,10 +131,10 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
     }
 }
 
-VkCommandBuffer VulkanCommandBuffers::Get(uint32_t index) const {
-    if (index >= m_commandBuffers.size())
+VkCommandBuffer VulkanCommandBuffers::Get(uint32_t lIndex_ic) const {
+    if (lIndex_ic >= this->m_commandBuffers.size())
         return VK_NULL_HANDLE;
-    return m_commandBuffers[index];
+    return this->m_commandBuffers[lIndex_ic];
 }
 
 VulkanCommandBuffers::~VulkanCommandBuffers() {

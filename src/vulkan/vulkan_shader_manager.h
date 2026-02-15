@@ -26,7 +26,7 @@ public:
     VulkanShaderManager() = default;
     ~VulkanShaderManager();
 
-    void Create(JobQueue* pJobQueue);
+    void Create(JobQueue* pJobQueue_ic);
     void Destroy();
 
     void RequestLoad(const std::string& sPath);

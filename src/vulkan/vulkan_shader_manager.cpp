@@ -4,18 +4,18 @@
 #include <stdexcept>
 
 void ShaderModuleDeleter::operator()(VkShaderModule* p) const {
-    if (p && *p != VK_NULL_HANDLE && device != VK_NULL_HANDLE)
+    if ((p != nullptr) && (*p != VK_NULL_HANDLE) && (device != VK_NULL_HANDLE))
         vkDestroyShaderModule(device, *p, nullptr);
     delete p;
 }
 
-void VulkanShaderManager::Create(JobQueue* pJobQueue) {
+void VulkanShaderManager::Create(JobQueue* pJobQueue_ic) {
     VulkanUtils::LogTrace("VulkanShaderManager::Create");
-    if (pJobQueue == nullptr) {
+    if (pJobQueue_ic == nullptr) {
         VulkanUtils::LogErr("VulkanShaderManager::Create: null JobQueue");
         throw std::runtime_error("VulkanShaderManager::Create: null JobQueue");
     }
-    this->m_pJobQueue = pJobQueue;
+    this->m_pJobQueue = pJobQueue_ic;
 }
 
 void VulkanShaderManager::Destroy() {

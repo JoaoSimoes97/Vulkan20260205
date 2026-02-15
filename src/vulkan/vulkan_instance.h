@@ -14,14 +14,14 @@ public:
     ~VulkanInstance();
 
     /* Create instance with given extension names (e.g. from SDL). Throws on failure. */
-    void Create(const char* const* pExtensionNames, uint32_t extensionCount);
+    void Create(const char* const* pExtensionNames_ic, uint32_t lExtensionCount_ic);
     void Destroy();
 
-    VkInstance Get() const { return m_instance; }
-    bool IsValid() const { return m_instance != VK_NULL_HANDLE; }
+    VkInstance Get() const { return this->m_instance; }
+    bool IsValid() const { return this->m_instance != VK_NULL_HANDLE; }
 
 private:
-    static void CheckExtensionsAvailable(const char* const* pExtensionNames, uint32_t extensionCount);
+    static void CheckExtensionsAvailable(const char* const* pExtensionNames_ic, uint32_t lExtensionCount_ic);
 
     VkInstance m_instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
