@@ -108,6 +108,28 @@ inline void ObjectMat4Multiply(float* out16, const float* proj16, const float* m
     }
 }
 
+/** Build column-major mat4 from position (xyz), rotation quaternion (xyzw), scale (xyz). Result = T * R * S. */
+inline void ObjectSetFromPositionRotationScale(float* out16,
+    float px, float py, float pz,
+    float qx, float qy, float qz, float qw,
+    float sx, float sy, float sz) {
+    float r[16], s[16], t[16];
+    ObjectSetIdentity(s);
+    s[0] = sx; s[5] = sy; s[10] = sz;
+    float xx = qx * qx, yy = qy * qy, zz = qz * qz;
+    float xy = qx * qy, xz = qx * qz, xw = qx * qw;
+    float yz = qy * qz, yw = qy * qw, zw = qz * qw;
+    r[0] = 1.f - 2.f * (yy + zz); r[4] = 2.f * (xy - zw);     r[8]  = 2.f * (xz + yw);     r[12] = 0.f;
+    r[1] = 2.f * (xy + zw);     r[5] = 1.f - 2.f * (xx + zz); r[9]  = 2.f * (yz - xw);     r[13] = 0.f;
+    r[2] = 2.f * (xz - yw);     r[6] = 2.f * (yz + xw);     r[10] = 1.f - 2.f * (xx + yy); r[14] = 0.f;
+    r[3] = 0.f;                 r[7] = 0.f;                 r[11] = 0.f;                 r[15] = 1.f;
+    ObjectSetIdentity(t);
+    t[12] = px; t[13] = py; t[14] = pz;
+    float rs[16];
+    ObjectMat4Multiply(rs, r, s);
+    ObjectMat4Multiply(out16, t, rs);
+}
+
 /** Push layout: mat4 (64 bytes) + vec4 color (16 bytes) = 80 bytes. */
 constexpr uint32_t kObjectMat4Bytes       = 64u;
 constexpr uint32_t kObjectColorBytes      = 16u;

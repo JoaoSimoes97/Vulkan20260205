@@ -1,7 +1,7 @@
 #pragma once
 
+#include "gltf_loader.h"
 #include "scene/scene.h"
-#include "thread/job_queue.h"
 #include <memory>
 #include <string>
 
@@ -9,21 +9,15 @@ class MaterialManager;
 class MeshManager;
 
 /**
- * SceneManager: owns current scene, load/unload (async via JobQueue), and object control.
- * SetDependencies() must be called before LoadSceneAsync or CreateDefaultScene.
+ * SceneManager: owns current scene and level loading. Level = JSON descriptor + many glTFs (one per instance).
+ * SetDependencies() must be called before LoadLevelFromFile or LoadDefaultLevelOrCreate.
  */
 class SceneManager {
 public:
     SceneManager() = default;
 
-    /** Set job queue and managers (for async load and resolving material/mesh refs). Call before LoadSceneAsync or CreateDefaultScene. */
-    void SetDependencies(JobQueue* pJobQueue_ic, MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic);
-
-    /** Load scene from file asynchronously. When the file is ready, main thread parses and sets current scene. */
-    void LoadSceneAsync(const std::string& path);
-
-    /** Called by app from ProcessCompletedJobs handler. Dispatches completed file load to pending scene load if path matches. */
-    void OnCompletedLoad(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in);
+    /** Set managers (for resolving material/mesh refs). Call before LoadLevelFromFile or LoadDefaultLevelOrCreate. */
+    void SetDependencies(MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic);
 
     /** Unload current scene (drops refs; managers can TrimUnused). */
     void UnloadScene();
@@ -32,11 +26,17 @@ public:
     Scene* GetCurrentScene() { return m_currentScene.get(); }
     const Scene* GetCurrentScene() const { return m_currentScene.get(); }
 
-    /** Set current scene (e.g. from CreateDefaultScene). Replaces any current scene. */
+    /** Set current scene. Replaces any current scene. */
     void SetCurrentScene(std::unique_ptr<Scene> scene);
 
-    /** Build default scene (9 objects). Requires SetDependencies. Returns new Scene; caller can SetCurrentScene(result). */
-    std::unique_ptr<Scene> CreateDefaultScene();
+    /** Load level from JSON (instances[] with source glTF path + transform). Returns true on success. */
+    bool LoadLevelFromFile(const std::string& path);
+
+    /** Ensure default level file and primitives exist; create if missing. Never overwrites existing files. */
+    void EnsureDefaultLevelFile(const std::string& path);
+
+    /** Ensure default level file exists, then load it. Use at startup. Returns true on success. */
+    bool LoadDefaultLevelOrCreate(const std::string& defaultLevelPath);
 
     /** Add object to current scene. No-op if no current scene. */
     void AddObject(Object obj);
@@ -45,11 +45,8 @@ public:
     void RemoveObject(size_t index);
 
 private:
-    bool ParseSceneJson(const std::string& path, const uint8_t* pData, size_t size, Scene& outScene);
-
-    JobQueue* m_pJobQueue = nullptr;
+    GltfLoader m_gltfLoader;
     MaterialManager* m_pMaterialManager = nullptr;
     MeshManager* m_pMeshManager = nullptr;
     std::unique_ptr<Scene> m_currentScene;
-    std::string m_pendingScenePath;
 };

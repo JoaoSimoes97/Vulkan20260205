@@ -77,6 +77,13 @@ tinygltf::Model* GltfLoader::GetModel() {
     return m_model.get();
 }
 
+bool GltfLoader::WriteToFile(const tinygltf::Model& model, const std::string& path) {
+    if (m_loader == nullptr || path.empty())
+        return false;
+    const bool writeBinary = (path.size() >= 4u && path.compare(path.size() - 4, 4, ".glb") == 0);
+    return m_loader->WriteGltfSceneToFile(&model, path, false, true, true, writeBinary);
+}
+
 void GltfLoader::Clear() {
     m_model.reset();
     m_model = std::make_unique<tinygltf::Model>();

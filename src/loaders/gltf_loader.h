@@ -34,6 +34,9 @@ public:
     const tinygltf::Model* GetModel() const;
     tinygltf::Model* GetModel();
 
+    /** Write model to file (.glb or .gltf). Returns true on success. */
+    bool WriteToFile(const tinygltf::Model& model, const std::string& path);
+
     void Clear();
 
 private:

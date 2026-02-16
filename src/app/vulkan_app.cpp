@@ -9,6 +9,7 @@
 #include "config_loader.h"
 #include "camera/camera_controller.h"
 #include "scene/object.h"
+#include "scene/scene.h"
 #include "vulkan/vulkan_utils.h"
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_stdinc.h>
@@ -19,8 +20,9 @@
 #include <string>
 #include <vector>
 
-static const char* CONFIG_PATH_USER     = "config/config.json";
-static const char* CONFIG_PATH_DEFAULT  = "config/default.json";
+static const char* CONFIG_PATH_USER      = "config/config.json";
+static const char* CONFIG_PATH_DEFAULT   = "config/default.json";
+static const char* DEFAULT_LEVEL_PATH    = "levels/default/level.json";
 static const char* SHADER_VERT_PATH     = "shaders/vert.spv";
 static const char* SHADER_FRAG_PATH     = "shaders/frag.spv";
 static const char* SHADER_FRAG_ALT_PATH = "shaders/frag_alt.spv";
@@ -159,15 +161,12 @@ void VulkanApp::InitVulkan() {
     this->m_textureManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
     this->m_textureManager.SetQueue(this->m_device.GetGraphicsQueue());
     this->m_textureManager.SetQueueFamilyIndex(this->m_device.GetQueueFamilyIndices().graphicsFamily);
-    (void)this->m_meshManager.GetOrCreateProcedural("triangle");
-    (void)this->m_meshManager.GetOrCreateProcedural("circle");
-    (void)this->m_meshManager.GetOrCreateProcedural("rectangle");
-    (void)this->m_meshManager.GetOrCreateProcedural("cube");
-
-    this->m_sceneManager.SetDependencies(&this->m_jobQueue, &this->m_materialManager, &this->m_meshManager);
+    this->m_sceneManager.SetDependencies(&this->m_materialManager, &this->m_meshManager);
     this->m_meshManager.SetJobQueue(&this->m_jobQueue);
     this->m_textureManager.SetJobQueue(&this->m_jobQueue);
-    this->m_sceneManager.SetCurrentScene(this->m_sceneManager.CreateDefaultScene());
+    std::string sDefaultLevelPath = VulkanUtils::GetResourcePath(DEFAULT_LEVEL_PATH);
+    if (!this->m_sceneManager.LoadDefaultLevelOrCreate(sDefaultLevelPath))
+        this->m_sceneManager.SetCurrentScene(std::make_unique<Scene>("empty"));
 
     /* Descriptor pool (sized from layout keys) and one set for "main" pipeline. */
     this->m_descriptorPoolManager.SetDevice(this->m_device.GetDevice());
@@ -380,7 +379,6 @@ void VulkanApp::Run() {
 void VulkanApp::OnCompletedLoadJob(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
     switch (eType_ic) {
     case LoadJobType::LoadFile:
-        this->m_sceneManager.OnCompletedLoad(eType_ic, sPath_ic, vecData_in);
         this->m_meshManager.OnCompletedMeshFile(sPath_ic, std::move(vecData_in));
         break;
     case LoadJobType::LoadTexture:

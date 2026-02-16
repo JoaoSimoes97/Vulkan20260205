@@ -62,6 +62,8 @@ public:
     void SetQueueFamilyIndex(uint32_t queueFamilyIndex);
 
     std::shared_ptr<MeshHandle> GetOrCreateProcedural(const std::string& key);
+    /** Create mesh from position data; cache by key (e.g. gltfPath + ":" + meshIndex). */
+    std::shared_ptr<MeshHandle> GetOrCreateFromPositions(const std::string& key, const float* pPositions, uint32_t vertexCount);
     void RequestLoadMesh(const std::string& path);
     void OnCompletedMeshFile(const std::string& sPath_ic, std::vector<uint8_t> vecData_in);
 

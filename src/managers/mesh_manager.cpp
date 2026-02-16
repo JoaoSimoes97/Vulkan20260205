@@ -296,6 +296,18 @@ namespace {
     }
 }
 
+std::shared_ptr<MeshHandle> MeshManager::GetOrCreateFromPositions(const std::string& key, const float* pPositions, uint32_t vertexCount) {
+    if (key.empty() || pPositions == nullptr || vertexCount == 0u)
+        return nullptr;
+    auto it = m_cache.find(key);
+    if (it != m_cache.end())
+        return it->second;
+    std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(pPositions, vertexCount);
+    if (p)
+        m_cache[key] = p;
+    return p;
+}
+
 std::shared_ptr<MeshHandle> MeshManager::GetOrCreateProcedural(const std::string& key) {
     auto it = m_cache.find(key);
     if (it != m_cache.end())

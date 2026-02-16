@@ -1,43 +1,152 @@
 /*
- * SceneManager — current scene ownership, LoadSceneAsync (via JobQueue), CreateDefaultScene, Add/RemoveObject.
+ * SceneManager — level = JSON + many glTFs; LoadLevelFromFile, EnsureDefaultLevelFile, LoadDefaultLevelOrCreate.
  */
 #include "scene_manager.h"
 #include "material_manager.h"
 #include "mesh_manager.h"
 #include "scene/object.h"
+#include "gltf_mesh_utils.h"
 #include "vulkan/vulkan_utils.h"
 #include <nlohmann/json.hpp>
-#include <cstring>
-#include <stdexcept>
+#include <filesystem>
+#include <fstream>
+#include <tiny_gltf.h>
 
 using json = nlohmann::json;
 
-void SceneManager::SetDependencies(JobQueue* pJobQueue_ic, MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic) {
-    this->m_pJobQueue = pJobQueue_ic;
-    this->m_pMaterialManager = pMaterialManager_ic;
-    this->m_pMeshManager = pMeshManager_ic;
+namespace {
+
+/**
+ * Resolve engine pipeline key from glTF material. No fallbacks: if unresolved, returns empty.
+ * 1) extras.pipeline (string) if present
+ * 2) alphaMode: OPAQUE -> "main", MASK -> "mask", BLEND -> "transparent"
+ */
+std::string ResolvePipelineKeyFromGltfMaterial(const tinygltf::Material& mat) {
+    if (mat.extras.IsObject()) {
+        const tinygltf::Value& p = mat.extras.Get("pipeline");
+        if (p.IsString())
+            return p.Get<std::string>();
+    }
+    if (mat.alphaMode == "OPAQUE") return "main";
+    if (mat.alphaMode == "MASK") return "mask";
+    if (mat.alphaMode == "BLEND") return "transparent";
+    return {};
 }
 
-void SceneManager::LoadSceneAsync(const std::string& path) {
-    if (m_pJobQueue == nullptr) {
-        VulkanUtils::LogErr("SceneManager::LoadSceneAsync: no JobQueue");
-        return;
-    }
-    m_pendingScenePath = path;
-    m_pJobQueue->SubmitLoadFile(path);
+/** Default level JSON: multiple cubes with different pipelines (main, wire, alt). */
+json GetDefaultLevelJson() {
+    return {
+        { "name", "default" },
+        { "instances", json::array({
+            { { "source", "primitives/cube.glb" },       { "position", json::array({ 0.0, 0.0, 0.0 }) },   { "rotation", json::array({ 0.0, 0.0, 0.0, 1.0 }) }, { "scale", json::array({ 1.0, 1.0, 1.0 }) } },
+            { { "source", "primitives/cube.glb" },       { "position", json::array({ -2.0, 0.0, 0.0 }) }, { "rotation", json::array({ 0.0, 0.0, 0.0, 1.0 }) }, { "scale", json::array({ 1.0, 1.0, 1.0 }) } },
+            { { "source", "primitives/cube_wire.glb" }, { "position", json::array({ 2.0, 0.0, 0.0 }) },  { "rotation", json::array({ 0.0, 0.0, 0.0, 1.0 }) }, { "scale", json::array({ 1.0, 1.0, 1.0 }) } },
+            { { "source", "primitives/cube_alt.glb" },  { "position", json::array({ 0.0, 2.0, 0.0 }) },  { "rotation", json::array({ 0.0, 0.0, 0.0, 1.0 }) }, { "scale", json::array({ 1.0, 1.0, 1.0 }) } }
+        }) }
+    };
 }
 
-void SceneManager::OnCompletedLoad(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
-    if ((eType_ic != LoadJobType::LoadFile) || (sPath_ic != this->m_pendingScenePath) || (this->m_pendingScenePath.empty() == true))
-        return;
-    this->m_pendingScenePath.clear();
-    auto pScene = std::make_unique<Scene>();
-    if (ParseSceneJson(sPath_ic, vecData_in.data(), vecData_in.size(), *pScene) == false) {
-        VulkanUtils::LogErr("SceneManager: failed to parse scene {}", sPath_ic);
+/** Cube as 36 vertices (12 triangles, non-indexed). Matches MeshManager cube layout. */
+void MakeCubePositions(std::vector<float>& out) {
+    float s = 0.5f;
+    out = {
+        -s,-s,-s, s,-s,-s, s,s,-s,  -s,-s,-s, s,s,-s, -s,s,-s,
+        -s,-s, s, s,s, s, s,-s, s,  -s,-s, s, -s,s, s, s,s, s,
+        -s,-s,-s, -s,s,-s, -s,s, s,  -s,-s,-s, -s,s, s, -s,-s, s,
+        s,-s,-s, s,-s, s, s,s, s,   s,-s,-s, s,s, s, s,s,-s,
+        -s,-s, s, s,-s, s, s,-s,-s,  -s,-s, s, s,-s,-s, -s,-s,-s,
+        -s, s, s, s, s,-s, s, s, s,  -s, s, s, -s, s,-s, s, s,-s
+    };
+}
+
+/**
+ * Build a minimal tinygltf::Model: single cube mesh (36 vertices) with one material.
+ * pipelineKeyForExtras: if non-empty, set material.extras.pipeline so engine selects that pipeline (e.g. "wire", "alt").
+ * baseColor: RGBA for pbrMetallicRoughness.baseColorFactor.
+ */
+tinygltf::Model BuildMinimalCubeModel(const std::string& materialName,
+                                      const std::string& pipelineKeyForExtras,
+                                      const std::vector<double>& baseColor) {
+    std::vector<float> positions;
+    MakeCubePositions(positions);
+    const size_t numBytes = positions.size() * sizeof(float);
+
+    tinygltf::Model model;
+    tinygltf::Buffer buf;
+    buf.data.resize(numBytes);
+    std::memcpy(buf.data.data(), positions.data(), numBytes);
+    model.buffers.push_back(std::move(buf));
+
+    tinygltf::BufferView bv;
+    bv.buffer = 0;
+    bv.byteOffset = 0;
+    bv.byteLength = static_cast<int>(numBytes);
+    bv.byteStride = 12;
+    bv.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+    model.bufferViews.push_back(bv);
+
+    tinygltf::Accessor acc;
+    acc.bufferView = 0;
+    acc.byteOffset = 0;
+    acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+    acc.count = 36;
+    acc.type = TINYGLTF_TYPE_VEC3;
+    model.accessors.push_back(acc);
+
+    tinygltf::Material mat;
+    mat.name = materialName;
+    mat.alphaMode = "OPAQUE";
+    mat.pbrMetallicRoughness.baseColorFactor = baseColor.size() >= 4 ? baseColor : std::vector<double>{1.0, 1.0, 1.0, 1.0};
+    if (!pipelineKeyForExtras.empty()) {
+        tinygltf::Value::Object o;
+        o["pipeline"] = tinygltf::Value(pipelineKeyForExtras);
+        mat.extras = tinygltf::Value(std::move(o));
+    }
+    model.materials.push_back(std::move(mat));
+
+    tinygltf::Primitive prim;
+    prim.attributes["POSITION"] = 0;
+    prim.material = 0;
+    prim.mode = TINYGLTF_MODE_TRIANGLES;
+
+    tinygltf::Mesh mesh;
+    mesh.primitives.push_back(prim);
+    model.meshes.push_back(std::move(mesh));
+
+    return model;
+}
+
+/** Ensure a primitive .glb exists under baseDir; create if missing. */
+void EnsureDefaultPrimitiveGltf(const std::filesystem::path& baseDir, GltfLoader& loader,
+                                const std::string& filename,
+                                const std::string& materialName,
+                                const std::string& pipelineKeyForExtras,
+                                const std::vector<double>& baseColor) {
+    std::filesystem::path filePath = baseDir / "primitives" / filename;
+    std::ifstream in(filePath);
+    if (in.is_open()) {
+        in.close();
         return;
     }
-    SetCurrentScene(std::move(pScene));
-    VulkanUtils::LogInfo("SceneManager: loaded scene {}", sPath_ic);
+    std::filesystem::path primDir = baseDir / "primitives";
+    std::filesystem::create_directories(primDir);
+    tinygltf::Model model = BuildMinimalCubeModel(materialName, pipelineKeyForExtras, baseColor);
+    if (loader.WriteToFile(model, filePath.string()))
+        VulkanUtils::LogInfo("SceneManager: created default {}", filePath.string());
+}
+
+/** Ensure all default primitives (cube main, cube_wire, cube_alt) exist. */
+void EnsureDefaultPrimitives(const std::filesystem::path& baseDir, GltfLoader& loader) {
+    EnsureDefaultPrimitiveGltf(baseDir, loader, "cube.glb",       "Default", "",  {1.0, 0.2, 0.2, 1.0});  /* main pipeline (OPAQUE), red */
+    EnsureDefaultPrimitiveGltf(baseDir, loader, "cube_wire.glb",  "Wire",    "wire", {1.0, 1.0, 0.0, 1.0}); /* wire pipeline, yellow */
+    EnsureDefaultPrimitiveGltf(baseDir, loader, "cube_alt.glb",   "Alt",     "alt",  {0.2, 0.4, 1.0, 1.0}); /* alt pipeline, blue */
+}
+
+} // namespace
+
+void SceneManager::SetDependencies(MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic) {
+    m_pMaterialManager = pMaterialManager_ic;
+    m_pMeshManager = pMeshManager_ic;
 }
 
 void SceneManager::UnloadScene() {
@@ -48,41 +157,171 @@ void SceneManager::SetCurrentScene(std::unique_ptr<Scene> scene) {
     m_currentScene = std::move(scene);
 }
 
-namespace {
-    Shape ShapeFromMeshKey(const std::string& key) {
-        if (key == "triangle") return Shape::Triangle;
-        if (key == "circle") return Shape::Circle;
-        if (key == "rectangle") return Shape::Rectangle;
-        if (key == "cube") return Shape::Cube;
-        return Shape::Triangle;
+void SceneManager::EnsureDefaultLevelFile(const std::string& path) {
+    std::ifstream in(path);
+    if (in.is_open()) {
+        in.close();
+        return;
     }
+    std::filesystem::path p(path);
+    std::filesystem::path baseDir = p.parent_path();
+    if (!baseDir.empty())
+        std::filesystem::create_directories(baseDir);
+    json j = GetDefaultLevelJson();
+    std::ofstream out(path);
+    if (out.is_open())
+        out << j.dump(2);
+    VulkanUtils::LogInfo("SceneManager: created default level \"{}\"", path);
+    EnsureDefaultPrimitives(baseDir, m_gltfLoader);
 }
 
-std::unique_ptr<Scene> SceneManager::CreateDefaultScene() {
+bool SceneManager::LoadLevelFromFile(const std::string& path) {
     if (m_pMaterialManager == nullptr || m_pMeshManager == nullptr) {
-        VulkanUtils::LogErr("SceneManager::CreateDefaultScene: SetDependencies not called");
-        return nullptr;
+        VulkanUtils::LogErr("SceneManager::LoadLevelFromFile: SetDependencies not called");
+        return false;
     }
-    auto scene = std::make_unique<Scene>("default");
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        VulkanUtils::LogErr("SceneManager::LoadLevelFromFile: cannot open \"{}\"", path);
+        return false;
+    }
+    json j;
+    try {
+        in >> j;
+    } catch (const json::exception& e) {
+        VulkanUtils::LogErr("SceneManager::LoadLevelFromFile: invalid JSON \"{}\"", path);
+        return false;
+    }
+    in.close();
+
+    std::filesystem::path levelPath(path);
+    std::filesystem::path baseDir = levelPath.parent_path();
+    if (baseDir.empty())
+        baseDir = ".";
+
+    std::string sceneName = "default";
+    if (j.contains("name") && j["name"].is_string())
+        sceneName = j["name"].get<std::string>();
+
+    auto scene = std::make_unique<Scene>(sceneName);
     std::vector<Object>& objs = scene->GetObjects();
 
-    auto add = [&](Object o, const char* materialKey, const char* meshKey) {
-        o.pMaterial = m_pMaterialManager->GetMaterial(materialKey);
-        o.pMesh = m_pMeshManager->GetOrCreateProcedural(meshKey);
-        objs.push_back(std::move(o));
-    };
+    if (!j.contains("instances") || !j["instances"].is_array()) {
+        SetCurrentScene(std::move(scene));
+        VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" (no instances)", path);
+        return true;
+    }
 
-    { Object o = MakeTriangle(); ObjectSetTranslation(o.localTransform, -2.5f, 1.2f, -0.8f); add(std::move(o), "main", "triangle"); }
-    { Object o = MakeTriangle(); ObjectSetTranslation(o.localTransform,  2.5f, 1.2f,  0.4f); o.color[0]=1.f; o.color[1]=0.5f; o.color[2]=0.f; o.color[3]=1.f; add(std::move(o), "wire", "triangle"); }
-    { Object o = MakeCircle();   ObjectSetTranslation(o.localTransform, -2.8f, 0.f,  0.6f); add(std::move(o), "main", "circle"); }
-    { Object o = MakeCircle();   ObjectSetTranslation(o.localTransform, -0.8f, 2.5f, -0.4f); o.color[0]=0.5f; o.color[1]=1.f; o.color[2]=0.5f; o.color[3]=1.f; add(std::move(o), "wire", "circle"); }
-    { Object o = MakeRectangle(); ObjectSetTranslation(o.localTransform, 2.2f, 0.f, -1.f); add(std::move(o), "main", "rectangle"); }
-    { Object o = MakeRectangle(); ObjectSetTranslation(o.localTransform, 3.5f, 1.2f,  0.2f); o.color[0]=0.5f; o.color[1]=0.5f; o.color[2]=1.f; o.color[3]=1.f; add(std::move(o), "wire", "rectangle"); }
-    { Object o = MakeCube();     ObjectSetTranslation(o.localTransform, 0.f, 1.5f,  0.8f); add(std::move(o), "main", "cube"); }
-    { Object o = MakeCube();     ObjectSetTranslation(o.localTransform, 1.2f, -1.2f, -0.6f); o.color[0]=1.f; o.color[1]=0.8f; o.color[2]=0.2f; o.color[3]=1.f; add(std::move(o), "wire", "cube"); }
-    { Object o = MakeTriangle(); ObjectSetTranslation(o.localTransform, 0.f, -2.2f,  1.f); o.color[0]=0.8f; o.color[1]=0.2f; o.color[2]=0.8f; o.color[3]=1.f; add(std::move(o), "alt", "triangle"); }
+    for (const auto& jInst : j["instances"]) {
+        if (!jInst.is_object() || !jInst.contains("source") || !jInst["source"].is_string())
+            continue;
+        std::string source = jInst["source"].get<std::string>();
+        if (source.empty()) continue;
 
-    return scene;
+        std::filesystem::path resolvedPath = baseDir / source;
+        std::string gltfPath = resolvedPath.string();
+        if (!m_gltfLoader.LoadFromFile(gltfPath)) {
+            VulkanUtils::LogErr("SceneManager: failed to load glTF \"{}\"", gltfPath);
+            continue;
+        }
+        const tinygltf::Model* model = m_gltfLoader.GetModel();
+        if (!model || model->meshes.empty()) {
+            VulkanUtils::LogErr("SceneManager: glTF has no meshes \"{}\"", gltfPath);
+            continue;
+        }
+        const tinygltf::Mesh& mesh = model->meshes[0];
+        if (mesh.primitives.empty()) {
+            VulkanUtils::LogErr("SceneManager: glTF mesh 0 has no primitives \"{}\"", gltfPath);
+            continue;
+        }
+        const tinygltf::Primitive& prim = mesh.primitives[0];
+        if (prim.material < 0 || size_t(prim.material) >= model->materials.size()) {
+            VulkanUtils::LogErr("SceneManager: glTF \"{}\" primitive has no valid material", gltfPath);
+            continue;
+        }
+        const tinygltf::Material& gltfMat = model->materials[size_t(prim.material)];
+        const std::vector<double>& baseColor = gltfMat.pbrMetallicRoughness.baseColorFactor;
+        if (baseColor.size() < 4) {
+            VulkanUtils::LogErr("SceneManager: glTF \"{}\" material has no baseColorFactor", gltfPath);
+            continue;
+        }
+        std::string pipelineKey = ResolvePipelineKeyFromGltfMaterial(gltfMat);
+        if (pipelineKey.empty()) {
+            VulkanUtils::LogErr("SceneManager: glTF \"{}\" material could not be mapped to a pipeline (alphaMode or extras.pipeline)", gltfPath);
+            continue;
+        }
+        std::shared_ptr<MaterialHandle> pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
+        if (!pMaterial) {
+            VulkanUtils::LogErr("SceneManager: pipeline \"{}\" not registered for glTF \"{}\"", pipelineKey, gltfPath);
+            continue;
+        }
+
+        float pos[3] = { 0.f, 0.f, 0.f };
+        float rot[4] = { 0.f, 0.f, 0.f, 1.f };
+        float scale[3] = { 1.f, 1.f, 1.f };
+        if (jInst.contains("position") && jInst["position"].is_array() && jInst["position"].size() >= 3) {
+            pos[0] = static_cast<float>(jInst["position"][0].get<double>());
+            pos[1] = static_cast<float>(jInst["position"][1].get<double>());
+            pos[2] = static_cast<float>(jInst["position"][2].get<double>());
+        }
+        if (jInst.contains("rotation") && jInst["rotation"].is_array() && jInst["rotation"].size() >= 4) {
+            rot[0] = static_cast<float>(jInst["rotation"][0].get<double>());
+            rot[1] = static_cast<float>(jInst["rotation"][1].get<double>());
+            rot[2] = static_cast<float>(jInst["rotation"][2].get<double>());
+            rot[3] = static_cast<float>(jInst["rotation"][3].get<double>());
+        }
+        if (jInst.contains("scale") && jInst["scale"].is_array() && jInst["scale"].size() >= 3) {
+            scale[0] = static_cast<float>(jInst["scale"][0].get<double>());
+            scale[1] = static_cast<float>(jInst["scale"][1].get<double>());
+            scale[2] = static_cast<float>(jInst["scale"][2].get<double>());
+        }
+
+        std::vector<float> positions;
+        if (!GetMeshPositionsFromGltf(*model, 0, 0, positions)) {
+            VulkanUtils::LogErr("SceneManager: failed to get positions from \"{}\" mesh 0", gltfPath);
+            continue;
+        }
+        const uint32_t vertexCount = static_cast<uint32_t>(positions.size() / 3);
+        if (vertexCount == 0u) continue;
+
+        std::string cacheKey = source + ":0:0";
+        std::shared_ptr<MeshHandle> pMesh = m_pMeshManager->GetOrCreateFromPositions(cacheKey, positions.data(), vertexCount);
+        if (!pMesh) continue;
+
+        Object obj;
+        obj.pMaterial = pMaterial;
+        obj.pMesh = pMesh;
+        obj.shape = Shape::Cube;
+        ObjectSetFromPositionRotationScale(obj.localTransform,
+            pos[0], pos[1], pos[2],
+            rot[0], rot[1], rot[2], rot[3],
+            scale[0], scale[1], scale[2]);
+        obj.color[0] = static_cast<float>(baseColor[0]);
+        obj.color[1] = static_cast<float>(baseColor[1]);
+        obj.color[2] = static_cast<float>(baseColor[2]);
+        obj.color[3] = static_cast<float>(baseColor[3]);
+        obj.pushData.resize(kObjectPushConstantSize);
+        obj.pushDataSize = kObjectPushConstantSize;
+        obj.vertexCount = pMesh->GetVertexCount();
+        obj.instanceCount = 1u;
+        obj.firstVertex = 0u;
+        obj.firstInstance = 0u;
+        objs.push_back(std::move(obj));
+    }
+
+    const size_t objectCount = objs.size();
+    SetCurrentScene(std::move(scene));
+    VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" ({} objects)", path, objectCount);
+    return true;
+}
+
+bool SceneManager::LoadDefaultLevelOrCreate(const std::string& defaultLevelPath) {
+    EnsureDefaultLevelFile(defaultLevelPath);
+    if (!LoadLevelFromFile(defaultLevelPath)) {
+        SetCurrentScene(std::make_unique<Scene>("empty"));
+        return false;
+    }
+    return true;
 }
 
 void SceneManager::AddObject(Object obj) {
@@ -95,53 +334,4 @@ void SceneManager::RemoveObject(size_t index) {
     auto& objs = m_currentScene->GetObjects();
     if (index < objs.size())
         objs.erase(objs.begin() + static_cast<std::ptrdiff_t>(index));
-}
-
-bool SceneManager::ParseSceneJson(const std::string& path, const uint8_t* pData, size_t size, Scene& outScene) {
-    (void)path;
-    if (m_pMaterialManager == nullptr || m_pMeshManager == nullptr)
-        return false;
-    if (pData == nullptr || size == 0)
-        return false;
-    try {
-        json j = json::parse(pData, pData + size);
-        if (j.contains("name") && j["name"].is_string())
-            outScene.SetName(j["name"].get<std::string>());
-        if (!j.contains("objects") || !j["objects"].is_array())
-            return true; /* empty scene */
-        for (const auto& jObj : j["objects"]) {
-            if (!jObj.is_object()) continue;
-            std::string meshKey = "triangle";
-            std::string materialKey = "main";
-            float pos[3] = { 0.f, 0.f, 0.f };
-            float color[4] = { 1.f, 1.f, 1.f, 1.f };
-            if (jObj.contains("mesh") && jObj["mesh"].is_string())
-                meshKey = jObj["mesh"].get<std::string>();
-            if (jObj.contains("material") && jObj["material"].is_string())
-                materialKey = jObj["material"].get<std::string>();
-            if (jObj.contains("position") && jObj["position"].is_array() && jObj["position"].size() >= 3) {
-                pos[0] = static_cast<float>(jObj["position"][0].get<double>());
-                pos[1] = static_cast<float>(jObj["position"][1].get<double>());
-                pos[2] = static_cast<float>(jObj["position"][2].get<double>());
-            }
-            if (jObj.contains("color") && jObj["color"].is_array() && jObj["color"].size() >= 4) {
-                color[0] = static_cast<float>(jObj["color"][0].get<double>());
-                color[1] = static_cast<float>(jObj["color"][1].get<double>());
-                color[2] = static_cast<float>(jObj["color"][2].get<double>());
-                color[3] = static_cast<float>(jObj["color"][3].get<double>());
-            }
-            Object o;
-            o.shape = ShapeFromMeshKey(meshKey);
-            ObjectSetTranslation(o.localTransform, pos[0], pos[1], pos[2]);
-            std::memcpy(o.color, color, sizeof(color));
-            o.pMaterial = m_pMaterialManager->GetMaterial(materialKey);
-            o.pMesh = m_pMeshManager->GetOrCreateProcedural(meshKey);
-            o.pushData.resize(kObjectPushConstantSize);
-            o.pushDataSize = kObjectPushConstantSize;
-            outScene.GetObjects().push_back(std::move(o));
-        }
-        return true;
-    } catch (const json::exception&) {
-        return false;
-    }
 }

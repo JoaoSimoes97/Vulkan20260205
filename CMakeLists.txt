@@ -103,6 +103,7 @@ set(SOURCES
     src/managers/scene_manager.cpp
     src/managers/texture_manager.cpp
     src/loaders/gltf_loader.cpp
+    src/loaders/gltf_mesh_utils.cpp
     src/render/render_list_builder.cpp
 )
 
