@@ -86,6 +86,15 @@ else
     ERRORS=$((ERRORS + 1))
 fi
 
+# TinyGLTF (optional; for glTF loading; CMake fetches if not found)
+if pkg-config --exists tinygltf 2>/dev/null; then
+    echo "[OK] TinyGLTF (glTF loader)"
+elif [ -f /usr/include/tiny_gltf.h ] || [ -f /usr/local/include/tiny_gltf.h ]; then
+    echo "[OK] TinyGLTF headers found"
+else
+    echo "[INFO] TinyGLTF not found; CMake will fetch it via FetchContent (no install needed)"
+fi
+
 # Check for validation layers (optional)
 if [ -d /usr/share/vulkan/explicit_layer.d ] || [ -d /usr/local/share/vulkan/explicit_layer.d ]; then
     if ls /usr/share/vulkan/explicit_layer.d/*validation* 2>/dev/null | grep -q . || \

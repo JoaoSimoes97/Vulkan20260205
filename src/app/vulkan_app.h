@@ -1,6 +1,8 @@
 #pragma once
 
 #include "camera/camera.h"
+#include "managers/descriptor_pool_manager.h"
+#include "managers/descriptor_set_layout_manager.h"
 #include "managers/material_manager.h"
 #include "managers/mesh_manager.h"
 #include "managers/texture_manager.h"
@@ -21,8 +23,11 @@
 #include "window.h"
 #include <chrono>
 #include <functional>
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
+#include <vulkan/vulkan.h>
 
 /**
  * Main application: owns window, Vulkan instance/device/swapchain, render pass,
@@ -42,8 +47,11 @@ private:
     void InitVulkan();
     void MainLoop();
     void Cleanup();
-    void DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic);
+    /** Returns false on fatal error (e.g. device lost); caller should exit the loop. */
+    bool DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic);
     void RecreateSwapchainAndDependents();
+    /** Write default texture into the main descriptor set when ready; then add main/wire to m_pipelineDescriptorSets. Idempotent. */
+    void EnsureMainDescriptorSetWritten();
     void OnCompletedLoadJob(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in);
 
     JobQueue::CompletedJobHandler m_completedJobHandler;
@@ -67,10 +75,13 @@ private:
     VulkanCommandBuffers m_commandBuffers;
     VulkanSync m_sync;
 
-    /* Descriptor set infrastructure for materials + textures (layout/pool ready; sets used when pipeline has descriptor set layout). */
-    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool      m_descriptorPool      = VK_NULL_HANDLE;
-    VkDescriptorSet       m_descriptorSet       = VK_NULL_HANDLE;
+    /* Descriptor layouts and pool (data-driven by layout keys). Sets allocated from pool; map passed to render list. */
+    DescriptorSetLayoutManager m_descriptorSetLayoutManager;
+    DescriptorPoolManager     m_descriptorPoolManager;
+    std::map<std::string, std::vector<VkDescriptorSet>> m_pipelineDescriptorSets;
+    VkDescriptorSet           m_descriptorSetMain = VK_NULL_HANDLE;  /* single set for "main" pipeline (default texture) */
+    /** Keep default texture alive so TrimUnused() does not destroy it (descriptor set references its view/sampler). */
+    std::shared_ptr<TextureHandle> m_pDefaultTexture;
 
     Camera m_camera;
     float m_avgFrameTimeSec = 1.f / 60.f;

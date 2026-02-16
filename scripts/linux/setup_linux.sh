@@ -14,7 +14,30 @@ echo "Vulkan App - Linux Setup"
 echo "=========================================="
 echo ""
 echo "This installs: Vulkan (headers, loader, validation), SDL3 (window/input), nlohmann-json (config), CMake, build tools."
+echo "Then populates deps/ with stb and TinyGLTF (no download during build)."
 echo ""
+
+# Populate deps/ so CMake never downloads during build
+populate_deps() {
+    local deps_dir="$ROOT_DIR/deps"
+    mkdir -p "$deps_dir"
+    if ! command -v git &>/dev/null; then
+        echo "Warning: git not found; skipping deps/ (stb, TinyGLTF). Install git and re-run setup, or clone deps manually — see deps/README.md"
+        return 0
+    fi
+    if [ ! -f "$deps_dir/stb/stb_image.h" ]; then
+        echo "Cloning stb into deps/stb..."
+        git clone --depth 1 https://github.com/nothings/stb.git "$deps_dir/stb"
+    else
+        echo "deps/stb already present, skipping."
+    fi
+    if [ ! -f "$deps_dir/tinygltf/tiny_gltf.h" ]; then
+        echo "Cloning TinyGLTF into deps/tinygltf..."
+        git clone --depth 1 --branch v2.9.7 https://github.com/syoyo/tinygltf.git "$deps_dir/tinygltf"
+    else
+        echo "deps/tinygltf already present, skipping."
+    fi
+}
 
 # Detect Linux distribution
 if [ -f /etc/os-release ]; then
@@ -121,6 +144,10 @@ case "$DISTRO" in
         fi
         ;;
 esac
+
+echo ""
+echo "Populating deps/ (stb, TinyGLTF)..."
+populate_deps
 
 echo ""
 echo "=========================================="

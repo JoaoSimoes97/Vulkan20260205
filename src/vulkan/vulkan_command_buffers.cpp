@@ -115,10 +115,26 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
 
     for (const auto& stD : vecDrawCalls_ic) {
         vkCmdBindPipeline(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipeline);
-        if ((stD.descriptorSetCount > 0) && (stD.descriptorSet != VK_NULL_HANDLE))
-            vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipelineLayout, 0, stD.descriptorSetCount, &stD.descriptorSet, 0, nullptr);
-        if (stD.vertexBuffer != VK_NULL_HANDLE)
-            vkCmdBindVertexBuffers(pCmd, 0, 1, &stD.vertexBuffer, &stD.vertexBufferOffset);
+        if (!stD.descriptorSets.empty())
+            vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipelineLayout, 0,
+                                    static_cast<uint32_t>(stD.descriptorSets.size()), stD.descriptorSets.data(), 0, nullptr);
+        if (stD.vertexBuffer != VK_NULL_HANDLE || stD.instanceBuffer != VK_NULL_HANDLE) {
+            VkBuffer buffers[2] = { stD.vertexBuffer, stD.instanceBuffer };
+            VkDeviceSize offsets[2] = { stD.vertexBufferOffset, stD.instanceBufferOffset };
+            uint32_t firstBinding = 0;
+            uint32_t bindCount;
+            if (stD.vertexBuffer != VK_NULL_HANDLE && stD.instanceBuffer != VK_NULL_HANDLE) {
+                bindCount = 2u;
+            } else if (stD.vertexBuffer != VK_NULL_HANDLE) {
+                bindCount = 1u;
+            } else {
+                firstBinding = 1u;
+                buffers[0] = stD.instanceBuffer;
+                offsets[0] = stD.instanceBufferOffset;
+                bindCount = 1u;
+            }
+            vkCmdBindVertexBuffers(pCmd, firstBinding, bindCount, buffers, offsets);
+        }
         if ((stD.pPushConstants != nullptr) && (stD.pushConstantSize > 0))
             vkCmdPushConstants(pCmd, stD.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, stD.pushConstantSize, stD.pPushConstants);
         vkCmdDraw(pCmd, stD.vertexCount, stD.instanceCount, stD.firstVertex, stD.firstInstance);

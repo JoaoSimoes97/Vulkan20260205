@@ -20,35 +20,40 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 endif()
 
-# Find packages: SDL3 (try system first, else FetchContent), Vulkan
+# Find packages: SDL3, Vulkan (must be installed via setup / package manager; no download during build)
 set(SDL3_MIN_VERSION "3.0.0")
-find_package(SDL3 ${SDL3_MIN_VERSION} QUIET)
-if(NOT SDL3_FOUND)
-    message(STATUS "SDL3 not found, fetching via FetchContent...")
-    include(FetchContent)
-    FetchContent_Declare(
-        SDL3
-        GIT_REPOSITORY "https://github.com/libsdl-org/SDL.git"
-        GIT_TAG "main"
-        GIT_SHALLOW TRUE
-    )
-    set(SDL_SHARED ON CACHE BOOL "" FORCE)
-    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
-    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(SDL3)
-endif()
+find_package(SDL3 ${SDL3_MIN_VERSION} REQUIRED)
 find_package(Vulkan REQUIRED)
 
 # JSON config: nlohmann/json (required; must be installed — see README for per-OS package names)
 find_package(nlohmann_json 3.11 REQUIRED)
 
-# stb_image (header-only; no build)
-include(FetchContent)
-FetchContent_Declare(stb
-    GIT_REPOSITORY https://github.com/nothings/stb
-    GIT_TAG        master
-)
-FetchContent_MakeAvailable(stb)
+# stb (header-only): must be provided by setup in deps/stb — no download during build
+set(DEPS_STB_DIR ${CMAKE_SOURCE_DIR}/deps/stb CACHE PATH "Path to stb (populated by setup)")
+if(NOT EXISTS "${DEPS_STB_DIR}/stb_image.h")
+    message(FATAL_ERROR "stb not found at ${DEPS_STB_DIR}. Run the project setup script first (e.g. ./setup.sh or scripts/linux/setup_linux.sh).")
+endif()
+message(STATUS "Using stb from deps: ${DEPS_STB_DIR}")
+
+# TinyGLTF: prefer system package; else use deps/tinygltf (populated by setup)
+find_package(TinyGLTF QUIET)
+if(NOT TinyGLTF_FOUND)
+    set(DEPS_TINYGLTF_DIR ${CMAKE_SOURCE_DIR}/deps/tinygltf CACHE PATH "Path to TinyGLTF (populated by setup)")
+    if(EXISTS "${DEPS_TINYGLTF_DIR}/tiny_gltf.h")
+        message(STATUS "Using TinyGLTF from deps: ${DEPS_TINYGLTF_DIR}")
+        set(TINYGLTF_BUILD_LOADER_EXAMPLE OFF CACHE BOOL "" FORCE)
+        set(TINYGLTF_BUILD_GL_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(TINYGLTF_BUILD_VALIDATOR_EXAMPLE OFF CACHE BOOL "" FORCE)
+        set(TINYGLTF_BUILD_BUILDER_EXAMPLE OFF CACHE BOOL "" FORCE)
+        set(TINYGLTF_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(TINYGLTF_HEADER_ONLY OFF CACHE BOOL "" FORCE)
+        set(TINYGLTF_INSTALL OFF CACHE BOOL "" FORCE)
+        add_subdirectory(${DEPS_TINYGLTF_DIR} ${CMAKE_BINARY_DIR}/deps/tinygltf)
+        target_compile_definitions(tinygltf PRIVATE TINYGLTF_NO_STB_IMAGE TINYGLTF_NO_STB_IMAGE_WRITE)
+    else()
+        message(FATAL_ERROR "TinyGLTF not found (no system package and no deps/tinygltf). Run the project setup script first (e.g. ./setup.sh or scripts/linux/setup_linux.sh).")
+    endif()
+endif()
 
 # Vulkan: Linux/Windows use native drivers (no MoltenVK). macOS uses Vulkan SDK which uses MoltenVK (Vulkan → Metal).
 # Same Vulkan code everywhere; zero cost on Linux/Windows.
@@ -66,6 +71,7 @@ include_directories(${CMAKE_SOURCE_DIR}/src/window)
 include_directories(${CMAKE_SOURCE_DIR}/src/scene)
 include_directories(${CMAKE_SOURCE_DIR}/src/camera)
 include_directories(${CMAKE_SOURCE_DIR}/src/render)
+include_directories(${CMAKE_SOURCE_DIR}/src/loaders)
 include_directories(${CMAKE_SOURCE_DIR}/src/vulkan)
 include_directories(${Vulkan_INCLUDE_DIRS})
 
@@ -89,11 +95,14 @@ set(SOURCES
     src/vulkan/vulkan_command_buffers.cpp
     src/vulkan/vulkan_sync.cpp
     src/vulkan/vulkan_shader_manager.cpp
+    src/managers/descriptor_set_layout_manager.cpp
+    src/managers/descriptor_pool_manager.cpp
     src/managers/pipeline_manager.cpp
     src/managers/material_manager.cpp
     src/managers/mesh_manager.cpp
     src/managers/scene_manager.cpp
     src/managers/texture_manager.cpp
+    src/loaders/gltf_loader.cpp
     src/render/render_list_builder.cpp
 )
 
@@ -103,11 +112,14 @@ set(HEADERS
     src/config/vulkan_config.h
     src/config/config_loader.h
     src/managers/managers.h
+    src/managers/descriptor_set_layout_manager.h
+    src/managers/descriptor_pool_manager.h
     src/managers/pipeline_manager.h
     src/managers/material_manager.h
     src/managers/mesh_manager.h
     src/managers/scene_manager.h
     src/managers/texture_manager.h
+    src/loaders/gltf_loader.h
     src/scene/scene.h
     src/render/render_list_builder.h
     src/thread/job_queue.h
@@ -130,7 +142,7 @@ set(HEADERS
 # Create executable
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
-# Set include directories for the target (stb_SOURCE_DIR set by FetchContent_MakeAvailable(stb))
+# Set include directories for the target (stb from deps/)
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/app
@@ -141,7 +153,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src/scene
     ${CMAKE_SOURCE_DIR}/src/render
     ${CMAKE_SOURCE_DIR}/src/vulkan
-    ${stb_SOURCE_DIR}
+    ${DEPS_STB_DIR}
     ${Vulkan_INCLUDE_DIRS}
 )
 
@@ -151,6 +163,13 @@ target_link_libraries(${PROJECT_NAME}
     ${Vulkan_LIBRARIES}
     nlohmann_json::nlohmann_json
 )
+if(TinyGLTF_FOUND)
+    target_link_libraries(${PROJECT_NAME} TinyGLTF::tinygltf)
+else()
+    target_link_libraries(${PROJECT_NAME} tinygltf)
+    # Match tinygltf: no built-in stb (we use our own in texture_manager); avoids duplicate symbols and undefined refs.
+    target_compile_definitions(${PROJECT_NAME} PRIVATE TINYGLTF_NO_STB_IMAGE TINYGLTF_NO_STB_IMAGE_WRITE)
+endif()
 
 # Platform-specific linking
 if(WIN32)

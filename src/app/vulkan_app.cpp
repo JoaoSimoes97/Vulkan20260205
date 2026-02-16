@@ -107,35 +107,28 @@ void VulkanApp::InitVulkan() {
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_ALT, &this->m_shaderManager, sVertPath, sFragAltPath);
 
-    /* Descriptor set layout (1 binding: combined image sampler for fragment). Created before materials so main pipeline can use it. */
+    /* Descriptor set layouts by key (before materials so pipeline layouts can reference them). */
+    static const std::string kLayoutKeyMainFragTex("main_frag_tex");
+    this->m_descriptorSetLayoutManager.SetDevice(this->m_device.GetDevice());
     {
-        VkDescriptorSetLayoutBinding stBinding = {
-            .binding            = static_cast<uint32_t>(0),
+        std::vector<VkDescriptorSetLayoutBinding> bindings = { {
+            .binding            = 0u,
             .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount    = static_cast<uint32_t>(1),
+            .descriptorCount    = 1u,
             .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = nullptr,
-        };
-        VkDescriptorSetLayoutCreateInfo stLayoutInfo = {
-            .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .pNext        = nullptr,
-            .flags        = static_cast<VkDescriptorSetLayoutCreateFlags>(0),
-            .bindingCount = static_cast<uint32_t>(1),
-            .pBindings    = &stBinding,
-        };
-        VkResult rLayout = vkCreateDescriptorSetLayout(this->m_device.GetDevice(), &stLayoutInfo, nullptr, &this->m_descriptorSetLayout);
-        if (rLayout != VK_SUCCESS) {
-            VulkanUtils::LogErr("vkCreateDescriptorSetLayout failed: {}", static_cast<int>(rLayout));
-            throw std::runtime_error("VulkanApp::InitVulkan: descriptor set layout failed");
-        }
+        } };
+        if (this->m_descriptorSetLayoutManager.RegisterLayout(kLayoutKeyMainFragTex, bindings) == VK_NULL_HANDLE)
+            throw std::runtime_error("VulkanApp::InitVulkan: descriptor set layout main_frag_tex failed");
     }
 
     constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
+    VkDescriptorSetLayout pMainFragLayout = this->m_descriptorSetLayoutManager.GetLayout(kLayoutKeyMainFragTex);
     PipelineLayoutDescriptor stMainLayoutDesc = {
         .pushConstantRanges = {
             { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
         },
-        .descriptorSetLayouts = { this->m_descriptorSetLayout },
+        .descriptorSetLayouts = { pMainFragLayout },
     };
     PipelineLayoutDescriptor stWireAltLayoutDesc = {
         .pushConstantRanges = {
@@ -155,7 +148,8 @@ void VulkanApp::InitVulkan() {
     GraphicsPipelineParams stPipeParamsWire = stPipeParamsMain;
     stPipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
     this->m_materialManager.RegisterMaterial("main", PIPELINE_KEY_MAIN, stMainLayoutDesc, stPipeParamsMain);
-    this->m_materialManager.RegisterMaterial("wire", PIPELINE_KEY_WIRE, stWireAltLayoutDesc, stPipeParamsWire);
+    /* Wire uses same frag shader as main (with uTex), so it needs the same descriptor set layout. */
+    this->m_materialManager.RegisterMaterial("wire", PIPELINE_KEY_WIRE, stMainLayoutDesc, stPipeParamsWire);
     this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stWireAltLayoutDesc, stPipeParamsMain);
     this->m_meshManager.SetDevice(this->m_device.GetDevice());
     this->m_meshManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
@@ -175,68 +169,16 @@ void VulkanApp::InitVulkan() {
     this->m_textureManager.SetJobQueue(&this->m_jobQueue);
     this->m_sceneManager.SetCurrentScene(this->m_sceneManager.CreateDefaultScene());
 
-    /* Descriptor pool and one set allocated for texture binding (layout already created above). */
-    {
-        VkDescriptorPoolSize stPoolSize = {
-            .type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = static_cast<uint32_t>(2),
-        };
-        VkDescriptorPoolCreateInfo stPoolInfo = {
-            .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .pNext         = nullptr,
-            .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-            .maxSets       = static_cast<uint32_t>(2),
-            .poolSizeCount = static_cast<uint32_t>(1),
-            .pPoolSizes    = &stPoolSize,
-        };
-        VkResult rPool = vkCreateDescriptorPool(this->m_device.GetDevice(), &stPoolInfo, nullptr, &this->m_descriptorPool);
-        if (rPool != VK_SUCCESS) {
-            vkDestroyDescriptorSetLayout(this->m_device.GetDevice(), this->m_descriptorSetLayout, nullptr);
-            this->m_descriptorSetLayout = VK_NULL_HANDLE;
-            VulkanUtils::LogErr("vkCreateDescriptorPool failed: {}", static_cast<int>(rPool));
-            throw std::runtime_error("VulkanApp::InitVulkan: descriptor pool failed");
-        }
-        VkDescriptorSetLayout pLayout = this->m_descriptorSetLayout;
-        VkDescriptorSetAllocateInfo stAllocInfo = {
-            .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .pNext              = nullptr,
-            .descriptorPool     = this->m_descriptorPool,
-            .descriptorSetCount  = static_cast<uint32_t>(1),
-            .pSetLayouts        = &pLayout,
-        };
-        VkResult rAlloc = vkAllocateDescriptorSets(this->m_device.GetDevice(), &stAllocInfo, &this->m_descriptorSet);
-        if (rAlloc != VK_SUCCESS) {
-            vkDestroyDescriptorPool(this->m_device.GetDevice(), this->m_descriptorPool, nullptr);
-            this->m_descriptorPool = VK_NULL_HANDLE;
-            vkDestroyDescriptorSetLayout(this->m_device.GetDevice(), this->m_descriptorSetLayout, nullptr);
-            this->m_descriptorSetLayout = VK_NULL_HANDLE;
-            VulkanUtils::LogErr("vkAllocateDescriptorSets failed: {}", static_cast<int>(rAlloc));
-            throw std::runtime_error("VulkanApp::InitVulkan: descriptor set allocation failed");
-        }
-    }
-
-    /* Write default texture into the descriptor set so it can be bound for "main" pipeline. */
-    std::shared_ptr<TextureHandle> pDefaultTex = this->m_textureManager.GetOrCreateDefaultTexture();
-    if (pDefaultTex != nullptr && pDefaultTex->IsValid() == true) {
-        VkDescriptorImageInfo stImageInfo = {
-            .sampler     = pDefaultTex->GetSampler(),
-            .imageView   = pDefaultTex->GetView(),
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
-        VkWriteDescriptorSet stWrite = {
-            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext            = nullptr,
-            .dstSet           = this->m_descriptorSet,
-            .dstBinding       = 0,
-            .dstArrayElement  = 0,
-            .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo       = &stImageInfo,
-            .pBufferInfo      = nullptr,
-            .pTexelBufferView = nullptr,
-        };
-        vkUpdateDescriptorSets(this->m_device.GetDevice(), 1, &stWrite, 0, nullptr);
-    }
+    /* Descriptor pool (sized from layout keys) and one set for "main" pipeline. */
+    this->m_descriptorPoolManager.SetDevice(this->m_device.GetDevice());
+    this->m_descriptorPoolManager.SetLayoutManager(&this->m_descriptorSetLayoutManager);
+    if (!this->m_descriptorPoolManager.BuildPool({ kLayoutKeyMainFragTex }, 4u))
+        throw std::runtime_error("VulkanApp::InitVulkan: descriptor pool failed");
+    this->m_descriptorSetMain = this->m_descriptorPoolManager.AllocateSet(kLayoutKeyMainFragTex);
+    if (this->m_descriptorSetMain == VK_NULL_HANDLE)
+        throw std::runtime_error("VulkanApp::InitVulkan: descriptor set allocation failed");
+    /* Add main/wire to the map only after we write the set with a valid default texture (see EnsureMainDescriptorSetWritten). */
+    EnsureMainDescriptorSetWritten();
 
     this->m_framebuffers.Create(this->m_device.GetDevice(), this->m_renderPass.Get(),
                           this->m_swapchain.GetImageViews(),
@@ -249,6 +191,40 @@ void VulkanApp::InitVulkan() {
     uint32_t lMaxFramesInFlight = (this->m_config.lMaxFramesInFlight >= 1u) ? this->m_config.lMaxFramesInFlight : static_cast<uint32_t>(1u);
     this->m_sync.Create(this->m_device.GetDevice(), lMaxFramesInFlight, this->m_swapchain.GetImageCount());
 
+}
+
+void VulkanApp::EnsureMainDescriptorSetWritten() {
+    if (this->m_descriptorSetMain == VK_NULL_HANDLE)
+        return;
+    /* Already exposed main/wire in the map → set was written. */
+    auto it = this->m_pipelineDescriptorSets.find(PIPELINE_KEY_MAIN);
+    if (it != this->m_pipelineDescriptorSets.end() && !it->second.empty())
+        return;
+    std::shared_ptr<TextureHandle> pDefaultTex = this->m_textureManager.GetOrCreateDefaultTexture();
+    if (pDefaultTex == nullptr || !pDefaultTex->IsValid())
+        return;
+    /* Keep a reference so TextureManager::TrimUnused() does not destroy the default texture (descriptor set uses its view/sampler). */
+    this->m_pDefaultTexture = pDefaultTex;
+    VkDescriptorImageInfo stImageInfo = {
+        .sampler     = pDefaultTex->GetSampler(),
+        .imageView   = pDefaultTex->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    VkWriteDescriptorSet stWrite = {
+        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .pNext            = nullptr,
+        .dstSet           = this->m_descriptorSetMain,
+        .dstBinding       = 0,
+        .dstArrayElement  = 0,
+        .descriptorCount  = 1,
+        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo       = &stImageInfo,
+        .pBufferInfo      = nullptr,
+        .pTexelBufferView = nullptr,
+    };
+    vkUpdateDescriptorSets(this->m_device.GetDevice(), 1, &stWrite, 0, nullptr);
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MAIN)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_WIRE)] = { this->m_descriptorSetMain };
 }
 
 void VulkanApp::RecreateSwapchainAndDependents() {
@@ -368,14 +344,18 @@ void VulkanApp::MainLoop() {
         if (pScene != nullptr)
             pScene->FillPushDataForAllObjects(fViewProj);
 
+        /* Ensure main descriptor set is written (default texture) before drawing main/wire; idempotent. */
+        EnsureMainDescriptorSetWritten();
+
         /* Build draw list from scene (frustum culling, push size validation, sort by pipeline/mesh). */
         this->m_renderListBuilder.Build(this->m_drawCalls, pScene,
                                   this->m_device.GetDevice(), this->m_renderPass.Get(), this->m_renderPass.HasDepthAttachment(),
                                   &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
-                                  fViewProj, this->m_descriptorSet);
+                                  fViewProj, &this->m_pipelineDescriptorSets);
 
         /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
-        DrawFrame(this->m_drawCalls);
+        if (!DrawFrame(this->m_drawCalls))
+            break;
 
         /* FPS in window title (smoothed, update every 0.25 s). */
         const auto frameEnd = std::chrono::steady_clock::now();
@@ -444,18 +424,14 @@ void VulkanApp::Cleanup() {
     this->m_sceneManager.UnloadScene();
     this->m_meshManager.Destroy();
     this->m_textureManager.Destroy();
-    if (this->m_descriptorPool != VK_NULL_HANDLE) {
-        if (this->m_descriptorSet != VK_NULL_HANDLE) {
-            vkFreeDescriptorSets(this->m_device.GetDevice(), this->m_descriptorPool, 1, &this->m_descriptorSet);
-            this->m_descriptorSet = VK_NULL_HANDLE;
-        }
-        vkDestroyDescriptorPool(this->m_device.GetDevice(), this->m_descriptorPool, nullptr);
-        this->m_descriptorPool = VK_NULL_HANDLE;
+    this->m_pipelineDescriptorSets.clear();
+    this->m_pDefaultTexture.reset();
+    if (this->m_descriptorSetMain != VK_NULL_HANDLE && this->m_descriptorPoolManager.IsValid()) {
+        this->m_descriptorPoolManager.FreeSet(this->m_descriptorSetMain);
+        this->m_descriptorSetMain = VK_NULL_HANDLE;
     }
-    if (this->m_descriptorSetLayout != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(this->m_device.GetDevice(), this->m_descriptorSetLayout, nullptr);
-        this->m_descriptorSetLayout = VK_NULL_HANDLE;
-    }
+    this->m_descriptorPoolManager.Destroy();
+    this->m_descriptorSetLayoutManager.Destroy();
     this->m_shaderManager.Destroy();
     this->m_device.Destroy();
     if ((this->m_pWindow != nullptr) && (this->m_instance.IsValid() == true))
@@ -465,7 +441,7 @@ void VulkanApp::Cleanup() {
     this->m_jobQueue.Stop();
 }
 
-void VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
+bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
     VkDevice pDevice = this->m_device.GetDevice();
     uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
     VkFence pInFlightFence = this->m_sync.GetInFlightFence(lFrameIndex);
@@ -475,14 +451,13 @@ void VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
     /* Wait for all in-flight frames so no command buffer still uses buffers/pipelines we are about to destroy. */
     const uint32_t lMaxFrames = this->m_sync.GetMaxFramesInFlight();
     VkResult r = vkWaitForFences(pDevice, lMaxFrames, this->m_sync.GetInFlightFencePtr(), VK_TRUE, uTimeout);
+    if (r == VK_ERROR_DEVICE_LOST) {
+        VulkanUtils::LogErr("vkWaitForFences: device lost, exiting");
+        return false;
+    }
     if (r != VK_SUCCESS) {
         VulkanUtils::LogErr("vkWaitForFences failed: {}", static_cast<int>(r));
-        return;
-    }
-    r = vkResetFences(pDevice, 1, &pInFlightFence);
-    if (r != VK_SUCCESS) {
-        VulkanUtils::LogErr("vkResetFences failed: {}", static_cast<int>(r));
-        return;
+        return false;
     }
     /* Safe to destroy pipelines and mesh buffers that were trimmed (all in-flight work finished). */
     this->m_pipelineManager.ProcessPendingDestroys();
@@ -493,23 +468,31 @@ void VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
                               pImageAvailable, VK_NULL_HANDLE, &lImageIndex);
     if (r == VK_ERROR_OUT_OF_DATE_KHR) {
         RecreateSwapchainAndDependents();
-        return;
+        return true;
     }
     if ((r != VK_SUCCESS) && (r != VK_SUBOPTIMAL_KHR)) {
         VulkanUtils::LogErr("vkAcquireNextImageKHR failed: {}", static_cast<int>(r));
-        return;
+        return true;
     }
     if ((lImageIndex >= this->m_framebuffers.GetCount()) || (lImageIndex >= this->m_commandBuffers.GetCount())) {
         VulkanUtils::LogErr("Acquired imageIndex {} out of range", lImageIndex);
         RecreateSwapchainAndDependents();
-        return;
+        return true;
     }
 
     VkSemaphore pRenderFinished = this->m_sync.GetRenderFinishedSemaphore(lImageIndex);
     if (pRenderFinished == VK_NULL_HANDLE) {
         VulkanUtils::LogErr("No render-finished semaphore for imageIndex {}", lImageIndex);
         this->m_sync.AdvanceFrame();
-        return;
+        return true;
+    }
+
+    /* Reset fence only when we are about to submit (avoids leaving it unsignaled on early return). */
+    r = vkResetFences(pDevice, 1, &pInFlightFence);
+    if (r != VK_SUCCESS) {
+        VulkanUtils::LogErr("vkResetFences failed: {}", static_cast<int>(r));
+        this->m_sync.AdvanceFrame();
+        return true;
     }
 
     const VkExtent2D stExtent = this->m_swapchain.GetExtent();
@@ -550,10 +533,14 @@ void VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
         .pSignalSemaphores    = &pRenderFinished,
     };
     r = vkQueueSubmit(this->m_device.GetGraphicsQueue(), 1, &stSubmitInfo, pInFlightFence);
+    if (r == VK_ERROR_DEVICE_LOST) {
+        VulkanUtils::LogErr("vkQueueSubmit: device lost, exiting");
+        return false;
+    }
     if (r != VK_SUCCESS) {
         VulkanUtils::LogErr("vkQueueSubmit failed: {}", static_cast<int>(r));
         RecreateSwapchainAndDependents();
-        return;
+        return true;
     }
 
     VkSwapchainKHR pSwapchain = this->m_swapchain.GetSwapchain();
@@ -574,4 +561,5 @@ void VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
         VulkanUtils::LogErr("vkQueuePresentKHR failed: {}", static_cast<int>(r));
 
     this->m_sync.AdvanceFrame();
+    return true;
 }

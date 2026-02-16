@@ -61,7 +61,7 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
                               MaterialManager* pMaterialManager_ic,
                               VulkanShaderManager* pShaderManager_ic,
                               const float* pViewProj_ic,
-                              VkDescriptorSet pDescriptorSetForMain_ic) {
+                              const std::map<std::string, std::vector<VkDescriptorSet>>* pPipelineDescriptorSets_ic) {
     vecOutDrawCalls_out.clear();
     if ((pScene_ic == nullptr) || (pPipelineManager_ic == nullptr) || (pMaterialManager_ic == nullptr) || (pShaderManager_ic == nullptr))
         return;
@@ -98,23 +98,28 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
         if (lVc == 0u)
             continue;
         DrawCall stD = {
-            .pipeline          = pPipe,
-            .pipelineLayout    = pLayout,
-            .vertexBuffer      = obj.pMesh->GetVertexBuffer(),
+            .pipeline           = pPipe,
+            .pipelineLayout     = pLayout,
+            .vertexBuffer       = obj.pMesh->GetVertexBuffer(),
             .vertexBufferOffset = obj.pMesh->GetVertexBufferOffset(),
-            .pPushConstants    = obj.pushData.data(),
-            .pushConstantSize  = obj.pushDataSize,
-            .vertexCount       = lVc,
-            .instanceCount     = obj.pMesh->GetInstanceCount(),
-            .firstVertex       = obj.pMesh->GetFirstVertex(),
-            .firstInstance     = obj.pMesh->GetFirstInstance(),
-            .descriptorSetCount = 0,
-            .descriptorSet     = VK_NULL_HANDLE,
+            .pPushConstants      = obj.pushData.data(),
+            .pushConstantSize   = obj.pushDataSize,
+            .vertexCount        = lVc,
+            .instanceCount      = obj.pMesh->GetInstanceCount(),
+            .firstVertex        = obj.pMesh->GetFirstVertex(),
+            .firstInstance      = obj.pMesh->GetFirstInstance(),
+            .descriptorSets     = {},
+            .instanceBuffer     = VK_NULL_HANDLE,
+            .instanceBufferOffset = 0,
         };
-        if ((pDescriptorSetForMain_ic != VK_NULL_HANDLE) && (obj.pMaterial->pipelineKey == "main")) {
-            stD.descriptorSetCount = 1;
-            stD.descriptorSet     = pDescriptorSetForMain_ic;
+        if (pPipelineDescriptorSets_ic != nullptr) {
+            auto it = pPipelineDescriptorSets_ic->find(obj.pMaterial->pipelineKey);
+            if (it != pPipelineDescriptorSets_ic->end() && !it->second.empty())
+                stD.descriptorSets = it->second;
         }
+        /* Skip draws that require descriptor sets but have none (e.g. main/wire before default texture is ready). */
+        if (!obj.pMaterial->layoutDescriptor.descriptorSetLayouts.empty() && stD.descriptorSets.empty())
+            continue;
         vecOutDrawCalls_out.push_back(stD);
     }
 

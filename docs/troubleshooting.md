@@ -44,7 +44,7 @@ Warning only; the app continues without validation. To install:
 
 ## CMake can't find SDL3
 
-CMake can fetch SDL3 via FetchContent. Or install manually:
+SDL3 must be installed before build (run setup first). Install manually if needed:
 
 - **Linux**: `sudo pacman -S sdl3` (Arch), `sudo apt install libsdl3-dev` (Debian/Ubuntu)
 - **Windows**: `vcpkg install sdl3`

@@ -15,11 +15,13 @@ struct DrawCall {
     uint32_t          pushConstantSize = 0;
     uint32_t          vertexCount      = 0;
     uint32_t          instanceCount    = 1;
-    uint32_t          firstVertex      = 0;
-    uint32_t          firstInstance    = 0;
-    /** Descriptor set(s) to bind when pipeline layout has descriptor set layouts. Set count must match layout. */
-    uint32_t          descriptorSetCount = 0;
-    VkDescriptorSet   descriptorSet     = VK_NULL_HANDLE;
+    uint32_t          firstVertex       = 0;
+    uint32_t          firstInstance     = 0;
+    /** Descriptor sets to bind (set 0, 1, ...). Empty = no descriptor sets for this pipeline. */
+    std::vector<VkDescriptorSet> descriptorSets;
+    /** Optional instance buffer (vertex input binding 1). When valid, instanceCount > 1 uses per-instance data. */
+    VkBuffer          instanceBuffer       = VK_NULL_HANDLE;
+    VkDeviceSize      instanceBufferOffset = 0;
 };
 
 /*

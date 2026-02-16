@@ -28,7 +28,7 @@ On **Linux** and **Windows** we use native Vulkan drivers (no MoltenVK). On **ma
 | **Android** | Android Studio + NDK; see [platforms/android.md](platforms/android.md) | Use `platforms/android/` scaffold |
 | **iOS** | Xcode, MoltenVK for iOS; see [platforms/ios.md](platforms/ios.md) | Use `platforms/ios/` scaffold |
 
-**Project setup** ensures: Vulkan (SDK/drivers + glslc), SDL3 (window + Vulkan surface), nlohmann-json (config), CMake + C++ compiler. SDL3 can be installed via package manager or let CMake fetch on first build.
+**Project setup** ensures: Vulkan (SDK/drivers + glslc), SDL3 (window + Vulkan surface), nlohmann-json (config), CMake + C++ compiler. Setup also populates **deps/** with stb and TinyGLTF (via git clone). **No downloads during build** — all dependencies are installed or vendored by setup. See [deps/README.md](../deps/README.md) for details.
 
 ---
 

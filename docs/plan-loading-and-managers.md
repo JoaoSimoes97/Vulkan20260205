@@ -49,14 +49,22 @@ To support an editor with many objects and different GPU data per object: MeshMa
 
 ---
 
-## 4. Not done yet
+## 4. Descriptor system (data-driven) — implemented
 
-- **Descriptor sets**: Infrastructure in place (optional descriptor set layouts in `PipelineLayoutDescriptor`; app creates one layout + pool + one set for combined image sampler). Pipelines can now include descriptor set layouts; next: bind texture to the set, add layout to material pipeline, and bind set in command buffer (materials + textures).
-- **Instancing**: RenderListBuilder still emits one draw per object; no grouping by (mesh, material) with instanceCount > 1.
+- **DescriptorSetLayoutManager**: Register descriptor set layouts by key; bindings stored for pool sizing. Pipeline layouts reference layouts by key.
+- **DescriptorPoolManager**: Build pool from layout keys (maxSets); allocate/free sets by layout key. Main thread only.
+- **DrawCall**: `descriptorSets` (vector) and optional `instanceBuffer`; Record() binds multiple sets and up to two vertex buffers (binding 0 = vertex, 1 = instance).
+- **RenderListBuilder::Build()**: Takes optional `pPipelineDescriptorSets_ic` (map pipelineKey → vector of VkDescriptorSet). Any pipeline can bind sets without hardcoding.
+- **App**: Uses the two managers; one layout key `main_frag_tex`, pool sized for it, one set for "main" with default texture; map passed to Build().
+
+## 5. Next steps (not yet done)
+
+- **GLTF scene population**: GltfLoader (LoadFromFile / LoadFromBytes) parses glTF; next step is to create scene objects from model nodes, meshes from primitives (MeshManager), materials from glTF materials (MaterialManager + descriptor sets), textures from images. Objects own refs; TrimUnused when no object uses a resource.
+- **Instancing merge**: DrawCall and Record() support instanceBuffer and instanceCount; next step is to group draws by (pipeline, mesh), fill a per-frame instance buffer with transforms/colors, and emit one draw per group with instanceCount > 1.
 
 ---
 
-## 5. Order of work
+## 6. Order of work
 
 1. **Done**: Plan document; managers module scaffold.
 2. **Done**: Typed job queue (LoadFile, LoadMesh, LoadTexture); main thread drains each frame and dispatches by type; no lambdas (named handler).
@@ -66,4 +74,5 @@ To support an editor with many objects and different GPU data per object: MeshMa
 6. **Done**: Mesh vertex buffer upload and pipeline vertex input; MeshHandle owns buffers; DrawCall vertex buffer binding; UnloadScene before MeshManager.Destroy() in cleanup. See [plan-editor-and-scene.md](plan-editor-and-scene.md).
 7. **Done**: Texture manager (stb_image, TextureHandle, cache, async load, TrimUnused, Destroy before device).
 8. **Done**: Descriptor set infrastructure (layout, pool, one set; pipeline layout supports optional descriptor set layouts).
-9. **Next**: Materials + textures (bind texture to set, add layout to pipeline, bind set in Record); then instancing.
+9. **Done**: Data-driven descriptor system (DescriptorSetLayoutManager, DescriptorPoolManager, pipeline→sets map); GltfLoader (TinyGLTF); DrawCall multi-set and instanceBuffer support.
+10. **Next**: Populate scene from GLTF (objects, meshes from primitives, materials/textures); instancing merge (group by pipeline+mesh, instance buffer).

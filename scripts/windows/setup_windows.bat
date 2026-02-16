@@ -78,7 +78,25 @@ echo.
 
 REM Check for SDL3 (required; part of project setup)
 echo Checking for SDL3 (required for window/input)...
-echo [INFO] SDL3: CMake will fetch via FetchContent if missing, or install via vcpkg: vcpkg install sdl3
+echo [INFO] Install via vcpkg: vcpkg install sdl3
+echo.
+
+echo Populating deps\ (stb, TinyGLTF) — no download during build...
+set ROOT_DIR=%~dp0..\..
+if not exist "%ROOT_DIR%\deps" mkdir "%ROOT_DIR%\deps"
+where git >nul 2>nul
+if %errorLevel% equ 0 (
+    if not exist "%ROOT_DIR%\deps\stb\stb_image.h" (
+        echo Cloning stb into deps\stb...
+        git clone --depth 1 https://github.com/nothings/stb.git "%ROOT_DIR%\deps\stb"
+    )
+    if not exist "%ROOT_DIR%\deps\tinygltf\tiny_gltf.h" (
+        echo Cloning TinyGLTF into deps\tinygltf...
+        git clone --depth 1 --branch v2.9.7 https://github.com/syoyo/tinygltf.git "%ROOT_DIR%\deps\tinygltf"
+    )
+) else (
+    echo [WARNING] git not found. Clone stb and TinyGLTF into deps\ manually — see deps\README.md
+)
 echo.
 
 echo Checking for nlohmann-json (required for config)...
@@ -90,7 +108,7 @@ echo ==========================================
 echo Project setup check complete!
 echo ==========================================
 echo.
-echo Required: Vulkan SDK, CMake, C++ compiler, nlohmann-json (vcpkg), SDL3 (vcpkg or FetchContent).
+echo Required: Vulkan SDK, CMake, C++ compiler, nlohmann-json (vcpkg), SDL3 (vcpkg). Setup populates deps\ with stb and TinyGLTF.
 echo.
 echo Next steps:
 echo 1. Build project (pass --debug or --release):
