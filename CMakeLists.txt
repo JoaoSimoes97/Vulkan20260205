@@ -104,6 +104,7 @@ set(SOURCES
     src/managers/texture_manager.cpp
     src/loaders/gltf_loader.cpp
     src/loaders/gltf_mesh_utils.cpp
+    src/loaders/procedural_mesh_factory.cpp
     src/render/render_list_builder.cpp
 )
 
@@ -121,6 +122,7 @@ set(HEADERS
     src/managers/scene_manager.h
     src/managers/texture_manager.h
     src/loaders/gltf_loader.h
+    src/loaders/procedural_mesh_factory.h
     src/scene/scene.h
     src/render/render_list_builder.h
     src/thread/job_queue.h
@@ -148,6 +150,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/app
     ${CMAKE_SOURCE_DIR}/src/config
+    ${CMAKE_SOURCE_DIR}/src/loaders
     ${CMAKE_SOURCE_DIR}/src/managers
     ${CMAKE_SOURCE_DIR}/src/thread
     ${CMAKE_SOURCE_DIR}/src/window
@@ -257,7 +260,7 @@ add_custom_target(compile_shaders ALL
     DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/frag_alt.spv
 )
 
-# Ensure shaders are built before the app, and copy shaders + config next to the exe so the app finds them regardless of cwd.
+# Ensure shaders are built before the app, and copy shaders + config + levels + models next to the exe so the app finds them regardless of cwd.
 add_dependencies(${PROJECT_NAME} compile_shaders)
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
@@ -266,7 +269,9 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_alt.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
-    COMMENT "Copying shaders and config next to executable"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/levels $<TARGET_FILE_DIR:${PROJECT_NAME}>/levels
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/models $<TARGET_FILE_DIR:${PROJECT_NAME}>/models
+    COMMENT "Copying shaders, config, levels, and models next to executable"
 )
 
 # Local install/bundle: output folder (e.g. install/Debug, install/Release)
@@ -279,9 +284,13 @@ add_custom_target(install_local
     COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/bin
     COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/shaders
     COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/config
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/levels
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${INSTALL_DIR}/models
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${INSTALL_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${SHADERS_OUTPUT_DIR} ${INSTALL_DIR}/shaders
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config ${INSTALL_DIR}/config
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/levels ${INSTALL_DIR}/levels
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/models ${INSTALL_DIR}/models
     DEPENDS ${PROJECT_NAME} compile_shaders
 )
 

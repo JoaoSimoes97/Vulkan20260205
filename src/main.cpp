@@ -6,16 +6,30 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
-int main() {
+int main(int argc, char** argv) {
 #ifdef NDEBUG
     VulkanUtils::SetLogLevelMask(VulkanUtils::LOG_ERROR | VulkanUtils::LOG_WARN);
 #else
     VulkanUtils::SetLogLevelMask(VulkanUtils::LOG_ALL);
 #endif
 
+    // Require level path as command-line argument
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <level_path>\n";
+        std::cerr << "\nExamples:\n";
+        std::cerr << "  " << argv[0] << " levels/default/level.json\n";
+        std::cerr << "  " << argv[0] << " levels/demo/level.json\n";
+        return EXIT_FAILURE;
+    }
+
+    std::string levelPath = argv[1];
+
     try {
-        VulkanApp app;
+        VulkanConfig config;
+        config.sLevelPath = levelPath;
+        VulkanApp app(config);
         app.Run();
     } catch (const std::exception& e) {
         VulkanUtils::LogErr("Exception: {}", e.what());

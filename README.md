@@ -9,7 +9,7 @@ A cross-platform Vulkan application (SDL3 window, Vulkan 1.4, swapchain, draw li
 ```bash
 ./setup.sh
 scripts/linux/build.sh --debug
-./install/Debug/bin/VulkanApp
+./install/Debug/bin/VulkanApp levels/default/level.json
 ```
 
 **Windows**
@@ -17,8 +17,10 @@ scripts/linux/build.sh --debug
 ```cmd
 scripts\windows\setup_windows.bat
 scripts\windows\build.bat --debug
-install\Debug\bin\VulkanApp.exe
+install\Debug\bin\VulkanApp.exe levels/default/level.json
 ```
+
+**Note:** Level path is required. See `levels/` folder for available levels.
 
 Use `--release` for an optimized build. Full setup, manual install per platform, and build options: **[docs/getting-started.md](docs/getting-started.md)**.
 
@@ -37,7 +39,11 @@ Android and iOS: [docs/platforms/android.md](docs/platforms/android.md), [docs/p
 
 - Cross-platform (Linux, Windows, macOS), Vulkan 1.4, C++23
 - SDL3 window and Vulkan surface; automated setup and build scripts
-- Swapchain, render pass, pipeline manager, draw list (multiple objects, per-object color)
+- Swapchain, render pass, pipeline manager, draw list (multiple objects, per-object color/texture)
+- glTF 2.0 support with textures, materials, and PBR properties
+- Procedural mesh generation (cube, sphere, cylinder, cone, triangle, rectangle)
+- Dynamic descriptor pool management with automatic growth
+- Command-line level loading with JSON scene format
 - Code style: [docs/guidelines/coding-guidelines.md](docs/guidelines/coding-guidelines.md)
 
 ## License

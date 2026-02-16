@@ -109,11 +109,11 @@ void MeshManager::SetQueueFamilyIndex(uint32_t queueFamilyIndex) {
     m_queueFamilyIndex = queueFamilyIndex;
 }
 
-std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float* pPositions, uint32_t vertexCount) {
+std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const void* pData, uint32_t vertexCount, uint32_t vertexStride) {
     if (m_device == VK_NULL_HANDLE || m_physicalDevice == VK_NULL_HANDLE || m_queue == VK_NULL_HANDLE ||
-        pPositions == nullptr || vertexCount == 0u)
+        pData == nullptr || vertexCount == 0u || vertexStride == 0u)
         return nullptr;
-    const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(sizeof(float) * 3) * vertexCount;
+    const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(vertexStride) * vertexCount;
 
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
@@ -147,7 +147,7 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const float*
         void* pMapped = nullptr;
         vkMapMemory(m_device, stagingMemory, 0, bufferSize, 0, &pMapped);
         if (pMapped) {
-            std::memcpy(pMapped, pPositions, static_cast<size_t>(bufferSize));
+            std::memcpy(pMapped, pData, static_cast<size_t>(bufferSize));
             vkUnmapMemory(m_device, stagingMemory);
         }
     }
@@ -302,7 +302,22 @@ std::shared_ptr<MeshHandle> MeshManager::GetOrCreateFromPositions(const std::str
     auto it = m_cache.find(key);
     if (it != m_cache.end())
         return it->second;
-    std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(pPositions, vertexCount);
+    // Legacy: position-only data (3 floats per vertex)
+    std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(pPositions, vertexCount, sizeof(float) * 3u);
+    if (p)
+        m_cache[key] = p;
+    return p;
+}
+
+std::shared_ptr<MeshHandle> MeshManager::GetOrCreateFromGltf(const std::string& key, const void* pVertexData, uint32_t vertexCount) {
+    if (key.empty() || pVertexData == nullptr || vertexCount == 0u)
+        return nullptr;
+    auto it = m_cache.find(key);
+    if (it != m_cache.end())
+        return it->second;
+    // glTF meshes use interleaved vertex data (pos+UV+normal, 32 bytes per vertex)
+    constexpr uint32_t vertexStride = 32u; // sizeof(VertexData) = 8 floats * 4 bytes
+    std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(pVertexData, vertexCount, vertexStride);
     if (p)
         m_cache[key] = p;
     return p;
@@ -322,7 +337,8 @@ std::shared_ptr<MeshHandle> MeshManager::GetOrCreateProcedural(const std::string
     else
         TrianglePositions(positions);
     const uint32_t vertexCount = static_cast<uint32_t>(positions.size() / 3);
-    std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(positions.data(), vertexCount);
+    // Procedural meshes are position-only (3 floats per vertex)
+    std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(positions.data(), vertexCount, sizeof(float) * 3u);
     if (p)
         m_cache[key] = p;
     return p;
@@ -345,7 +361,8 @@ void MeshManager::OnCompletedMeshFile(const std::string& sPath_ic, std::vector<u
         VulkanUtils::LogErr("MeshManager: failed to parse {}", sPath_ic);
         return;
     }
-    std::shared_ptr<MeshHandle> pHandle = CreateVertexBufferFromData(vecPositions.data(), lVertexCount);
+    // OBJ files are position-only (3 floats per vertex)
+    std::shared_ptr<MeshHandle> pHandle = CreateVertexBufferFromData(vecPositions.data(), lVertexCount, sizeof(float) * 3u);
     if (pHandle != nullptr) {
         this->m_cache[sPath_ic] = pHandle;
         VulkanUtils::LogInfo("MeshManager: loaded {} ({} verts)", sPath_ic, lVertexCount);

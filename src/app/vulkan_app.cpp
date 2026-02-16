@@ -29,18 +29,19 @@ static const char* SHADER_FRAG_ALT_PATH = "shaders/frag_alt.spv";
 static const char* PIPELINE_KEY_MAIN    = "main";
 static const char* PIPELINE_KEY_WIRE    = "wire";
 static const char* PIPELINE_KEY_ALT     = "alt";
+static const char* LAYOUT_KEY_MAIN_FRAG_TEX = "main_frag_tex";
 static constexpr float kDefaultPanSpeed = 0.012f;
 static constexpr float kOrthoFallbackHalfExtent = 8.f;
 
-VulkanApp::VulkanApp() {
+VulkanApp::VulkanApp(const VulkanConfig& config_in)
+    : m_config(config_in)
+    , m_completedJobHandler([this](LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
+          this->OnCompletedLoadJob(eType_ic, sPath_ic, std::move(vecData_in));
+      }) {
     VulkanUtils::LogTrace("VulkanApp constructor");
-    std::string sUserPath   = VulkanUtils::GetResourcePath(CONFIG_PATH_USER);
-    std::string sDefaultPath = VulkanUtils::GetResourcePath(CONFIG_PATH_DEFAULT);
-    this->m_config = LoadConfigFromFileOrCreate(sUserPath, sDefaultPath);
-    this->m_camera.SetPosition(this->m_config.fInitialCameraX, this->m_config.fInitialCameraY, this->m_config.fInitialCameraZ);
-    this->m_completedJobHandler = std::bind(&VulkanApp::OnCompletedLoadJob, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-    this->m_jobQueue.Start();
-    this->m_shaderManager.Create(&this->m_jobQueue);
+    m_camera.SetPosition(m_config.fInitialCameraX, m_config.fInitialCameraY, m_config.fInitialCameraZ);
+    m_jobQueue.Start();
+    m_shaderManager.Create(&m_jobQueue);
     InitWindow();
     InitVulkan();
 }
@@ -161,17 +162,29 @@ void VulkanApp::InitVulkan() {
     this->m_textureManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
     this->m_textureManager.SetQueue(this->m_device.GetGraphicsQueue());
     this->m_textureManager.SetQueueFamilyIndex(this->m_device.GetQueueFamilyIndices().graphicsFamily);
-    this->m_sceneManager.SetDependencies(&this->m_materialManager, &this->m_meshManager);
+    this->m_sceneManager.SetDependencies(&this->m_materialManager, &this->m_meshManager, &this->m_textureManager);
     this->m_meshManager.SetJobQueue(&this->m_jobQueue);
     this->m_textureManager.SetJobQueue(&this->m_jobQueue);
-    std::string sDefaultLevelPath = VulkanUtils::GetResourcePath(DEFAULT_LEVEL_PATH);
-    if (!this->m_sceneManager.LoadDefaultLevelOrCreate(sDefaultLevelPath))
+    
+    // Load level from config (set via command-line)
+    if (m_config.sLevelPath.empty()) {
+        VulkanUtils::LogErr("No level path specified in config");
+        throw std::runtime_error("Level path required");
+    }
+    std::string levelPath = VulkanUtils::GetResourcePath(m_config.sLevelPath);
+    if (!this->m_sceneManager.LoadLevelFromFile(levelPath)) {
+        VulkanUtils::LogErr("Failed to load level: {}", levelPath);
         this->m_sceneManager.SetCurrentScene(std::make_unique<Scene>("empty"));
+    }
 
     /* Descriptor pool (sized from layout keys) and one set for "main" pipeline. */
     this->m_descriptorPoolManager.SetDevice(this->m_device.GetDevice());
     this->m_descriptorPoolManager.SetLayoutManager(&this->m_descriptorSetLayoutManager);
-    if (!this->m_descriptorPoolManager.BuildPool({ kLayoutKeyMainFragTex }, 4u))
+    // Set device limit for descriptor sets (use maxDescriptorSetSamplers as practical limit)
+    this->m_descriptorPoolManager.SetDeviceLimit(this->m_device.GetMaxDescriptorSets());
+    // Start with reasonable initial capacity (256), will grow dynamically up to device limit
+    std::vector<std::string> poolLayouts = { kLayoutKeyMainFragTex };
+    if (!this->m_descriptorPoolManager.BuildPool(poolLayouts, 256u))
         throw std::runtime_error("VulkanApp::InitVulkan: descriptor pool failed");
     this->m_descriptorSetMain = this->m_descriptorPoolManager.AllocateSet(kLayoutKeyMainFragTex);
     if (this->m_descriptorSetMain == VK_NULL_HANDLE)
@@ -224,6 +237,91 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
     vkUpdateDescriptorSets(this->m_device.GetDevice(), 1, &stWrite, 0, nullptr);
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MAIN)] = { this->m_descriptorSetMain };
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_WIRE)] = { this->m_descriptorSetMain };
+}
+
+VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<TextureHandle> pTexture) {
+    if (!pTexture || !pTexture->IsValid())
+        return VK_NULL_HANDLE;
+    
+    TextureHandle* pRawTexture = pTexture.get();
+    
+    // Check cache
+    auto it = m_textureDescriptorSets.find(pRawTexture);
+    if (it != m_textureDescriptorSets.end())
+        return it->second;
+    
+    // Allocate new descriptor set
+    VkDescriptorSet newSet = m_descriptorPoolManager.AllocateSet(std::string("main_frag_tex")); // Same layout as main descriptor set
+    if (newSet == VK_NULL_HANDLE) {
+        VulkanUtils::LogErr("GetOrCreateDescriptorSetForTexture: failed to allocate descriptor set");
+        return VK_NULL_HANDLE;
+    }
+    
+    // Write texture to descriptor set
+    VkDescriptorImageInfo imageInfo = {
+        .sampler     = pTexture->GetSampler(),
+        .imageView   = pTexture->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    VkWriteDescriptorSet write = {
+        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .pNext            = nullptr,
+        .dstSet           = newSet,
+        .dstBinding       = 0,
+        .dstArrayElement  = 0,
+        .descriptorCount  = 1,
+        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo       = &imageInfo,
+        .pBufferInfo      = nullptr,
+        .pTexelBufferView = nullptr,
+    };
+    vkUpdateDescriptorSets(m_device.GetDevice(), 1, &write, 0, nullptr);
+    
+    // Cache it (with reference to keep texture alive)
+    m_textureDescriptorSets[pRawTexture] = newSet;
+    m_descriptorSetTextures[newSet] = pTexture;
+    
+    return newSet;
+}
+
+void VulkanApp::CleanupUnusedTextureDescriptorSets() {
+    if (m_sceneManager.GetCurrentScene() == nullptr)
+        return;
+    
+    // Collect textures still in use by current scene
+    std::set<TextureHandle*> texturesInUse;
+    const Scene* pScene = m_sceneManager.GetCurrentScene();
+    for (const Object& obj : pScene->GetObjects()) {
+        if (obj.pTexture && obj.pTexture->IsValid()) {
+            texturesInUse.insert(obj.pTexture.get());
+        }
+    }
+    
+    // Also keep default texture alive
+    if (m_pDefaultTexture && m_pDefaultTexture->IsValid()) {
+        texturesInUse.insert(m_pDefaultTexture.get());
+    }
+    
+    // Find unused descriptor sets
+    std::vector<VkDescriptorSet> setsToFree;
+    for (auto it = m_textureDescriptorSets.begin(); it != m_textureDescriptorSets.end(); ) {
+        if (texturesInUse.find(it->first) == texturesInUse.end()) {
+            setsToFree.push_back(it->second);
+            m_descriptorSetTextures.erase(it->second);
+            it = m_textureDescriptorSets.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    
+    // Free unused descriptor sets
+    for (VkDescriptorSet set : setsToFree) {
+        m_descriptorPoolManager.FreeSet(set);
+    }
+    
+    if (!setsToFree.empty()) {
+        VulkanUtils::LogDebug("Cleaned up {} unused texture descriptor sets", setsToFree.size());
+    }
 }
 
 void VulkanApp::RecreateSwapchainAndDependents() {
@@ -284,6 +382,9 @@ void VulkanApp::MainLoop() {
         const auto frameStart = std::chrono::steady_clock::now();
 
         this->m_jobQueue.ProcessCompletedJobs(this->m_completedJobHandler);
+        // Clean up unused texture descriptor sets before trimming textures
+        CleanupUnusedTextureDescriptorSets();
+        
         this->m_shaderManager.TrimUnused();
         this->m_pipelineManager.TrimUnused();
         this->m_materialManager.TrimUnused();
@@ -347,10 +448,15 @@ void VulkanApp::MainLoop() {
         EnsureMainDescriptorSetWritten();
 
         /* Build draw list from scene (frustum culling, push size validation, sort by pipeline/mesh). */
+        // Pass callback to get descriptor sets for per-object textures
+        auto getTextureDescriptorSet = [this](std::shared_ptr<TextureHandle> pTex) -> VkDescriptorSet {
+            return this->GetOrCreateDescriptorSetForTexture(pTex);
+        };
+        
         this->m_renderListBuilder.Build(this->m_drawCalls, pScene,
                                   this->m_device.GetDevice(), this->m_renderPass.Get(), this->m_renderPass.HasDepthAttachment(),
                                   &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
-                                  fViewProj, &this->m_pipelineDescriptorSets);
+                                  fViewProj, &this->m_pipelineDescriptorSets, getTextureDescriptorSet);
 
         /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
         if (!DrawFrame(this->m_drawCalls))
@@ -378,14 +484,11 @@ void VulkanApp::Run() {
 
 void VulkanApp::OnCompletedLoadJob(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
     switch (eType_ic) {
-    case LoadJobType::LoadFile:
+    case LoadJobType::LoadMesh:
         this->m_meshManager.OnCompletedMeshFile(sPath_ic, std::move(vecData_in));
         break;
     case LoadJobType::LoadTexture:
         this->m_textureManager.OnCompletedTexture(sPath_ic, std::move(vecData_in));
-        break;
-    case LoadJobType::LoadMesh:
-        this->m_meshManager.OnCompletedMeshFile(sPath_ic, std::move(vecData_in));
         break;
     }
 }
@@ -424,6 +527,16 @@ void VulkanApp::Cleanup() {
     this->m_textureManager.Destroy();
     this->m_pipelineDescriptorSets.clear();
     this->m_pDefaultTexture.reset();
+    
+    // Free all texture descriptor sets
+    for (auto& pair : m_textureDescriptorSets) {
+        if (pair.second != VK_NULL_HANDLE && m_descriptorPoolManager.IsValid()) {
+            m_descriptorPoolManager.FreeSet(pair.second);
+        }
+    }
+    m_textureDescriptorSets.clear();
+    m_descriptorSetTextures.clear();
+    
     if (this->m_descriptorSetMain != VK_NULL_HANDLE && this->m_descriptorPoolManager.IsValid()) {
         this->m_descriptorPoolManager.FreeSet(this->m_descriptorSetMain);
         this->m_descriptorSetMain = VK_NULL_HANDLE;

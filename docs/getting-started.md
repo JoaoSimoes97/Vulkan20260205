@@ -4,6 +4,28 @@ Setup, build, and project structure. For architecture and plans see [README.md](
 
 ---
 
+## Quick start
+
+**All platforms require a level path argument:**
+
+```bash
+# Linux/macOS
+./setup.sh
+scripts/linux/build.sh --debug
+./install/Debug/bin/VulkanApp levels/default/level.json
+
+# Windows  
+scripts\windows\setup_windows.bat
+scripts\windows\build.bat --debug
+install\Debug\bin\VulkanApp.exe levels/default/level.json
+```
+
+**Available levels:**
+- `levels/default/level.json` - 8 glTF models showcase
+- `levels/demo/level.json` - 40+ objects (procedural + glTF)
+
+---
+
 ## Platforms
 
 | Platform | Vulkan / MoltenVK | In this repo |
@@ -39,7 +61,7 @@ On **Linux** and **Windows** we use native Vulkan drivers (no MoltenVK). On **ma
 ```bash
 ./setup.sh
 scripts/linux/build.sh --debug     # or --release
-./install/Debug/bin/VulkanApp     # from project root
+./install/Debug/bin/VulkanApp levels/default/level.json
 ```
 
 ### Windows
@@ -47,7 +69,7 @@ scripts/linux/build.sh --debug     # or --release
 ```cmd
 scripts\windows\setup_windows.bat
 scripts\windows\build.bat --debug     # or --release
-install\Debug\bin\VulkanApp.exe       # from project root
+install\Debug\bin\VulkanApp.exe levels/default/level.json
 ```
 
 ### macOS
@@ -55,7 +77,7 @@ install\Debug\bin\VulkanApp.exe       # from project root
 ```bash
 ./setup.sh
 scripts/linux/build.sh --debug     # or --release
-./install/Debug/bin/VulkanApp
+./install/Debug/bin/VulkanApp levels/default/level.json
 ```
 
 **Debug vs Release:** Use `--debug` or `--release`. Debug enables logging and Vulkan validation layers; Release is optimized. Output: `build/Debug`, `build/Release`, `install/Debug`, `install/Release`.

@@ -209,6 +209,18 @@ std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultTexture() {
     return pHandle;
 }
 
+std::shared_ptr<TextureHandle> TextureManager::GetOrCreateFromMemory(const std::string& cacheKey, int width, int height, int channels, const unsigned char* pPixels) {
+    if (cacheKey.empty() || pPixels == nullptr || width <= 0 || height <= 0 || channels <= 0)
+        return nullptr;
+    auto it = m_cache.find(cacheKey);
+    if (it != m_cache.end())
+        return it->second;
+    std::shared_ptr<TextureHandle> pHandle = UploadTexture(width, height, channels, pPixels);
+    if (pHandle != nullptr)
+        m_cache[cacheKey] = pHandle;
+    return pHandle;
+}
+
 void TextureManager::RequestLoadTexture(const std::string& path) {
     if (m_pJobQueue == nullptr) return;
     if (m_pendingPaths.count(path) != 0) return;
@@ -242,8 +254,44 @@ std::shared_ptr<TextureHandle> TextureManager::UploadTexture(int width, int heig
         pPixels == nullptr || width <= 0 || height <= 0)
         return nullptr;
 
-    const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * height * static_cast<VkDeviceSize>(channels);
+    // Always use RGBA format (4 channels) for Vulkan upload
+    const int targetChannels = 4;
+    const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * height * targetChannels;
     const VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
+    
+    // Convert input to RGBA if needed
+    std::vector<unsigned char> rgbaData;
+    const unsigned char* pUploadData = pPixels;
+    
+    if (channels != targetChannels) {
+        rgbaData.resize(static_cast<size_t>(imageSize));
+        for (int i = 0; i < width * height; ++i) {
+            const int srcIdx = i * channels;
+            const int dstIdx = i * targetChannels;
+            
+            // Copy existing channels
+            for (int c = 0; c < channels && c < targetChannels; ++c) {
+                rgbaData[dstIdx + c] = pPixels[srcIdx + c];
+            }
+            
+            // Fill missing channels (RGB->RGBA: alpha=255, Grayscale->RGBA: replicate to RGB, alpha=255)
+            if (channels == 1) {
+                // Grayscale -> RGB
+                rgbaData[dstIdx + 1] = pPixels[srcIdx];
+                rgbaData[dstIdx + 2] = pPixels[srcIdx];
+                rgbaData[dstIdx + 3] = 255;
+            } else if (channels == 2) {
+                // Grayscale+Alpha -> RGBA
+                rgbaData[dstIdx + 1] = pPixels[srcIdx];
+                rgbaData[dstIdx + 2] = pPixels[srcIdx];
+                rgbaData[dstIdx + 3] = pPixels[srcIdx + 1];
+            } else if (channels == 3) {
+                // RGB -> RGBA
+                rgbaData[dstIdx + 3] = 255;
+            }
+        }
+        pUploadData = rgbaData.data();
+    }
 
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
@@ -277,7 +325,7 @@ std::shared_ptr<TextureHandle> TextureManager::UploadTexture(int width, int heig
         void* pMapped = nullptr;
         vkMapMemory(m_device, stagingMemory, 0, imageSize, 0, &pMapped);
         if (pMapped) {
-            std::memcpy(pMapped, pPixels, static_cast<size_t>(imageSize));
+            std::memcpy(pMapped, pUploadData, static_cast<size_t>(imageSize));
             vkUnmapMemory(m_device, stagingMemory);
         }
     }

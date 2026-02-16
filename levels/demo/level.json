@@ -1,0 +1,256 @@
+{
+  "instances": [
+    {
+      "name": "Floor",
+      "source": "procedural:rectangle",
+      "position": [0.0, -1.0, 0.0],
+      "rotation": [0.707, 0.0, 0.0, 0.707],
+      "scale": [20.0, 20.0, 1.0],
+      "color": [0.3, 0.3, 0.35, 1.0],
+      "renderMode": "solid"
+    },
+    
+    {
+      "name": "Primitives - Cube Red",
+      "source": "procedural:cube",
+      "position": [-8.0, 0.0, -5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [1.0, 0.2, 0.2, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Primitives - Cube Green Wireframe",
+      "source": "procedural:cube",
+      "position": [-6.0, 0.0, -5.0],
+      "rotation": [0.0, 0.383, 0.0, 0.924],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.2, 1.0, 0.2, 1.0],
+      "renderMode": "wireframe"
+    },
+    {
+      "name": "Primitives - Triangle Blue",
+      "source": "procedural:triangle",
+      "position": [-4.0, 0.0, -5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "color": [0.2, 0.2, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Primitives - Rectangle Yellow",
+      "source": "procedural:rectangle",
+      "position": [-2.0, 0.0, -5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "color": [1.0, 1.0, 0.2, 1.0],
+      "renderMode": "solid"
+    },
+    
+    {
+      "name": "Textured - Damaged Helmet",
+      "source": "../../models/DamagedHelmet.glb",
+      "position": [0.0, 0.0, -5.0],
+      "rotation": [0.0, 0.707, 0.0, 0.707],
+      "scale": [1.0, 1.0, 1.0],
+      "color": [1.0, 1.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Textured - Box",
+      "source": "../../models/BoxTextured.glb",
+      "position": [2.0, 0.0, -5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "color": [1.0, 1.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Textured - Duck",
+      "source": "../../models/Duck.glb",
+      "position": [4.0, 0.0, -5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.01, 0.01, 0.01],
+      "color": [1.0, 1.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Textured - Avocado",
+      "source": "../../models/Avocado.glb",
+      "position": [6.0, 0.0, -5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [20.0, 20.0, 20.0],
+      "color": [1.0, 1.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Textured - Metal Spheres",
+      "source": "../../models/Sphere.glb",
+      "position": [8.0, 0.0, -5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "color": [1.0, 1.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    
+    {
+      "name": "Transparent - Cube 75% Alpha",
+      "source": "procedural:cube",
+      "position": [-8.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.8, 0.2, 0.8, 0.75],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Transparent - Cube 50% Alpha",
+      "source": "procedural:cube",
+      "position": [-6.0, 0.0, 0.0],
+      "rotation": [0.0, 0.383, 0.0, 0.924],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.2, 0.8, 0.8, 0.5],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Transparent - Triangle 25% Alpha",
+      "source": "procedural:triangle",
+      "position": [-4.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "color": [1.0, 0.8, 0.2, 0.25],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Transparent - Rectangle 10% Alpha",
+      "source": "procedural:rectangle",
+      "position": [-2.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "color": [0.2, 1.0, 0.2, 0.1],
+      "renderMode": "solid"
+    },
+    
+    {
+      "name": "Emissive - Red Glow (Future)",
+      "source": "procedural:cube",
+      "position": [0.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.1, 0.1, 0.1, 1.0],
+      "emissive": [1.0, 0.0, 0.0, 2.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Emissive - Green Glow (Future)",
+      "source": "procedural:cube",
+      "position": [2.0, 0.0, 0.0],
+      "rotation": [0.0, 0.383, 0.0, 0.924],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.1, 0.1, 0.1, 1.0],
+      "emissive": [0.0, 1.0, 0.0, 2.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Emissive - Blue Glow (Future)",
+      "source": "procedural:cube",
+      "position": [4.0, 0.0, 0.0],
+      "rotation": [0.0, 0.707, 0.0, 0.707],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.1, 0.1, 0.1, 1.0],
+      "emissive": [0.0, 0.0, 1.0, 2.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Emissive - White Glow (Future)",
+      "source": "procedural:cube",
+      "position": [6.0, 0.0, 0.0],
+      "rotation": [0.0, 0.924, 0.0, 0.383],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.1, 0.1, 0.1, 1.0],
+      "emissive": [1.0, 1.0, 1.0, 3.0],
+      "renderMode": "solid"
+    },
+    
+    {
+      "name": "Solid Color - Cyan",
+      "source": "procedural:cube",
+      "position": [-8.0, 0.0, 5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.0, 1.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Solid Color - Magenta",
+      "source": "procedural:cube",
+      "position": [-6.0, 0.0, 5.0],
+      "rotation": [0.0, 0.383, 0.0, 0.924],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [1.0, 0.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Solid Color - Orange",
+      "source": "procedural:cube",
+      "position": [-4.0, 0.0, 5.0],
+      "rotation": [0.0, 0.707, 0.0, 0.707],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [1.0, 0.5, 0.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Solid Color - Purple",
+      "source": "procedural:cube",
+      "position": [-2.0, 0.0, 5.0],
+      "rotation": [0.0, 0.924, 0.0, 0.383],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.5, 0.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Solid Color - Pink",
+      "source": "procedural:cube",
+      "position": [0.0, 0.0, 5.0],
+      "rotation": [0.0, 1.0, 0.0, 0.0],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [1.0, 0.4, 0.7, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Solid Color - Lime",
+      "source": "procedural:cube",
+      "position": [2.0, 0.0, 5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.5, 1.0, 0.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Solid Color - Teal",
+      "source": "procedural:cube",
+      "position": [4.0, 0.0, 5.0],
+      "rotation": [0.0, 0.383, 0.0, 0.924],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.0, 0.8, 0.6, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Solid Color - Brown",
+      "source": "procedural:cube",
+      "position": [6.0, 0.0, 5.0],
+      "rotation": [0.0, 0.707, 0.0, 0.707],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.6, 0.3, 0.1, 1.0],
+      "renderMode": "solid"
+    },
+    {
+      "name": "Solid Color - Gray",
+      "source": "procedural:cube",
+      "position": [8.0, 0.0, 5.0],
+      "rotation": [0.0, 0.924, 0.0, 0.383],
+      "scale": [0.8, 0.8, 0.8],
+      "color": [0.5, 0.5, 0.5, 1.0],
+      "renderMode": "solid"
+    }
+  ]
+}

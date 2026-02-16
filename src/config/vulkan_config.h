@@ -15,6 +15,9 @@ struct VulkanConfig {
     uint32_t lHeight = static_cast<uint32_t>(600);
     bool bFullscreen = static_cast<bool>(false);
     std::string sWindowTitle = "Vulkan App";
+    
+    /* --- Level --- */
+    std::string sLevelPath = "";  // Set via command-line argument (required)
 
     /* --- Swapchain --- */
     /** Exact swapchain image count (e.g. 2 = double, 3 = triple buffering). Driver must return this count or app fails. */

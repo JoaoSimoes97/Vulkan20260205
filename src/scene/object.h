@@ -4,44 +4,43 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
-#include <string>
 #include <vector>
 
 struct MaterialHandle;
 class MeshHandle;
+class TextureHandle;
 
 /**
- * General drawable object: owns refs to material and mesh; per-object data (transform, color).
- * Scene/object manager is the center: when all objects using a material/mesh are removed, refs drop and managers can trim.
+ * General drawable object: owns refs to material, mesh, and texture; per-object data (transform, color).
+ * Everything from glTF: geometry (pMesh), appearance (pMaterial, pTexture, color from baseColorFactor).
+ * RenderMode (solid vs wireframe) can be changed at runtime (editor, debug).
  */
-enum class Shape {
-    Triangle,
-    Circle,
-    Rectangle,
-    Cube,
+enum class RenderMode {
+    Auto,       // Use material properties (alphaMode) to determine pipeline
+    Solid,      // Force solid/filled rendering
+    Wireframe,  // Force wireframe rendering
 };
 
 struct Object {
-    /** Material and mesh refs; draw list resolves these to VkPipeline and draw params. */
+    /** Material, mesh, and texture refs; draw list resolves these to VkPipeline, buffers, and descriptor sets. */
     std::shared_ptr<MaterialHandle> pMaterial;
-    std::shared_ptr<MeshHandle>    pMesh;
+    std::shared_ptr<MeshHandle>     pMesh;
+    std::shared_ptr<TextureHandle>  pTexture; // Per-object texture (from glTF baseColorTexture); nullptr = use default white
 
-    Shape                    shape         = Shape::Triangle;
+    /** Render mode: visualization choice (solid vs wireframe). Can be overridden at runtime. */
+    RenderMode               renderMode    = RenderMode::Auto;
     /** Local transform (column-major mat4). Used with projection to fill pushData each frame. */
     alignas(16) float        localTransform[16] = {
         1.f, 0.f, 0.f, 0.f,  0.f, 1.f, 0.f, 0.f,
         0.f, 0.f, 1.f, 0.f,  0.f, 0.f, 0.f, 1.f
     };
-    /** Per-object color (RGBA). Passed to fragment shader via push constants. */
+    /** Per-object color (RGBA). From glTF baseColorFactor; passed to fragment shader via push constants. */
     float                    color[4]      = { 1.f, 1.f, 1.f, 1.f };
+    /** Emissive color (RGB) + strength (A). For self-illuminated materials (future lighting). */
+    float                    emissive[4]   = { 0.f, 0.f, 0.f, 1.f };
     /** Arbitrary data pushed to the GPU (e.g. mat4 + color). Filled each frame from projection * localTransform + color. */
     std::vector<uint8_t>     pushData;
     uint32_t                 pushDataSize  = 0u;
-    /** Fallback draw params when pMesh is null (e.g. legacy or tests). */
-    uint32_t                 vertexCount   = 3u;
-    uint32_t                 instanceCount = 1u;
-    uint32_t                 firstVertex   = 0u;
-    uint32_t                 firstInstance = 0u;
 };
 
 /** Identity matrix in column-major order (16 floats). */
@@ -147,46 +146,3 @@ inline void ObjectFillPushData(Object& obj, const float* viewProj) {
     }
 }
 
-inline Object MakeTriangle() {
-    Object o;
-    o.shape = Shape::Triangle;
-    ObjectSetIdentity(o.localTransform);
-    o.color[0] = 1.f; o.color[1] = 0.f; o.color[2] = 0.f; o.color[3] = 1.f;  /* red */
-    o.pushData.resize(kObjectPushConstantSize);
-    o.pushDataSize = kObjectPushConstantSize;
-    o.vertexCount = 3u;
-    return o;
-}
-
-inline Object MakeCircle() {
-    Object o;
-    o.shape = Shape::Circle;
-    ObjectSetTranslation(o.localTransform, -0.4f, 0.f, 0.f);
-    o.color[0] = 0.f; o.color[1] = 1.f; o.color[2] = 0.f; o.color[3] = 1.f;  /* green */
-    o.pushData.resize(kObjectPushConstantSize);
-    o.pushDataSize = kObjectPushConstantSize;
-    o.vertexCount = 3u;  /* placeholder until mesh */
-    return o;
-}
-
-inline Object MakeRectangle() {
-    Object o;
-    o.shape = Shape::Rectangle;
-    ObjectSetTranslation(o.localTransform, 0.4f, 0.f, 0.f);
-    o.color[0] = 0.f; o.color[1] = 0.f; o.color[2] = 1.f; o.color[3] = 1.f;  /* blue */
-    o.pushData.resize(kObjectPushConstantSize);
-    o.pushDataSize = kObjectPushConstantSize;
-    o.vertexCount = 3u;  /* placeholder until mesh */
-    return o;
-}
-
-inline Object MakeCube() {
-    Object o;
-    o.shape = Shape::Cube;
-    ObjectSetTranslation(o.localTransform, 0.f, 0.3f, 0.f);
-    o.color[0] = 1.f; o.color[1] = 1.f; o.color[2] = 0.f; o.color[3] = 1.f;  /* yellow */
-    o.pushData.resize(kObjectPushConstantSize);
-    o.pushDataSize = kObjectPushConstantSize;
-    o.vertexCount = 3u;  /* placeholder until mesh */
-    return o;
-}

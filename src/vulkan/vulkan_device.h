@@ -24,6 +24,13 @@ public:
     VkQueue GetPresentQueue() const { return this->m_presentQueue; }
     const QueueFamilyIndices& GetQueueFamilyIndices() const { return this->m_queueFamilyIndices; }
     bool IsValid() const { return this->m_logicalDevice != VK_NULL_HANDLE; }
+    
+    // Device limits (queried during Create)
+    uint32_t GetMaxDescriptorSets() const { return m_limits.maxDescriptorSetSamplers; }
+    uint32_t GetMaxBoundDescriptorSets() const { return m_limits.maxBoundDescriptorSets; }
+    uint64_t GetMaxMemoryAllocationCount() const { return m_limits.maxMemoryAllocationCount; }
+    VkDeviceSize GetMaxStorageBufferRange() const { return m_limits.maxStorageBufferRange; }
+    const VkPhysicalDeviceLimits& GetLimits() const { return m_limits; }
 
 private:
     uint32_t RateSuitability(VkPhysicalDevice pPhysicalDevice_ic, const VkPhysicalDeviceProperties& stProps_ic);
@@ -35,4 +42,5 @@ private:
     QueueFamilyIndices m_queueFamilyIndices = {};
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
     VkQueue m_presentQueue  = VK_NULL_HANDLE;
+    VkPhysicalDeviceLimits m_limits = {};
 };

@@ -5,6 +5,7 @@
 #include "managers/material_manager.h"
 #include "managers/mesh_manager.h"
 #include "managers/pipeline_manager.h"
+#include "managers/texture_manager.h"
 #include "scene/object.h"
 #include "scene/scene.h"
 #include "vulkan/vulkan_shader_manager.h"
@@ -61,7 +62,8 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
                               MaterialManager* pMaterialManager_ic,
                               VulkanShaderManager* pShaderManager_ic,
                               const float* pViewProj_ic,
-                              const std::map<std::string, std::vector<VkDescriptorSet>>* pPipelineDescriptorSets_ic) {
+                              const std::map<std::string, std::vector<VkDescriptorSet>>* pPipelineDescriptorSets_ic,
+                              RenderListBuilder::GetTextureDescriptorSetFunc getTextureDescriptorSet) {
     vecOutDrawCalls_out.clear();
     if ((pScene_ic == nullptr) || (pPipelineManager_ic == nullptr) || (pMaterialManager_ic == nullptr) || (pShaderManager_ic == nullptr))
         return;
@@ -112,11 +114,22 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
             .instanceBuffer     = VK_NULL_HANDLE,
             .instanceBufferOffset = 0,
         };
-        if (pPipelineDescriptorSets_ic != nullptr) {
+        
+        // Use per-object texture descriptor set if available, otherwise fall back to pipeline default
+        if (getTextureDescriptorSet && obj.pTexture && obj.pTexture->IsValid()) {
+            VkDescriptorSet texDescSet = getTextureDescriptorSet(obj.pTexture);
+            if (texDescSet != VK_NULL_HANDLE) {
+                stD.descriptorSets = { texDescSet };
+            }
+        }
+        
+        // If no texture descriptor set, use pipeline default (main descriptor set with default texture)
+        if (stD.descriptorSets.empty() && pPipelineDescriptorSets_ic != nullptr) {
             auto it = pPipelineDescriptorSets_ic->find(obj.pMaterial->pipelineKey);
             if (it != pPipelineDescriptorSets_ic->end() && !it->second.empty())
                 stD.descriptorSets = it->second;
         }
+        
         /* Skip draws that require descriptor sets but have none (e.g. main/wire before default texture is ready). */
         if (!obj.pMaterial->layoutDescriptor.descriptorSetLayouts.empty() && stD.descriptorSets.empty())
             continue;

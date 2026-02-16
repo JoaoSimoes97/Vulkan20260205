@@ -90,7 +90,14 @@ void VulkanDevice::Create(VkInstance pInstance_ic, VkSurfaceKHR surface_ic) {
 
     this->m_physicalDevice = pBestDevice;
     this->m_queueFamilyIndices = FindQueueFamilyIndices(pBestDevice, surface_ic);
+    
+    // Query device limits
+    vkGetPhysicalDeviceProperties(pBestDevice, &stBestProps);
+    this->m_limits = stBestProps.limits;
+    
     VulkanUtils::LogInfo("Best physical device: {} - Score: {}", stBestProps.deviceName, lBestScore);
+    VulkanUtils::LogInfo("Device limits: maxDescriptorSets={}, maxBoundDescriptorSets={}, maxMemoryAllocations={}", 
+        m_limits.maxDescriptorSetSamplers, m_limits.maxBoundDescriptorSets, m_limits.maxMemoryAllocationCount);
 
     if (this->m_queueFamilyIndices.graphicsFamily == QUEUE_FAMILY_IGNORED) {
         VulkanUtils::LogErr("Graphics queue family not found");

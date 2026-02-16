@@ -55,17 +55,31 @@ void VulkanPipeline::Create(VkDevice pDevice_ic, VkRenderPass renderPass_ic,
     };
     VkPipelineShaderStageCreateInfo vecStages[] = { stVertStage, stFragStage };
 
-    /* Single vertex binding: vec3 position per vertex (12 bytes). */
+    /* Single vertex binding: interleaved position + UV + normal (32 bytes per vertex). */
     const VkVertexInputBindingDescription vertexBinding = {
         .binding   = 0,
-        .stride    = static_cast<uint32_t>(sizeof(float) * 3),
+        .stride    = 32u, // sizeof(VertexData) = 3*float (pos) + 2*float (UV) + 3*float (normal)
         .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
     };
-    const VkVertexInputAttributeDescription vertexAttribute = {
-        .location = 0,
-        .binding  = 0,
-        .format   = VK_FORMAT_R32G32B32_SFLOAT,
-        .offset   = 0,
+    const VkVertexInputAttributeDescription vertexAttributes[] = {
+        {
+            .location = 0,
+            .binding  = 0,
+            .format   = VK_FORMAT_R32G32B32_SFLOAT, // position
+            .offset   = 0,
+        },
+        {
+            .location = 1,
+            .binding  = 0,
+            .format   = VK_FORMAT_R32G32_SFLOAT,    // UV
+            .offset   = 12,
+        },
+        {
+            .location = 2,
+            .binding  = 0,
+            .format   = VK_FORMAT_R32G32B32_SFLOAT, // normal
+            .offset   = 20,
+        },
     };
     VkPipelineVertexInputStateCreateInfo stVertexInput = {
         .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -73,8 +87,8 @@ void VulkanPipeline::Create(VkDevice pDevice_ic, VkRenderPass renderPass_ic,
         .flags                            = static_cast<VkPipelineVertexInputStateCreateFlags>(0),
         .vertexBindingDescriptionCount   = 1,
         .pVertexBindingDescriptions      = &vertexBinding,
-        .vertexAttributeDescriptionCount = 1,
-        .pVertexAttributeDescriptions   = &vertexAttribute,
+        .vertexAttributeDescriptionCount = 3,
+        .pVertexAttributeDescriptions   = vertexAttributes,
     };
 
     VkPipelineInputAssemblyStateCreateInfo stInputAssembly = {

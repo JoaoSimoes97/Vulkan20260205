@@ -64,6 +64,8 @@ public:
     std::shared_ptr<MeshHandle> GetOrCreateProcedural(const std::string& key);
     /** Create mesh from position data; cache by key (e.g. gltfPath + ":" + meshIndex). */
     std::shared_ptr<MeshHandle> GetOrCreateFromPositions(const std::string& key, const float* pPositions, uint32_t vertexCount);
+    /** Create mesh from glTF (interleaved pos+UV+normal); cache by key (e.g. gltfPath + ":" + meshIndex + ":" + primitiveIndex). */
+    std::shared_ptr<MeshHandle> GetOrCreateFromGltf(const std::string& key, const void* pVertexData, uint32_t vertexCount);
     void RequestLoadMesh(const std::string& path);
     void OnCompletedMeshFile(const std::string& sPath_ic, std::vector<uint8_t> vecData_in);
 
@@ -75,7 +77,7 @@ public:
     void Destroy();
 
 private:
-    std::shared_ptr<MeshHandle> CreateVertexBufferFromData(const float* pPositions, uint32_t vertexCount);
+    std::shared_ptr<MeshHandle> CreateVertexBufferFromData(const void* pData, uint32_t vertexCount, uint32_t vertexStride);
     bool ParseObj(const uint8_t* pData, size_t size, std::vector<float>& outPositions, uint32_t& outVertexCount);
 
     JobQueue* m_pJobQueue = nullptr;
