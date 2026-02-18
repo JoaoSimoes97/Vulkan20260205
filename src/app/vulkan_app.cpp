@@ -25,9 +25,16 @@ static const char* CONFIG_PATH_DEFAULT   = "config/default.json";
 static const char* DEFAULT_LEVEL_PATH    = "levels/default/level.json";
 static const char* SHADER_VERT_PATH     = "shaders/vert.spv";
 static const char* SHADER_FRAG_PATH     = "shaders/frag.spv";
+static const char* SHADER_FRAG_UNTEX_PATH = "shaders/frag_untextured.spv";
 static const char* SHADER_FRAG_ALT_PATH = "shaders/frag_alt.spv";
-static const char* PIPELINE_KEY_MAIN    = "main";
-static const char* PIPELINE_KEY_WIRE    = "wire";
+static const char* PIPELINE_KEY_MAIN_TEX   = "main_tex";
+static const char* PIPELINE_KEY_WIRE_TEX   = "wire_tex";
+static const char* PIPELINE_KEY_MASK_TEX   = "mask_tex";
+static const char* PIPELINE_KEY_TRANSPARENT_TEX = "transparent_tex";
+static const char* PIPELINE_KEY_MAIN_UNTEX = "main_untex";
+static const char* PIPELINE_KEY_WIRE_UNTEX = "wire_untex";
+static const char* PIPELINE_KEY_MASK_UNTEX = "mask_untex";
+static const char* PIPELINE_KEY_TRANSPARENT_UNTEX = "transparent_untex";
 static const char* PIPELINE_KEY_ALT     = "alt";
 static const char* LAYOUT_KEY_MAIN_FRAG_TEX = "main_frag_tex";
 static constexpr float kDefaultPanSpeed = 0.012f;
@@ -105,9 +112,16 @@ void VulkanApp::InitVulkan() {
 
     std::string sVertPath   = VulkanUtils::GetResourcePath(SHADER_VERT_PATH);
     std::string sFragPath   = VulkanUtils::GetResourcePath(SHADER_FRAG_PATH);
+    std::string sFragUntexPath = VulkanUtils::GetResourcePath(SHADER_FRAG_UNTEX_PATH);
     std::string sFragAltPath = VulkanUtils::GetResourcePath(SHADER_FRAG_ALT_PATH);
-    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN, &this->m_shaderManager, sVertPath, sFragPath);
-    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN_TEX, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE_TEX, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MASK_TEX, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_TRANSPARENT_TEX, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN_UNTEX, &this->m_shaderManager, sVertPath, sFragUntexPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE_UNTEX, &this->m_shaderManager, sVertPath, sFragUntexPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MASK_UNTEX, &this->m_shaderManager, sVertPath, sFragUntexPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_TRANSPARENT_UNTEX, &this->m_shaderManager, sVertPath, sFragUntexPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_ALT, &this->m_shaderManager, sVertPath, sFragAltPath);
 
     /* Descriptor set layouts by key (before materials so pipeline layouts can reference them). */
@@ -127,13 +141,13 @@ void VulkanApp::InitVulkan() {
 
     constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
     VkDescriptorSetLayout pMainFragLayout = this->m_descriptorSetLayoutManager.GetLayout(kLayoutKeyMainFragTex);
-    PipelineLayoutDescriptor stMainLayoutDesc = {
+    PipelineLayoutDescriptor stTexturedLayoutDesc = {
         .pushConstantRanges = {
             { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
         },
         .descriptorSetLayouts = { pMainFragLayout },
     };
-    PipelineLayoutDescriptor stWireAltLayoutDesc = {
+    PipelineLayoutDescriptor stUntexturedLayoutDesc = {
         .pushConstantRanges = {
             { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
         },
@@ -143,17 +157,33 @@ void VulkanApp::InitVulkan() {
         .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         .primitiveRestartEnable  = VK_FALSE,
         .polygonMode             = VK_POLYGON_MODE_FILL,
-        .cullMode                = (this->m_config.bCullBackFaces == true) ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE,
+        .cullMode                = static_cast<VkCullModeFlags>((this->m_config.bCullBackFaces == true) ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE),
         .frontFace               = VK_FRONT_FACE_CLOCKWISE,
         .lineWidth               = static_cast<float>(1.0f),
         .rasterizationSamples    = VK_SAMPLE_COUNT_1_BIT,
     };
     GraphicsPipelineParams stPipeParamsWire = stPipeParamsMain;
     stPipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
-    this->m_materialManager.RegisterMaterial("main", PIPELINE_KEY_MAIN, stMainLayoutDesc, stPipeParamsMain);
-    /* Wire uses same frag shader as main (with uTex), so it needs the same descriptor set layout. */
-    this->m_materialManager.RegisterMaterial("wire", PIPELINE_KEY_WIRE, stMainLayoutDesc, stPipeParamsWire);
-    this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stWireAltLayoutDesc, stPipeParamsMain);
+    GraphicsPipelineParams stPipeParamsMask = stPipeParamsMain;
+    GraphicsPipelineParams stPipeParamsTransparent = stPipeParamsMain;
+    stPipeParamsTransparent.blendEnable = VK_TRUE;
+    stPipeParamsTransparent.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    stPipeParamsTransparent.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    stPipeParamsTransparent.colorBlendOp = VK_BLEND_OP_ADD;
+    stPipeParamsTransparent.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    stPipeParamsTransparent.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    stPipeParamsTransparent.alphaBlendOp = VK_BLEND_OP_ADD;
+    stPipeParamsTransparent.depthWriteEnable = VK_FALSE;
+
+    this->m_materialManager.RegisterMaterial("main_tex", PIPELINE_KEY_MAIN_TEX, stTexturedLayoutDesc, stPipeParamsMain);
+    this->m_materialManager.RegisterMaterial("wire_tex", PIPELINE_KEY_WIRE_TEX, stTexturedLayoutDesc, stPipeParamsWire);
+    this->m_materialManager.RegisterMaterial("mask_tex", PIPELINE_KEY_MASK_TEX, stTexturedLayoutDesc, stPipeParamsMask);
+    this->m_materialManager.RegisterMaterial("transparent_tex", PIPELINE_KEY_TRANSPARENT_TEX, stTexturedLayoutDesc, stPipeParamsTransparent);
+    this->m_materialManager.RegisterMaterial("main_untex", PIPELINE_KEY_MAIN_UNTEX, stUntexturedLayoutDesc, stPipeParamsMain);
+    this->m_materialManager.RegisterMaterial("wire_untex", PIPELINE_KEY_WIRE_UNTEX, stUntexturedLayoutDesc, stPipeParamsWire);
+    this->m_materialManager.RegisterMaterial("mask_untex", PIPELINE_KEY_MASK_UNTEX, stUntexturedLayoutDesc, stPipeParamsMask);
+    this->m_materialManager.RegisterMaterial("transparent_untex", PIPELINE_KEY_TRANSPARENT_UNTEX, stUntexturedLayoutDesc, stPipeParamsTransparent);
+    this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stUntexturedLayoutDesc, stPipeParamsMain);
     this->m_meshManager.SetDevice(this->m_device.GetDevice());
     this->m_meshManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
     this->m_meshManager.SetQueue(this->m_device.GetGraphicsQueue());
@@ -209,7 +239,7 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
     if (this->m_descriptorSetMain == VK_NULL_HANDLE)
         return;
     /* Already exposed main/wire in the map → set was written. */
-    auto it = this->m_pipelineDescriptorSets.find(PIPELINE_KEY_MAIN);
+    auto it = this->m_pipelineDescriptorSets.find(PIPELINE_KEY_MAIN_TEX);
     if (it != this->m_pipelineDescriptorSets.end() && !it->second.empty())
         return;
     std::shared_ptr<TextureHandle> pDefaultTex = this->m_textureManager.GetOrCreateDefaultTexture();
@@ -235,8 +265,10 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
         .pTexelBufferView = nullptr,
     };
     vkUpdateDescriptorSets(this->m_device.GetDevice(), 1, &stWrite, 0, nullptr);
-    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MAIN)] = { this->m_descriptorSetMain };
-    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_WIRE)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MAIN_TEX)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_WIRE_TEX)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MASK_TEX)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_TRANSPARENT_TEX)] = { this->m_descriptorSetMain };
 }
 
 VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<TextureHandle> pTexture) {

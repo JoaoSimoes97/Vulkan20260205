@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <format>
 #include <iostream>
-#include <print>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
@@ -58,12 +57,12 @@ namespace VulkanUtils {
     template<typename... Args>
     inline void LogWarn(std::format_string<Args...> fmt, Args&&... args) {
         if ((LogLevelMask() & LOG_WARN) == static_cast<uint8_t>(0)) return;
-        std::println(std::cerr, "{}{}{} {}", LOG_COLOR_WARN, LOG_TAG_WARN, LOG_COLOR_RESET, std::format(fmt, std::forward<Args>(args)...));
+        std::cerr << std::format("{}{}{} {}", LOG_COLOR_WARN, LOG_TAG_WARN, LOG_COLOR_RESET, std::format(fmt, std::forward<Args>(args)...)) << '\n';
     }
     template<typename... Args>
     inline void LogErr(std::format_string<Args...> fmt, Args&&... args) {
         if ((LogLevelMask() & LOG_ERROR) == static_cast<uint8_t>(0)) return;
-        std::println(std::cerr, "{}{}{} {}", LOG_COLOR_ERROR, LOG_TAG_ERROR, LOG_COLOR_RESET, std::format(fmt, std::forward<Args>(args)...));
+        std::cerr << std::format("{}{}{} {}", LOG_COLOR_ERROR, LOG_TAG_ERROR, LOG_COLOR_RESET, std::format(fmt, std::forward<Args>(args)...)) << '\n';
     }
 #else
     /* Debug: print only if the bit for this level is set in LogLevelMask(). */
@@ -82,9 +81,9 @@ namespace VulkanUtils {
             eLevel == LogLevel::Info  ? LOG_COLOR_INFO  :
             eLevel == LogLevel::Warn  ? LOG_COLOR_WARN  : LOG_COLOR_ERROR;
         if ((eLevel == LogLevel::Error) || (eLevel == LogLevel::Warn))
-            std::println(std::cerr, "{}{}{} {}", pColor, pTag, LOG_COLOR_RESET, sMsg);
+            std::cerr << std::format("{}{}{} {}", pColor, pTag, LOG_COLOR_RESET, sMsg) << '\n';
         else
-            std::println("{}{}{} {}", pColor, pTag, LOG_COLOR_RESET, sMsg);
+            std::cout << std::format("{}{}{} {}", pColor, pTag, LOG_COLOR_RESET, sMsg) << '\n';
     }
     template<typename... Args> inline void LogTrace(std::format_string<Args...> fmt, Args&&... args) {
         Log(LogLevel::Trace, fmt, std::forward<Args>(args)...);

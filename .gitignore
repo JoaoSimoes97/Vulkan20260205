@@ -6,6 +6,10 @@ bin/
 lib/
 install/
 
+# vcpkg (build-time dependencies)
+toolchain/
+vcpkg_installed/
+
 # CMake
 CMakeCache.txt
 compile_commands.json

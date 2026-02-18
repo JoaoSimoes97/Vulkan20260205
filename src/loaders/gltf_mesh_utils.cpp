@@ -5,98 +5,206 @@
 #include <tiny_gltf.h>
 #include <cstring>
 #include <iostream>
+#include <algorithm>
+#include <limits>
 
 namespace {
 
-/**
- * Read VEC3 float data from accessor (e.g., POSITION or NORMAL).
- */
-bool GetAccessorDataAsFloat3(const tinygltf::Model& model, int accessorIndex,
-                             std::vector<float>& outData) {
+size_t ComponentSizeBytes(int componentType) {
+    switch (componentType) {
+    case TINYGLTF_COMPONENT_TYPE_BYTE:
+    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+        return 1u;
+    case TINYGLTF_COMPONENT_TYPE_SHORT:
+    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+        return 2u;
+    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+    case TINYGLTF_COMPONENT_TYPE_FLOAT:
+        return 4u;
+    default:
+        return 0u;
+    }
+}
+
+size_t TypeComponentCount(int type) {
+    switch (type) {
+    case TINYGLTF_TYPE_SCALAR: return 1u;
+    case TINYGLTF_TYPE_VEC2: return 2u;
+    case TINYGLTF_TYPE_VEC3: return 3u;
+    case TINYGLTF_TYPE_VEC4: return 4u;
+    default: return 0u;
+    }
+}
+
+float ReadComponentAsFloat(const unsigned char* p, int componentType, bool normalized) {
+    switch (componentType) {
+    case TINYGLTF_COMPONENT_TYPE_FLOAT: {
+        float v = 0.f;
+        std::memcpy(&v, p, sizeof(float));
+        return v;
+    }
+    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: {
+        const uint8_t v = *reinterpret_cast<const uint8_t*>(p);
+        return normalized ? (static_cast<float>(v) / 255.0f) : static_cast<float>(v);
+    }
+    case TINYGLTF_COMPONENT_TYPE_BYTE: {
+        const int8_t v = *reinterpret_cast<const int8_t*>(p);
+        if (!normalized) return static_cast<float>(v);
+        return std::max(-1.0f, static_cast<float>(v) / 127.0f);
+    }
+    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
+        uint16_t v = 0;
+        std::memcpy(&v, p, sizeof(uint16_t));
+        return normalized ? (static_cast<float>(v) / 65535.0f) : static_cast<float>(v);
+    }
+    case TINYGLTF_COMPONENT_TYPE_SHORT: {
+        int16_t v = 0;
+        std::memcpy(&v, p, sizeof(int16_t));
+        if (!normalized) return static_cast<float>(v);
+        return std::max(-1.0f, static_cast<float>(v) / 32767.0f);
+    }
+    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
+        uint32_t v = 0;
+        std::memcpy(&v, p, sizeof(uint32_t));
+        if (!normalized) return static_cast<float>(v);
+        return static_cast<float>(static_cast<double>(v) / 4294967295.0);
+    }
+    default:
+        return 0.f;
+    }
+}
+
+bool ReadAccessorAsFloatN(const tinygltf::Model& model, int accessorIndex, int expectedType, std::vector<float>& outData) {
+    outData.clear();
     if (accessorIndex < 0 || size_t(accessorIndex) >= model.accessors.size())
         return false;
     const tinygltf::Accessor& acc = model.accessors[size_t(accessorIndex)];
-    if (acc.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || acc.type != TINYGLTF_TYPE_VEC3)
+    if (acc.type != expectedType)
         return false;
     if (acc.bufferView < 0 || size_t(acc.bufferView) >= model.bufferViews.size())
         return false;
+
     const tinygltf::BufferView& bv = model.bufferViews[size_t(acc.bufferView)];
     if (bv.buffer < 0 || size_t(bv.buffer) >= model.buffers.size())
         return false;
     const tinygltf::Buffer& buf = model.buffers[size_t(bv.buffer)];
-    const size_t compSize = sizeof(float);
-    const size_t numComp = 3u;
-    const size_t stride = (bv.byteStride > 0) ? size_t(bv.byteStride) : (compSize * numComp);
-    const size_t offset = size_t(bv.byteOffset) + size_t(acc.byteOffset);
-    const size_t totalBytes = size_t(acc.count) * stride;
-    if (offset + totalBytes > buf.data.size())
+
+    const size_t compCount = TypeComponentCount(acc.type);
+    const size_t compSize = ComponentSizeBytes(acc.componentType);
+    if (compCount == 0u || compSize == 0u)
         return false;
-    outData.resize(size_t(acc.count) * numComp);
-    const unsigned char* src = buf.data.data() + offset;
+
+    const size_t elementSize = compCount * compSize;
+    const size_t stride = (bv.byteStride > 0) ? size_t(bv.byteStride) : elementSize;
+    const size_t baseOffset = size_t(bv.byteOffset) + size_t(acc.byteOffset);
+    if (baseOffset + size_t(acc.count) * stride > buf.data.size())
+        return false;
+
+    outData.resize(size_t(acc.count) * compCount);
+    const unsigned char* src = buf.data.data() + baseOffset;
     for (size_t i = 0; i < size_t(acc.count); ++i) {
-        std::memcpy(&outData[i * numComp], src + i * stride, compSize * numComp);
+        const unsigned char* elem = src + i * stride;
+        for (size_t c = 0; c < compCount; ++c) {
+            outData[i * compCount + c] = ReadComponentAsFloat(elem + c * compSize, acc.componentType, acc.normalized);
+        }
     }
     return true;
 }
 
-/**
- * Read VEC2 float data from accessor (e.g., TEXCOORD_0).
- */
-bool GetAccessorDataAsFloat2(const tinygltf::Model& model, int accessorIndex,
-                             std::vector<float>& outData) {
+bool ReadIndexAccessorAsU32(const tinygltf::Model& model, int accessorIndex, std::vector<uint32_t>& outIndices) {
+    outIndices.clear();
     if (accessorIndex < 0 || size_t(accessorIndex) >= model.accessors.size())
         return false;
     const tinygltf::Accessor& acc = model.accessors[size_t(accessorIndex)];
-    if (acc.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || acc.type != TINYGLTF_TYPE_VEC2)
+    if (acc.type != TINYGLTF_TYPE_SCALAR)
         return false;
     if (acc.bufferView < 0 || size_t(acc.bufferView) >= model.bufferViews.size())
         return false;
-    const tinygltf::BufferView& bv = model.bufferViews[size_t(acc.bufferView)];
-    if (bv.buffer < 0 || size_t(bv.buffer) >= model.buffers.size())
-        return false;
-    const tinygltf::Buffer& buf = model.buffers[size_t(bv.buffer)];
-    const size_t compSize = sizeof(float);
-    const size_t numComp = 2u;
-    const size_t stride = (bv.byteStride > 0) ? size_t(bv.byteStride) : (compSize * numComp);
-    const size_t offset = size_t(bv.byteOffset) + size_t(acc.byteOffset);
-    const size_t totalBytes = size_t(acc.count) * stride;
-    if (offset + totalBytes > buf.data.size())
-        return false;
-    outData.resize(size_t(acc.count) * numComp);
-    const unsigned char* src = buf.data.data() + offset;
-    for (size_t i = 0; i < size_t(acc.count); ++i) {
-        std::memcpy(&outData[i * numComp], src + i * stride, compSize * numComp);
-    }
-    return true;
-}
 
-/**
- * Read index data (UNSIGNED_SHORT or UNSIGNED_INT).
- */
-bool GetIndexDataAsU32(const tinygltf::Model& model, int accessorIndex, std::vector<uint32_t>& outIndices) {
-    if (accessorIndex < 0 || size_t(accessorIndex) >= model.accessors.size())
-        return false;
-    const tinygltf::Accessor& acc = model.accessors[size_t(accessorIndex)];
-    if (acc.bufferView < 0 || size_t(acc.bufferView) >= model.bufferViews.size())
-        return false;
     const tinygltf::BufferView& bv = model.bufferViews[size_t(acc.bufferView)];
     if (bv.buffer < 0 || size_t(bv.buffer) >= model.buffers.size())
         return false;
     const tinygltf::Buffer& buf = model.buffers[size_t(bv.buffer)];
-    const size_t offset = size_t(bv.byteOffset) + size_t(acc.byteOffset);
+
+    const size_t compSize = ComponentSizeBytes(acc.componentType);
+    if (compSize == 0u)
+        return false;
+    const size_t stride = (bv.byteStride > 0) ? size_t(bv.byteStride) : compSize;
+    const size_t baseOffset = size_t(bv.byteOffset) + size_t(acc.byteOffset);
+    if (baseOffset + size_t(acc.count) * stride > buf.data.size())
+        return false;
+
     outIndices.resize(size_t(acc.count));
-    if (acc.componentType == 5125) { /* UNSIGNED_INT */
-        if (offset + acc.count * sizeof(uint32_t) > buf.data.size()) return false;
-        std::memcpy(outIndices.data(), buf.data.data() + offset, acc.count * sizeof(uint32_t));
-    } else if (acc.componentType == 5123) { /* UNSIGNED_SHORT */
-        if (offset + acc.count * sizeof(uint16_t) > buf.data.size()) return false;
-        const uint16_t* src = reinterpret_cast<const uint16_t*>(buf.data.data() + offset);
-        for (size_t i = 0; i < size_t(acc.count); ++i)
-            outIndices[i] = uint32_t(src[i]);
-    } else {
-        return false;
+    const unsigned char* src = buf.data.data() + baseOffset;
+    for (size_t i = 0; i < size_t(acc.count); ++i) {
+        const unsigned char* p = src + i * stride;
+        switch (acc.componentType) {
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+            outIndices[i] = static_cast<uint32_t>(*reinterpret_cast<const uint8_t*>(p));
+            break;
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
+            uint16_t v = 0;
+            std::memcpy(&v, p, sizeof(uint16_t));
+            outIndices[i] = static_cast<uint32_t>(v);
+            break;
+        }
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
+            uint32_t v = 0;
+            std::memcpy(&v, p, sizeof(uint32_t));
+            outIndices[i] = v;
+            break;
+        }
+        default:
+            return false;
+        }
     }
     return true;
+}
+
+bool BuildTriangleListIndices(const tinygltf::Primitive& prim,
+                              const std::vector<uint32_t>& sourceIndices,
+                              std::vector<uint32_t>& outTriangleIndices) {
+    outTriangleIndices.clear();
+    const int mode = prim.mode;
+    if (mode == TINYGLTF_MODE_TRIANGLES) {
+        if (sourceIndices.size() < 3u)
+            return false;
+        outTriangleIndices = sourceIndices;
+        return true;
+    }
+    if (mode == TINYGLTF_MODE_TRIANGLE_STRIP) {
+        if (sourceIndices.size() < 3u)
+            return false;
+        outTriangleIndices.reserve((sourceIndices.size() - 2u) * 3u);
+        for (size_t i = 2; i < sourceIndices.size(); ++i) {
+            const uint32_t a = sourceIndices[i - 2];
+            const uint32_t b = sourceIndices[i - 1];
+            const uint32_t c = sourceIndices[i];
+            if (i % 2u == 0u) {
+                outTriangleIndices.push_back(a);
+                outTriangleIndices.push_back(b);
+                outTriangleIndices.push_back(c);
+            } else {
+                outTriangleIndices.push_back(b);
+                outTriangleIndices.push_back(a);
+                outTriangleIndices.push_back(c);
+            }
+        }
+        return !outTriangleIndices.empty();
+    }
+    if (mode == TINYGLTF_MODE_TRIANGLE_FAN) {
+        if (sourceIndices.size() < 3u)
+            return false;
+        outTriangleIndices.reserve((sourceIndices.size() - 2u) * 3u);
+        const uint32_t root = sourceIndices[0];
+        for (size_t i = 2; i < sourceIndices.size(); ++i) {
+            outTriangleIndices.push_back(root);
+            outTriangleIndices.push_back(sourceIndices[i - 1]);
+            outTriangleIndices.push_back(sourceIndices[i]);
+        }
+        return !outTriangleIndices.empty();
+    }
+    return false;
 }
 
 } // namespace
@@ -118,7 +226,7 @@ bool GetMeshDataFromGltf(const tinygltf::Model& model, int meshIndex, int primit
         return false;
     }
     std::vector<float> positions;
-    if (!GetAccessorDataAsFloat3(model, itPos->second, positions)) {
+    if (!ReadAccessorAsFloatN(model, itPos->second, TINYGLTF_TYPE_VEC3, positions)) {
         std::cerr << "[GetMeshDataFromGltf] Failed to read POSITION data.\n";
         return false;
     }
@@ -129,7 +237,7 @@ bool GetMeshDataFromGltf(const tinygltf::Model& model, int meshIndex, int primit
     // TEXCOORD_0 (UV) is optional, default to (0,0)
     std::vector<float> uvs;
     auto itUV = prim.attributes.find("TEXCOORD_0");
-    if (itUV != prim.attributes.end() && GetAccessorDataAsFloat2(model, itUV->second, uvs)) {
+    if (itUV != prim.attributes.end() && ReadAccessorAsFloatN(model, itUV->second, TINYGLTF_TYPE_VEC2, uvs)) {
         if (uvs.size() / 2u != vertexCount) {
             std::cerr << "[GetMeshDataFromGltf] UV count mismatch, ignoring UVs.\n";
             uvs.clear();
@@ -140,7 +248,7 @@ bool GetMeshDataFromGltf(const tinygltf::Model& model, int meshIndex, int primit
     // NORMAL is optional, default to (0,0,1)
     std::vector<float> normals;
     auto itNorm = prim.attributes.find("NORMAL");
-    if (itNorm != prim.attributes.end() && GetAccessorDataAsFloat3(model, itNorm->second, normals)) {
+    if (itNorm != prim.attributes.end() && ReadAccessorAsFloatN(model, itNorm->second, TINYGLTF_TYPE_VEC3, normals)) {
         if (normals.size() / 3u != vertexCount) {
             std::cerr << "[GetMeshDataFromGltf] Normal count mismatch, ignoring normals.\n";
             normals.clear();
@@ -148,19 +256,26 @@ bool GetMeshDataFromGltf(const tinygltf::Model& model, int meshIndex, int primit
     }
     const bool hasNormals = !normals.empty();
 
-    // Read indices (if any)
-    std::vector<uint32_t> indices;
+    // Read source indices (if any)
+    std::vector<uint32_t> sourceIndices;
     const bool indexed = (prim.indices >= 0);
     if (indexed) {
-        if (!GetIndexDataAsU32(model, prim.indices, indices)) {
+        if (!ReadIndexAccessorAsU32(model, prim.indices, sourceIndices)) {
             std::cerr << "[GetMeshDataFromGltf] Failed to read index data.\n";
             return false;
         }
     } else {
         // Non-indexed: generate trivial indices
-        indices.resize(vertexCount);
+        sourceIndices.resize(vertexCount);
         for (size_t i = 0; i < vertexCount; ++i)
-            indices[i] = static_cast<uint32_t>(i);
+            sourceIndices[i] = static_cast<uint32_t>(i);
+    }
+
+    // Build triangle index list from primitive mode
+    std::vector<uint32_t> indices;
+    if (!BuildTriangleListIndices(prim, sourceIndices, indices)) {
+        std::cerr << "[GetMeshDataFromGltf] Unsupported or invalid primitive mode " << prim.mode << ".\n";
+        return false;
     }
 
     // Build interleaved vertex data

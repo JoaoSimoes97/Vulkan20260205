@@ -2,10 +2,7 @@
 
 #include <cstdint>
 #include <vector>
-
-namespace tinygltf {
-struct Model;
-}
+#include <tiny_gltf.h>
 
 /**
  * Vertex layout: interleaved position + UV + normal (8 floats per vertex).

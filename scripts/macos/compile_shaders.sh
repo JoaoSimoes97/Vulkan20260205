@@ -31,9 +31,13 @@ fi
 if [ "$COMPILER" = "glslc" ]; then
     glslc "$SHADER_SOURCE_DIR/vert.vert" -o "$OUTPUT_DIR/vert.spv"
     glslc "$SHADER_SOURCE_DIR/frag.frag" -o "$OUTPUT_DIR/frag.spv"
+    glslc "$SHADER_SOURCE_DIR/frag_alt.frag" -o "$OUTPUT_DIR/frag_alt.spv"
+    glslc "$SHADER_SOURCE_DIR/frag_untextured.frag" -o "$OUTPUT_DIR/frag_untextured.spv"
 else
     glslangValidator -V "$SHADER_SOURCE_DIR/vert.vert" -o "$OUTPUT_DIR/vert.spv"
     glslangValidator -V "$SHADER_SOURCE_DIR/frag.frag" -o "$OUTPUT_DIR/frag.spv"
+    glslangValidator -V "$SHADER_SOURCE_DIR/frag_alt.frag" -o "$OUTPUT_DIR/frag_alt.spv"
+    glslangValidator -V "$SHADER_SOURCE_DIR/frag_untextured.frag" -o "$OUTPUT_DIR/frag_untextured.spv"
 fi
 
 echo "Shaders compiled successfully!"

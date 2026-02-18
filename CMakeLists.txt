@@ -28,6 +28,9 @@ find_package(Vulkan REQUIRED)
 # JSON config: nlohmann/json (required; must be installed — see README for per-OS package names)
 find_package(nlohmann_json 3.11 REQUIRED)
 
+# Math library: GLM (header-only, for graphics math like matrices, vectors, and pi constant)
+find_package(glm REQUIRED)
+
 # stb (header-only): must be provided by setup in deps/stb — no download during build
 set(DEPS_STB_DIR ${CMAKE_SOURCE_DIR}/deps/stb CACHE PATH "Path to stb (populated by setup)")
 if(NOT EXISTS "${DEPS_STB_DIR}/stb_image.h")
@@ -166,6 +169,7 @@ target_link_libraries(${PROJECT_NAME}
     SDL3::SDL3
     ${Vulkan_LIBRARIES}
     nlohmann_json::nlohmann_json
+    glm::glm
 )
 if(TinyGLTF_FOUND)
     target_link_libraries(${PROJECT_NAME} TinyGLTF::tinygltf)
@@ -229,6 +233,12 @@ if(GLSLC)
         DEPENDS ${SHADERS_SOURCE_DIR}/frag_alt.frag
         COMMENT "Compiling alt fragment shader"
     )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
+        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/frag_untextured.frag -o ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/frag_untextured.frag
+        COMMENT "Compiling untextured fragment shader"
+    )
 elseif(GLSLANGVALIDATOR)
     message(STATUS "Found glslangValidator, will auto-compile shaders (source: shaders/source/ -> build/shaders/)")
     add_custom_command(
@@ -249,6 +259,12 @@ elseif(GLSLANGVALIDATOR)
         DEPENDS ${SHADERS_SOURCE_DIR}/frag_alt.frag
         COMMENT "Compiling alt fragment shader"
     )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
+        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/frag_untextured.frag -o ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/frag_untextured.frag
+        COMMENT "Compiling untextured fragment shader"
+    )
 else()
     message(WARNING "No shader compiler found (glslc or glslangValidator). Shaders must be compiled manually.")
     file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
@@ -257,7 +273,7 @@ endif()
 file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 
 add_custom_target(compile_shaders ALL
-    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/frag_alt.spv
+    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/frag_alt.spv ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
 )
 
 # Ensure shaders are built before the app, and copy shaders + config + levels + models next to the exe so the app finds them regardless of cwd.
@@ -268,6 +284,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_alt.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_untextured.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/levels $<TARGET_FILE_DIR:${PROJECT_NAME}>/levels
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/models $<TARGET_FILE_DIR:${PROJECT_NAME}>/models

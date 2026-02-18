@@ -56,10 +56,11 @@ cd "%BUILD_DIR%"
 
 REM Configure with CMake (project root is two levels up: build\Debug -> .. -> build, ..\.. -> project root)
 echo Configuring with CMake (%BUILD_TYPE%)...
+set VCPKG_TOOLCHAIN=%ROOT_DIR%\toolchain\windows\vcpkg\scripts\buildsystems\vcpkg.cmake
 if not defined CMAKE_GENERATOR (
-    cmake ..\.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DINSTALL_OUTPUT_DIR=install/%BUILD_TYPE%
+    cmake ..\.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DCMAKE_TOOLCHAIN_FILE=%VCPKG_TOOLCHAIN% -DINSTALL_OUTPUT_DIR=install/%BUILD_TYPE%
 ) else (
-    cmake ..\.. -G "%CMAKE_GENERATOR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DINSTALL_OUTPUT_DIR=install/%BUILD_TYPE%
+    cmake ..\.. -G "%CMAKE_GENERATOR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DCMAKE_TOOLCHAIN_FILE=%VCPKG_TOOLCHAIN% -DINSTALL_OUTPUT_DIR=install/%BUILD_TYPE%
 )
 
 if errorlevel 1 (

@@ -22,6 +22,7 @@ Overview of project documentation. All paths are relative to the project root.
 | [vulkan/](vulkan/) | Vulkan implementation: tutorial order, swapchain rebuild cases. |
 | [platforms/](platforms/) | Platform-specific setup: Android, iOS. |
 | [future-ideas/](future-ideas/) | Possible improvements (logging, build, rendering). |
+| [future-ideas/animation-skinning-roadmap.md](future-ideas/animation-skinning-roadmap.md) | Future task plan for real animation/skinning support. |
 
 ## Quick links
 
@@ -35,5 +36,6 @@ Overview of project documentation. All paths are relative to the project root.
 - **Tutorial order** — [vulkan/tutorial-order.md](vulkan/tutorial-order.md)
 - **Swapchain rebuild** — [vulkan/swapchain-rebuild-cases.md](vulkan/swapchain-rebuild-cases.md)
 - **Vulkan version support (GPUs, Android)** — [vulkan/version-support.md](vulkan/version-support.md)
+- **Animation and skinning roadmap (future task)** — [future-ideas/animation-skinning-roadmap.md](future-ideas/animation-skinning-roadmap.md)
 - **Android** — [platforms/android.md](platforms/android.md)
 - **iOS** — [platforms/ios.md](platforms/ios.md)

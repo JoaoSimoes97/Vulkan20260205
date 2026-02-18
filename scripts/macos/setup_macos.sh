@@ -15,9 +15,9 @@ if ! command -v brew &> /dev/null; then
     exit 1
 fi
 
-echo "Project setup: Vulkan (MoltenVK), SDL3 (window/input), nlohmann-json (config), CMake."
-echo "Installing Vulkan (MoltenVK), SDL3, nlohmann-json, CMake..."
-brew install molten-vk sdl3 nlohmann-json cmake
+echo "Project setup: Vulkan (MoltenVK), SDL3 (window/input), nlohmann-json (config), GLM (math library), CMake."
+echo "Installing Vulkan (MoltenVK), SDL3, nlohmann-json, GLM, CMake..."
+brew install molten-vk sdl3 nlohmann-json glm cmake
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mkdir -p "$ROOT_DIR/deps"

@@ -10,7 +10,7 @@ set ERRORS=0
 set WARNINGS=0
 
 REM Check for CMake
-where cmake >nul 2>nul
+where.exe cmake >nul 2>nul
 if %errorLevel% equ 0 (
     echo [OK] CMake found
     cmake --version | findstr /C:"version"
@@ -23,19 +23,19 @@ if %errorLevel% equ 0 (
 echo.
 
 REM Check for C++ compiler
-where cl >nul 2>nul
+where.exe cl >nul 2>nul
 if %errorLevel% equ 0 (
     echo [OK] Visual Studio C++ compiler found
     goto :check_vulkan
 )
 
-where g++ >nul 2>nul
+where.exe g++ >nul 2>nul
 if %errorLevel% equ 0 (
     echo [OK] MinGW/GCC compiler found
     goto :check_vulkan
 )
 
-where clang++ >nul 2>nul
+where.exe clang++ >nul 2>nul
 if %errorLevel% equ 0 (
     echo [OK] Clang compiler found
     goto :check_vulkan
@@ -50,16 +50,20 @@ set /a ERRORS+=1
 echo.
 
 REM Check for Vulkan SDK
-where glslc >nul 2>nul
-if %errorLevel% equ 0 (
-    echo [OK] Vulkan SDK found (glslc)
-    where glslc
-) else (
+where.exe glslc >nul 2>nul
+if errorlevel 1 (
     echo [ERROR] Vulkan SDK not found or not in PATH!
     echo         Download from: https://vulkan.lunarg.com/sdk/home#windows
-    echo         Add to PATH: C:\VulkanSDK\<version>\Bin
+    echo         Add to PATH: C:\VulkanSDK\^<version^>\Bin
     set /a ERRORS+=1
+) else (
+    echo [OK] Vulkan SDK found (glslc^)
+    for /f "delims=" %%i in ('where.exe glslc') do echo %%i
 )
+
+goto :check_done
+
+:check_done
 
 echo.
 

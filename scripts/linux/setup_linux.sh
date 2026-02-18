@@ -62,6 +62,7 @@ install_arch() {
         vulkan-validation-layers \
         sdl3 \
         nlohmann-json \
+        glm \
         cmake \
         make \
         gcc \
@@ -78,6 +79,7 @@ install_debian() {
         vulkan-validationlayers \
         libsdl3-dev \
         nlohmann-json3-dev \
+        libglm-dev \
         cmake \
         build-essential \
         g++
@@ -92,6 +94,7 @@ install_fedora() {
         vulkan-validation-layers \
         SDL3-devel \
         nlohmann-json-devel \
+        glm-devel \
         cmake \
         gcc-c++ \
         make
@@ -106,6 +109,7 @@ install_opensuse() {
         vulkan-validation-layers \
         libSDL3-devel \
         nlohmann-json-devel \
+        glm-devel \
         cmake \
         gcc-c++ \
         make
@@ -138,6 +142,7 @@ case "$DISTRO" in
             echo "  - Vulkan SDK/development packages"
             echo "  - SDL3 development packages"
             echo "  - nlohmann-json development packages"
+            echo "  - GLM development packages"
             echo "  - CMake"
             echo "  - C++ compiler (gcc/g++)"
             exit 1

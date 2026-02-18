@@ -22,6 +22,10 @@ namespace {
         return stA_ic.firstVertex < stB_ic.firstVertex;
     }
 
+    bool IsTransparentPipelineKey(const std::string& pipelineKey) {
+        return pipelineKey.find("transparent") != std::string::npos;
+    }
+
     /** Object position from column-major localTransform (translation part). */
     void ObjectPosition(const float* pLocalTransform_ic, float& fX_out, float& fY_out, float& fZ_out) {
         fX_out = pLocalTransform_ic[12];
@@ -72,6 +76,10 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
 
     const std::vector<Object>& vecObjects = pScene_ic->GetObjects();
     vecOutDrawCalls_out.reserve(vecObjects.size());
+    std::vector<DrawCall> vecOpaque;
+    std::vector<std::pair<float, DrawCall>> vecTransparent;
+    vecOpaque.reserve(vecObjects.size());
+    vecTransparent.reserve(vecObjects.size());
 
     for (const auto& obj : vecObjects) {
         if ((obj.pMaterial == nullptr) || (obj.pMesh == nullptr) || (obj.pMesh->HasValidBuffer() == false) || (obj.pushDataSize == 0u) || (obj.pushData.empty() == true))
@@ -79,6 +87,7 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
         const uint32_t lMaxPush = MaxPushConstantSize(obj.pMaterial->layoutDescriptor);
         if ((lMaxPush > 0u) && (obj.pushDataSize > lMaxPush))
             continue;
+        float fDepthNdc = static_cast<float>(0.0f);
         if (pViewProj_ic != nullptr) {
             float fPx = static_cast<float>(0.f);
             float fPy = static_cast<float>(0.f);
@@ -91,6 +100,7 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
             TransformToClip(pViewProj_ic, fPx, fPy, fPz, fCx, fCy, fCz, fCw);
             if (InsideFrustum(fCx, fCy, fCz, fCw) == false)
                 continue;
+            fDepthNdc = fCz / fCw;
         }
         VkPipeline pPipe = obj.pMaterial->GetPipelineIfReady(pDevice_ic, pRenderPass_ic, pPipelineManager_ic, pShaderManager_ic, bRenderPassHasDepth_ic);
         VkPipelineLayout pLayout = obj.pMaterial->GetPipelineLayoutIfReady(pPipelineManager_ic);
@@ -133,8 +143,21 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
         /* Skip draws that require descriptor sets but have none (e.g. main/wire before default texture is ready). */
         if (!obj.pMaterial->layoutDescriptor.descriptorSetLayouts.empty() && stD.descriptorSets.empty())
             continue;
-        vecOutDrawCalls_out.push_back(stD);
+        if (IsTransparentPipelineKey(obj.pMaterial->pipelineKey)) {
+            vecTransparent.push_back({ fDepthNdc, stD });
+        } else {
+            vecOpaque.push_back(stD);
+        }
     }
 
-    std::sort(vecOutDrawCalls_out.begin(), vecOutDrawCalls_out.end(), DrawCallOrder);
+    std::sort(vecOpaque.begin(), vecOpaque.end(), DrawCallOrder);
+    std::sort(vecTransparent.begin(), vecTransparent.end(),
+        [](const std::pair<float, DrawCall>& a, const std::pair<float, DrawCall>& b) {
+            return a.first > b.first; // back-to-front (farther first in Vulkan NDC depth)
+        });
+
+    vecOutDrawCalls_out = std::move(vecOpaque);
+    vecOutDrawCalls_out.reserve(vecOutDrawCalls_out.size() + vecTransparent.size());
+    for (auto& item : vecTransparent)
+        vecOutDrawCalls_out.push_back(std::move(item.second));
 }

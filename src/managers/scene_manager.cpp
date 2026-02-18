@@ -12,6 +12,9 @@
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #include <fstream>
+#include <cstring>
+#include <functional>
+#include <unordered_set>
 #include <tiny_gltf.h>
 
 using json = nlohmann::json;
@@ -23,15 +26,15 @@ namespace {
  * Material (glTF) = appearance (color, texture). RenderMode = visualization choice (solid, wireframe).
  * No fallbacks: if unresolved, returns empty.
  */
-std::string ResolvePipelineKey(const std::string& alphaMode, RenderMode renderMode) {
+std::string ResolvePipelineKey(const std::string& alphaMode, RenderMode renderMode, bool hasTexture) {
     // Explicit render mode override
-    if (renderMode == RenderMode::Wireframe) return "wire";
-    if (renderMode == RenderMode::Solid) return "main";
+    if (renderMode == RenderMode::Wireframe) return hasTexture ? "wire_tex" : "wire_untex";
+    if (renderMode == RenderMode::Solid) return hasTexture ? "main_tex" : "main_untex";
     
     // Auto: use material alphaMode
-    if (alphaMode == "OPAQUE") return "main";
-    if (alphaMode == "MASK") return "mask";
-    if (alphaMode == "BLEND") return "transparent";
+    if (alphaMode == "OPAQUE") return hasTexture ? "main_tex" : "main_untex";
+    if (alphaMode == "MASK") return hasTexture ? "mask_tex" : "mask_untex";
+    if (alphaMode == "BLEND") return hasTexture ? "transparent_tex" : "transparent_untex";
     
     return {};  // Unrecognized alphaMode
 }
@@ -140,7 +143,80 @@ void EnsureDefaultPrimitives(const std::filesystem::path& baseDir, GltfLoader& l
     EnsureDefaultPrimitiveGltf(baseDir, loader, "cube_blue.glb",   "Blue Cube",   {0.2, 0.4, 1.0, 1.0});
 }
 
+void MatIdentity(float* out16) {
+    for (int i = 0; i < 16; ++i)
+        out16[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+}
+
+void MatMultiply(float* out16, const float* a16, const float* b16) {
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            float v = 0.0f;
+            for (int k = 0; k < 4; ++k)
+                v += a16[row + k * 4] * b16[k + col * 4];
+            out16[row + col * 4] = v;
+        }
+    }
+}
+
+void BuildNodeLocalMatrix(const tinygltf::Node& node, float* out16) {
+    if (node.matrix.size() == 16u) {
+        for (size_t i = 0; i < 16u; ++i)
+            out16[i] = static_cast<float>(node.matrix[i]);
+        return;
+    }
+
+    float tx = 0.f, ty = 0.f, tz = 0.f;
+    float qx = 0.f, qy = 0.f, qz = 0.f, qw = 1.f;
+    float sx = 1.f, sy = 1.f, sz = 1.f;
+
+    if (node.translation.size() == 3u) {
+        tx = static_cast<float>(node.translation[0]);
+        ty = static_cast<float>(node.translation[1]);
+        tz = static_cast<float>(node.translation[2]);
+    }
+    if (node.rotation.size() == 4u) {
+        qx = static_cast<float>(node.rotation[0]);
+        qy = static_cast<float>(node.rotation[1]);
+        qz = static_cast<float>(node.rotation[2]);
+        qw = static_cast<float>(node.rotation[3]);
+    }
+    if (node.scale.size() == 3u) {
+        sx = static_cast<float>(node.scale[0]);
+        sy = static_cast<float>(node.scale[1]);
+        sz = static_cast<float>(node.scale[2]);
+    }
+
+    ObjectSetFromPositionRotationScale(out16, tx, ty, tz, qx, qy, qz, qw, sx, sy, sz);
+}
+
 } // namespace
+
+void SceneManager::PrepareAnimationImportStub(const tinygltf::Model& model, const std::string& gltfPath) {
+    if (model.animations.empty())
+        return;
+    static std::unordered_set<std::string> warned;
+    const std::string key = gltfPath + "#animations";
+    if (warned.insert(key).second) {
+        VulkanUtils::LogWarn("SceneManager: TODO animation import not implemented yet for \"{}\" ({} clips)",
+                             gltfPath, model.animations.size());
+    }
+}
+
+void SceneManager::PrepareSkinningImportStub(const tinygltf::Model& model, const tinygltf::Primitive& prim, const std::string& gltfPath) {
+    const bool hasJoints = prim.attributes.find("JOINTS_0") != prim.attributes.end();
+    const bool hasWeights = prim.attributes.find("WEIGHTS_0") != prim.attributes.end();
+    const bool needsSkinning = !model.skins.empty() || hasJoints || hasWeights;
+    if (!needsSkinning)
+        return;
+
+    static std::unordered_set<std::string> warned;
+    const std::string key = gltfPath + "#skinning";
+    if (warned.insert(key).second) {
+        VulkanUtils::LogWarn("SceneManager: TODO skinning import not implemented yet for \"{}\" (skins={}, JOINTS_0={}, WEIGHTS_0={})",
+                             gltfPath, model.skins.size(), hasJoints, hasWeights);
+    }
+}
 
 void SceneManager::SetDependencies(MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic, TextureManager* pTextureManager_ic) {
     m_pMaterialManager = pMaterialManager_ic;
@@ -216,141 +292,22 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
     for (const auto& jInst : j["instances"]) {
         if (!jInst.is_object() || !jInst.contains("source") || !jInst["source"].is_string())
             continue;
-        std::string source = jInst["source"].get<std::string>();
-        if (source.empty()) continue;
+        const std::string source = jInst["source"].get<std::string>();
+        if (source.empty())
+            continue;
 
-        // Check if this is a procedural mesh
-        std::shared_ptr<MeshHandle> pMesh;
-        std::shared_ptr<TextureHandle> pTexture;
-        std::shared_ptr<MaterialHandle> pMaterial;
-        float baseColorFromSource[4] = {1.f, 1.f, 1.f, 1.f};
-        
-        if (source.find("procedural:") == 0) {
-            // Procedural mesh
-            pMesh = LoadProceduralMesh(source);
-            if (!pMesh) {
-                VulkanUtils::LogErr("SceneManager: failed to create procedural mesh \"{}\"", source);
+        RenderMode renderMode = RenderMode::Auto;
+        if (jInst.contains("renderMode") && jInst["renderMode"].is_string()) {
+            const std::string modeStr = jInst["renderMode"].get<std::string>();
+            if (modeStr == "solid") renderMode = RenderMode::Solid;
+            else if (modeStr == "wireframe") renderMode = RenderMode::Wireframe;
+            else if (modeStr == "auto") renderMode = RenderMode::Auto;
+            else {
+                VulkanUtils::LogErr("SceneManager: unknown renderMode \"{}\" for source \"{}\"", modeStr, source);
                 continue;
-            }
-            
-            // Use default material (solid opaque)
-            RenderMode renderMode = RenderMode::Auto;
-            if (jInst.contains("renderMode") && jInst["renderMode"].is_string()) {
-                std::string modeStr = jInst["renderMode"].get<std::string>();
-                if (modeStr == "solid") renderMode = RenderMode::Solid;
-                else if (modeStr == "wireframe") renderMode = RenderMode::Wireframe;
-                else if (modeStr == "auto") renderMode = RenderMode::Auto;
-            }
-            
-            std::string pipelineKey = ResolvePipelineKey("OPAQUE", renderMode);
-            pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
-            if (!pMaterial) {
-                VulkanUtils::LogErr("SceneManager: pipeline \"{}\" not registered for procedural \"{}\"", pipelineKey, source);
-                continue;
-            }
-            
-            // Color override from JSON
-            if (jInst.contains("color") && jInst["color"].is_array() && jInst["color"].size() >= 4) {
-                baseColorFromSource[0] = static_cast<float>(jInst["color"][0].get<double>());
-                baseColorFromSource[1] = static_cast<float>(jInst["color"][1].get<double>());
-                baseColorFromSource[2] = static_cast<float>(jInst["color"][2].get<double>());
-                baseColorFromSource[3] = static_cast<float>(jInst["color"][3].get<double>());
-            }
-            
-            // No texture for procedural meshes (unless we add support later)
-            pTexture = nullptr;
-            
-        } else {
-            // glTF mesh
-            std::filesystem::path resolvedPath = baseDir / source;
-            std::string gltfPath = resolvedPath.string();
-            if (!m_gltfLoader.LoadFromFile(gltfPath)) {
-                VulkanUtils::LogErr("SceneManager: failed to load glTF \"{}\"", gltfPath);
-                continue;
-            }
-            const tinygltf::Model* model = m_gltfLoader.GetModel();
-            if (!model || model->meshes.empty()) {
-                VulkanUtils::LogErr("SceneManager: glTF has no meshes \"{}\"", gltfPath);
-                continue;
-            }
-            const tinygltf::Mesh& mesh = model->meshes[0];
-            if (mesh.primitives.empty()) {
-                VulkanUtils::LogErr("SceneManager: glTF mesh 0 has no primitives \"{}\"", gltfPath);
-                continue;
-            }
-            const tinygltf::Primitive& prim = mesh.primitives[0];
-            if (prim.material < 0 || size_t(prim.material) >= model->materials.size()) {
-                VulkanUtils::LogErr("SceneManager: glTF \"{}\" primitive has no valid material", gltfPath);
-                continue;
-            }
-            const tinygltf::Material& gltfMat = model->materials[size_t(prim.material)];
-            const std::vector<double>& baseColor = gltfMat.pbrMetallicRoughness.baseColorFactor;
-            if (baseColor.size() < 4) {
-                VulkanUtils::LogErr("SceneManager: glTF \"{}\" material has no baseColorFactor", gltfPath);
-                continue;
-            }
-
-            // Render mode: optional override in level JSON; defaults to Auto
-            RenderMode renderMode = RenderMode::Auto;
-            if (jInst.contains("renderMode") && jInst["renderMode"].is_string()) {
-                std::string modeStr = jInst["renderMode"].get<std::string>();
-                if (modeStr == "solid") renderMode = RenderMode::Solid;
-                else if (modeStr == "wireframe") renderMode = RenderMode::Wireframe;
-                else if (modeStr == "auto") renderMode = RenderMode::Auto;
-                else {
-                    VulkanUtils::LogErr("SceneManager: unknown renderMode \"{}\" for \"{}\"", modeStr, gltfPath);
-                    continue;
-                }
-            }
-
-            std::string pipelineKey = ResolvePipelineKey(gltfMat.alphaMode, renderMode);
-            if (pipelineKey.empty()) {
-                VulkanUtils::LogErr("SceneManager: glTF \"{}\" material alphaMode \"{}\" with renderMode could not be mapped to a pipeline", gltfPath, gltfMat.alphaMode);
-                continue;
-            }
-            pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
-            if (!pMaterial) {
-                VulkanUtils::LogErr("SceneManager: pipeline \"{}\" not registered for glTF \"{}\"", pipelineKey, gltfPath);
-                continue;
-            }
-            
-            // Extract mesh
-            std::vector<VertexData> vertices;
-            std::vector<uint32_t> indices;
-            if (!GetMeshDataFromGltf(*model, 0, 0, vertices)) {
-                VulkanUtils::LogErr("SceneManager: ExtractVertexData failed for \"{}\"", gltfPath);
-                continue;
-            }
-            const uint32_t vertexCount = static_cast<uint32_t>(vertices.size());
-            pMesh = m_pMeshManager->GetOrCreateFromGltf(gltfPath, vertices.data(), vertexCount);
-            if (!pMesh) {
-                VulkanUtils::LogErr("SceneManager: GetOrCreateFromGltf failed for \"{}\"", gltfPath);
-                continue;
-            }
-            
-            // Base color from glTF
-            baseColorFromSource[0] = static_cast<float>(baseColor[0]);
-            baseColorFromSource[1] = static_cast<float>(baseColor[1]);
-            baseColorFromSource[2] = static_cast<float>(baseColor[2]);
-            baseColorFromSource[3] = static_cast<float>(baseColor[3]);
-            
-            // Texture
-            if (m_pTextureManager && gltfMat.pbrMetallicRoughness.baseColorTexture.index >= 0) {
-                int texIdx = gltfMat.pbrMetallicRoughness.baseColorTexture.index;
-                if (texIdx >= 0 && size_t(texIdx) < model->textures.size()) {
-                    const tinygltf::Texture& tex = model->textures[size_t(texIdx)];
-                    if (tex.source >= 0 && size_t(tex.source) < model->images.size()) {
-                        const tinygltf::Image& img = model->images[size_t(tex.source)];
-                        if (!img.image.empty() && img.width > 0 && img.height > 0 && img.component > 0) {
-                            std::string texName = img.uri.empty() ? ("tex_" + gltfPath + "_" + std::to_string(tex.source)) : img.uri;
-                            pTexture = m_pTextureManager->GetOrCreateFromMemory(texName, img.width, img.height, img.component, img.image.data());
-                        }
-                    }
-                }
             }
         }
 
-        // Common object creation (both procedural and glTF)
         float pos[3] = { 0.f, 0.f, 0.f };
         float rot[4] = { 0.f, 0.f, 0.f, 1.f };
         float scale[3] = { 1.f, 1.f, 1.f };
@@ -371,31 +328,216 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             scale[2] = static_cast<float>(jInst["scale"][2].get<double>());
         }
 
-        // Create object
-        Object obj;
-        obj.pMesh = pMesh;
-        obj.pMaterial = pMaterial;
-        obj.pTexture = pTexture;
-        ObjectSetFromPositionRotationScale(obj.localTransform,
+        float instanceTransform[16];
+        ObjectSetFromPositionRotationScale(instanceTransform,
             pos[0], pos[1], pos[2],
             rot[0], rot[1], rot[2], rot[3],
             scale[0], scale[1], scale[2]);
-        obj.color[0] = baseColorFromSource[0];
-        obj.color[1] = baseColorFromSource[1];
-        obj.color[2] = baseColorFromSource[2];
-        obj.color[3] = baseColorFromSource[3];
-        
-        // Load emissive property (for future lighting)
-        if (jInst.contains("emissive") && jInst["emissive"].is_array() && jInst["emissive"].size() >= 4) {
-            obj.emissive[0] = static_cast<float>(jInst["emissive"][0].get<double>());
-            obj.emissive[1] = static_cast<float>(jInst["emissive"][1].get<double>());
-            obj.emissive[2] = static_cast<float>(jInst["emissive"][2].get<double>());
-            obj.emissive[3] = static_cast<float>(jInst["emissive"][3].get<double>());
+
+        bool hasColorOverride = false;
+        float colorOverride[4] = {1.f, 1.f, 1.f, 1.f};
+        if (jInst.contains("color") && jInst["color"].is_array() && jInst["color"].size() >= 4) {
+            hasColorOverride = true;
+            colorOverride[0] = static_cast<float>(jInst["color"][0].get<double>());
+            colorOverride[1] = static_cast<float>(jInst["color"][1].get<double>());
+            colorOverride[2] = static_cast<float>(jInst["color"][2].get<double>());
+            colorOverride[3] = static_cast<float>(jInst["color"][3].get<double>());
         }
-        
-        obj.pushData.resize(kObjectPushConstantSize);
-        obj.pushDataSize = kObjectPushConstantSize;
-        objs.push_back(std::move(obj));
+
+        bool hasEmissiveOverride = false;
+        float emissiveOverride[4] = {0.f, 0.f, 0.f, 1.f};
+        if (jInst.contains("emissive") && jInst["emissive"].is_array() && jInst["emissive"].size() >= 4) {
+            hasEmissiveOverride = true;
+            emissiveOverride[0] = static_cast<float>(jInst["emissive"][0].get<double>());
+            emissiveOverride[1] = static_cast<float>(jInst["emissive"][1].get<double>());
+            emissiveOverride[2] = static_cast<float>(jInst["emissive"][2].get<double>());
+            emissiveOverride[3] = static_cast<float>(jInst["emissive"][3].get<double>());
+        }
+
+        if (source.rfind("procedural:", 0) == 0) {
+            std::shared_ptr<MeshHandle> pMesh = LoadProceduralMesh(source);
+            if (!pMesh) {
+                VulkanUtils::LogErr("SceneManager: failed to create procedural mesh \"{}\"", source);
+                continue;
+            }
+
+            const std::string pipelineKey = ResolvePipelineKey("OPAQUE", renderMode, false);
+            std::shared_ptr<MaterialHandle> pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
+            if (!pMaterial) {
+                VulkanUtils::LogErr("SceneManager: pipeline \"{}\" not registered for procedural \"{}\"", pipelineKey, source);
+                continue;
+            }
+
+            Object obj;
+            obj.pMesh = pMesh;
+            obj.pMaterial = pMaterial;
+            obj.pTexture = nullptr;
+            std::memcpy(obj.localTransform, instanceTransform, sizeof(instanceTransform));
+            if (hasColorOverride) {
+                obj.color[0] = colorOverride[0];
+                obj.color[1] = colorOverride[1];
+                obj.color[2] = colorOverride[2];
+                obj.color[3] = colorOverride[3];
+            }
+            if (hasEmissiveOverride) {
+                obj.emissive[0] = emissiveOverride[0];
+                obj.emissive[1] = emissiveOverride[1];
+                obj.emissive[2] = emissiveOverride[2];
+                obj.emissive[3] = emissiveOverride[3];
+            }
+            obj.pushData.resize(kObjectPushConstantSize);
+            obj.pushDataSize = kObjectPushConstantSize;
+            objs.push_back(std::move(obj));
+            continue;
+        }
+
+        const std::filesystem::path resolvedPath = baseDir / source;
+        const std::string gltfPath = resolvedPath.string();
+        if (!m_gltfLoader.LoadFromFile(gltfPath)) {
+            VulkanUtils::LogErr("SceneManager: failed to load glTF \"{}\"", gltfPath);
+            continue;
+        }
+        const tinygltf::Model* model = m_gltfLoader.GetModel();
+        if (!model || model->meshes.empty()) {
+            VulkanUtils::LogErr("SceneManager: glTF has no meshes \"{}\"", gltfPath);
+            continue;
+        }
+
+        PrepareAnimationImportStub(*model, gltfPath);
+
+        std::vector<int> roots;
+        if (!model->scenes.empty()) {
+            int sceneIndex = model->defaultScene;
+            if (sceneIndex < 0 || size_t(sceneIndex) >= model->scenes.size())
+                sceneIndex = 0;
+            const tinygltf::Scene& sceneDef = model->scenes[size_t(sceneIndex)];
+            roots.assign(sceneDef.nodes.begin(), sceneDef.nodes.end());
+        }
+        if (roots.empty()) {
+            roots.reserve(model->nodes.size());
+            for (size_t i = 0; i < model->nodes.size(); ++i)
+                roots.push_back(static_cast<int>(i));
+        }
+
+        std::function<void(int, const float*)> visitNode;
+        visitNode = [&](int nodeIndex, const float* parentMatrix) {
+            if (nodeIndex < 0 || size_t(nodeIndex) >= model->nodes.size())
+                return;
+            const tinygltf::Node& node = model->nodes[size_t(nodeIndex)];
+
+            float nodeLocal[16];
+            float nodeWorld[16];
+            BuildNodeLocalMatrix(node, nodeLocal);
+            MatMultiply(nodeWorld, parentMatrix, nodeLocal);
+
+            if (node.mesh >= 0 && size_t(node.mesh) < model->meshes.size()) {
+                const int meshIndex = node.mesh;
+                const tinygltf::Mesh& mesh = model->meshes[size_t(meshIndex)];
+                for (size_t primIndex = 0; primIndex < mesh.primitives.size(); ++primIndex) {
+                    const tinygltf::Primitive& prim = mesh.primitives[primIndex];
+                    PrepareSkinningImportStub(*model, prim, gltfPath);
+
+                    if (prim.material < 0 || size_t(prim.material) >= model->materials.size()) {
+                        VulkanUtils::LogErr("SceneManager: glTF \"{}\" mesh {} primitive {} has no valid material",
+                                           gltfPath, meshIndex, primIndex);
+                        continue;
+                    }
+
+                    const tinygltf::Material& gltfMat = model->materials[size_t(prim.material)];
+                    const bool hasTexture = (gltfMat.pbrMetallicRoughness.baseColorTexture.index >= 0);
+                    const std::string pipelineKey = ResolvePipelineKey(gltfMat.alphaMode, renderMode, hasTexture);
+                    if (pipelineKey.empty()) {
+                        VulkanUtils::LogErr("SceneManager: glTF \"{}\" mesh {} primitive {} alphaMode \"{}\" could not be mapped",
+                                           gltfPath, meshIndex, primIndex, gltfMat.alphaMode);
+                        continue;
+                    }
+                    std::shared_ptr<MaterialHandle> pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
+                    if (!pMaterial) {
+                        VulkanUtils::LogErr("SceneManager: pipeline \"{}\" not registered for glTF \"{}\"", pipelineKey, gltfPath);
+                        continue;
+                    }
+
+                    std::vector<VertexData> vertices;
+                    if (!GetMeshDataFromGltf(*model, meshIndex, static_cast<int>(primIndex), vertices)) {
+                        VulkanUtils::LogErr("SceneManager: ExtractVertexData failed for \"{}\" mesh {} primitive {}",
+                                           gltfPath, meshIndex, primIndex);
+                        continue;
+                    }
+                    const uint32_t vertexCount = static_cast<uint32_t>(vertices.size());
+                    const std::string meshKey = gltfPath + ":" + std::to_string(meshIndex) + ":" + std::to_string(primIndex);
+                    std::shared_ptr<MeshHandle> pMesh = m_pMeshManager->GetOrCreateFromGltf(meshKey, vertices.data(), vertexCount);
+                    if (!pMesh) {
+                        VulkanUtils::LogErr("SceneManager: GetOrCreateFromGltf failed for \"{}\" mesh {} primitive {}",
+                                           gltfPath, meshIndex, primIndex);
+                        continue;
+                    }
+
+                    std::shared_ptr<TextureHandle> pTexture;
+                    if (m_pTextureManager && hasTexture) {
+                        int texIdx = gltfMat.pbrMetallicRoughness.baseColorTexture.index;
+                        if (texIdx >= 0 && size_t(texIdx) < model->textures.size()) {
+                            const tinygltf::Texture& tex = model->textures[size_t(texIdx)];
+                            if (tex.source >= 0 && size_t(tex.source) < model->images.size()) {
+                                const tinygltf::Image& img = model->images[size_t(tex.source)];
+                                if (!img.image.empty() && img.width > 0 && img.height > 0 && img.component > 0) {
+                                    std::string texName = img.uri.empty()
+                                        ? ("tex_" + gltfPath + "_" + std::to_string(tex.source))
+                                        : img.uri;
+                                    pTexture = m_pTextureManager->GetOrCreateFromMemory(texName, img.width, img.height, img.component, img.image.data());
+                                }
+                            }
+                        }
+                    }
+
+                    Object obj;
+                    obj.pMesh = std::move(pMesh);
+                    obj.pMaterial = std::move(pMaterial);
+                    obj.pTexture = std::move(pTexture);
+
+                    float combined[16];
+                    MatMultiply(combined, instanceTransform, nodeWorld);
+                    std::memcpy(obj.localTransform, combined, sizeof(combined));
+
+                    const std::vector<double>& baseColor = gltfMat.pbrMetallicRoughness.baseColorFactor;
+                    if (baseColor.size() >= 4u) {
+                        obj.color[0] = static_cast<float>(baseColor[0]);
+                        obj.color[1] = static_cast<float>(baseColor[1]);
+                        obj.color[2] = static_cast<float>(baseColor[2]);
+                        obj.color[3] = static_cast<float>(baseColor[3]);
+                    }
+                    if (hasColorOverride) {
+                        obj.color[0] = colorOverride[0];
+                        obj.color[1] = colorOverride[1];
+                        obj.color[2] = colorOverride[2];
+                        obj.color[3] = colorOverride[3];
+                    }
+
+                    if (gltfMat.emissiveFactor.size() >= 3u) {
+                        obj.emissive[0] = static_cast<float>(gltfMat.emissiveFactor[0]);
+                        obj.emissive[1] = static_cast<float>(gltfMat.emissiveFactor[1]);
+                        obj.emissive[2] = static_cast<float>(gltfMat.emissiveFactor[2]);
+                    }
+                    if (hasEmissiveOverride) {
+                        obj.emissive[0] = emissiveOverride[0];
+                        obj.emissive[1] = emissiveOverride[1];
+                        obj.emissive[2] = emissiveOverride[2];
+                        obj.emissive[3] = emissiveOverride[3];
+                    }
+
+                    obj.pushData.resize(kObjectPushConstantSize);
+                    obj.pushDataSize = kObjectPushConstantSize;
+                    objs.push_back(std::move(obj));
+                }
+            }
+
+            for (int child : node.children)
+                visitNode(child, nodeWorld);
+        };
+
+        float identity[16];
+        MatIdentity(identity);
+        for (int rootNode : roots)
+            visitNode(rootNode, identity);
     }
 
     const size_t objectCount = objs.size();

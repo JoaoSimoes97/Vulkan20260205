@@ -2,7 +2,8 @@
 #include "managers/mesh_manager.h"
 #include "gltf_mesh_utils.h"
 #include "vulkan/vulkan_utils.h"
-#include <cmath>
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 
 namespace ProceduralMeshFactory {
 
@@ -168,9 +169,9 @@ std::shared_ptr<MeshHandle> CreateSphere(MeshManager* pMeshManager, int segments
     
     // Generate vertices
     for (int r = 0; r <= rings; ++r) {
-        float phi = static_cast<float>(r) / rings * static_cast<float>(M_PI);
+        float phi = static_cast<float>(r) / rings * glm::pi<float>();
         for (int s = 0; s <= sectors; ++s) {
-            float theta = static_cast<float>(s) / sectors * 2.0f * static_cast<float>(M_PI);
+            float theta = static_cast<float>(s) / sectors * 2.0f * glm::pi<float>();
             
             VertexData v;
             v.position[0] = radius * std::sin(phi) * std::cos(theta);
@@ -229,7 +230,7 @@ std::shared_ptr<MeshHandle> CreateCylinder(MeshManager* pMeshManager, int segmen
     
     // Side vertices (duplicate for proper normals)
     for (int s = 0; s <= segments; ++s) {
-        float theta = static_cast<float>(s) / segments * 2.0f * static_cast<float>(M_PI);
+        float theta = static_cast<float>(s) / segments * 2.0f * glm::pi<float>();
         float x = radius * std::cos(theta);
         float z = radius * std::sin(theta);
         
@@ -290,7 +291,7 @@ std::shared_ptr<MeshHandle> CreateCone(MeshManager* pMeshManager, int segments) 
     
     // Base vertices
     for (int s = 0; s <= segments; ++s) {
-        float theta = static_cast<float>(s) / segments * 2.0f * static_cast<float>(M_PI);
+        float theta = static_cast<float>(s) / segments * 2.0f * glm::pi<float>();
         float x = radius * std::cos(theta);
         float z = radius * std::sin(theta);
         

@@ -104,11 +104,15 @@ echo [INFO] nlohmann-json is required. Install via vcpkg: vcpkg install nlohmann
 echo        Configure CMake with: -DCMAKE_TOOLCHAIN_FILE=^<vcpkg_path^>\scripts\buildsystems\vcpkg.cmake
 echo.
 
+echo Checking for GLM (required for graphics math)...
+echo [INFO] glm is required. Install via vcpkg: vcpkg install glm
+echo.
+
 echo ==========================================
 echo Project setup check complete!
 echo ==========================================
 echo.
-echo Required: Vulkan SDK, CMake, C++ compiler, nlohmann-json (vcpkg), SDL3 (vcpkg). Setup populates deps\ with stb and TinyGLTF.
+echo Required: Vulkan SDK, CMake, C++ compiler, nlohmann-json (vcpkg), SDL3 (vcpkg), glm (vcpkg). Setup populates deps\ with stb and TinyGLTF.
 echo.
 echo Next steps:
 echo 1. Build project (pass --debug or --release):

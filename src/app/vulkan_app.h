@@ -82,8 +82,8 @@ private:
     DescriptorSetLayoutManager m_descriptorSetLayoutManager;
     DescriptorPoolManager     m_descriptorPoolManager;
     std::map<std::string, std::vector<VkDescriptorSet>> m_pipelineDescriptorSets;
-    VkDescriptorSet           m_descriptorSetMain = VK_NULL_HANDLE;  /* single set for "main" pipeline (default texture) */
-    /** Keep default texture alive so TrimUnused() does not destroy it (descriptor set uses its view/sampler). */
+    VkDescriptorSet           m_descriptorSetMain = VK_NULL_HANDLE;  /* single set for textured pipelines (default texture) */
+    /** Keep default texture alive so TrimUnused() does not destroy it (textured descriptor sets use its view/sampler). */
     std::shared_ptr<TextureHandle> m_pDefaultTexture;
     /** Per-texture descriptor set cache: texture -> descriptor set. */
     std::map<TextureHandle*, VkDescriptorSet> m_textureDescriptorSets;

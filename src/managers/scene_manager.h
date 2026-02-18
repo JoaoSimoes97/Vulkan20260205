@@ -6,6 +6,11 @@
 #include <string>
 #include <map>
 
+namespace tinygltf {
+struct Model;
+struct Primitive;
+}
+
 class MaterialManager;
 class MeshManager;
 class TextureManager;
@@ -50,6 +55,12 @@ public:
 private:
     /** Helper: check if source is procedural (starts with "procedural:"), extract type, return mesh. */
     std::shared_ptr<MeshHandle> LoadProceduralMesh(const std::string& source);
+
+    /**
+     * Future-work hooks: if called, log once per glTF so animation/skinning tasks are not forgotten.
+     */
+    void PrepareAnimationImportStub(const tinygltf::Model& model, const std::string& gltfPath);
+    void PrepareSkinningImportStub(const tinygltf::Model& model, const tinygltf::Primitive& prim, const std::string& gltfPath);
 
     GltfLoader m_gltfLoader;
     MaterialManager* m_pMaterialManager = nullptr;
