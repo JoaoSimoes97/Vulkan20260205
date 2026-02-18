@@ -45,7 +45,7 @@ Asset managers use `shared_ptr` so resources are released when nothing uses them
 - **Draw list**: Each `DrawCall` holds pipeline, pipeline layout, vertex buffer + offset, draw params (vertex count, instance count, first vertex, first instance), and push constant data. Built each frame from scene: material → pipeline/layout, mesh → vertex buffer and draw params. **VulkanCommandBuffers::Record** binds vertex buffers before each draw.
 - **Cleanup order**: Unload scene first so no objects hold `shared_ptr<MeshHandle>`. Then MeshManager.Destroy() clears its cache and all MeshHandle destructors run (destroying VkBuffer/VkDeviceMemory). Shader manager must be destroyed **before** the device so all `VkShaderModule`s are freed. See Init and cleanup order above.
 
-See [plan-loading-and-managers.md](plan-loading-and-managers.md) for the implementation plan.
+See [ROADMAP.md](ROADMAP.md) Phase 2–3 for the implementation plan.
 
 ## Swapchain extent and aspect ratio
 
@@ -99,7 +99,7 @@ Validation layers are **not** in the config file (dev/debug only); enabled when 
 
 See [vulkan/swapchain-rebuild-cases.md](vulkan/swapchain-rebuild-cases.md). For config file location and editing see [getting-started.md](getting-started.md) (Config). For aspect/resize issues see [troubleshooting.md](troubleshooting.md).
 
-See also [plan-rendering-and-materials.md](plan-rendering-and-materials.md) and [plan-editor-and-scene.md](plan-editor-and-scene.md).
+See also [ROADMAP.md](ROADMAP.md) for the complete phase breakdown.
 
 ## Rendering and draw list
 
@@ -114,7 +114,7 @@ See also [plan-rendering-and-materials.md](plan-rendering-and-materials.md) and 
 
 ## Future extensions (not implemented yet)
 
-- **Phase 2** — MeshManager, MaterialManager, Scene, SceneManager, draw list from scene: **implemented**. See [plan-editor-and-scene.md](plan-editor-and-scene.md). Scene file format: JSON with `name` and `objects` array (mesh, material, position, color); load via **LoadSceneAsync** (JobQueue).
+- **Phase 2** — MeshManager, MaterialManager, Scene, SceneManager, draw list from scene: **implemented**. See [ROADMAP.md](ROADMAP.md) Phase 2. Scene file format: JSON with `name` and `objects` array (mesh, material, position, color); load via **LoadSceneAsync** (JobQueue).
 - **Multiple cameras and viewports** — The design should support as many cameras as the user wants. Each camera can have its own projection (ortho or perspective) and view; each may render to its own target or share the swapchain. A second viewport (e.g. to show where the main camera is and what it is looking at) or depth visualization are planned: same render-area/viewport/scissor parameterization and optional extra passes (sample depth texture, draw into a subregion) will support this without changing the core recording API.
 - **Shadow maps** — Offscreen render targets (images + framebuffers + pipeline); separate from main swapchain, owned by a dedicated module.
 - **Raytracing** — Acceleration structures, raytracing pipeline; separate module, composed in VulkanApp.

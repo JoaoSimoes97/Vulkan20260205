@@ -2,7 +2,7 @@
 
 Use this as a checklist while following your tutorial. The project already has: window (SDL3), event loop, `bFramebufferResized` / `bWindowMinimized`, and hints in `vulkan_app.cpp`. See [../guidelines/coding-guidelines.md](../guidelines/coding-guidelines.md) for naming and style.
 
-**After Vulkan works:** Dear ImGui is planned; see [../future-ideas/README.md](../future-ideas/README.md) (UI / ImGui). Add it once you have a working triangle and swapchain.
+**After Vulkan works:** Dear ImGui is planned (see [../ROADMAP.md](../ROADMAP.md) Future section). Add it once you have a working triangle and swapchain.
 
 ## Init order (in `initVulkan()`)
 
