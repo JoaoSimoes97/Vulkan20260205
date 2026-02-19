@@ -10,6 +10,7 @@
 #include "managers/texture_manager.h"
 #include "render/render_list_builder.h"
 #include "thread/job_queue.h"
+#include "thread/resource_manager_thread.h"
 #include "vulkan_config.h"
 #include "vulkan_command_buffers.h"
 #include "vulkan_depth_image.h"
@@ -60,6 +61,7 @@ private:
     JobQueue::CompletedJobHandler m_completedJobHandler;
     VulkanConfig m_config;
     JobQueue m_jobQueue;
+    ResourceManagerThread m_resourceManagerThread;
     VulkanShaderManager m_shaderManager;
     std::unique_ptr<Window> m_pWindow;
     VulkanInstance m_instance;
@@ -85,6 +87,8 @@ private:
     VkDescriptorSet           m_descriptorSetMain = VK_NULL_HANDLE;  /* single set for textured pipelines (default texture) */
     /** Keep default texture alive so TrimUnused() does not destroy it (textured descriptor sets use its view/sampler). */
     std::shared_ptr<TextureHandle> m_pDefaultTexture;
+    /** Keep material references alive so TrimUnused() does not destroy them. */
+    std::vector<std::shared_ptr<MaterialHandle>> m_cachedMaterials;
     /** Per-texture descriptor set cache: texture -> descriptor set. */
     std::map<TextureHandle*, VkDescriptorSet> m_textureDescriptorSets;
     /** Reverse map: descriptor set -> texture (for reference counting and cleanup). */

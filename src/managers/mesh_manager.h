@@ -5,6 +5,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <shared_mutex>
 #include <vulkan/vulkan.h>
 
 struct JobQueue;
@@ -85,6 +86,7 @@ private:
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     VkQueue m_queue = VK_NULL_HANDLE;
     uint32_t m_queueFamilyIndex = 0u;
+    mutable std::shared_mutex m_mutex;
     std::map<std::string, std::shared_ptr<MeshHandle>> m_cache;
     std::set<std::string> m_pendingMeshPaths;
     /** Meshes trimmed from cache; destroyed in ProcessPendingDestroys() after fence wait. */

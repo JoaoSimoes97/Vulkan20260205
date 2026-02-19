@@ -175,15 +175,15 @@ void VulkanApp::InitVulkan() {
     stPipeParamsTransparent.alphaBlendOp = VK_BLEND_OP_ADD;
     stPipeParamsTransparent.depthWriteEnable = VK_FALSE;
 
-    this->m_materialManager.RegisterMaterial("main_tex", PIPELINE_KEY_MAIN_TEX, stTexturedLayoutDesc, stPipeParamsMain);
-    this->m_materialManager.RegisterMaterial("wire_tex", PIPELINE_KEY_WIRE_TEX, stTexturedLayoutDesc, stPipeParamsWire);
-    this->m_materialManager.RegisterMaterial("mask_tex", PIPELINE_KEY_MASK_TEX, stTexturedLayoutDesc, stPipeParamsMask);
-    this->m_materialManager.RegisterMaterial("transparent_tex", PIPELINE_KEY_TRANSPARENT_TEX, stTexturedLayoutDesc, stPipeParamsTransparent);
-    this->m_materialManager.RegisterMaterial("main_untex", PIPELINE_KEY_MAIN_UNTEX, stUntexturedLayoutDesc, stPipeParamsMain);
-    this->m_materialManager.RegisterMaterial("wire_untex", PIPELINE_KEY_WIRE_UNTEX, stUntexturedLayoutDesc, stPipeParamsWire);
-    this->m_materialManager.RegisterMaterial("mask_untex", PIPELINE_KEY_MASK_UNTEX, stUntexturedLayoutDesc, stPipeParamsMask);
-    this->m_materialManager.RegisterMaterial("transparent_untex", PIPELINE_KEY_TRANSPARENT_UNTEX, stUntexturedLayoutDesc, stPipeParamsTransparent);
-    this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stUntexturedLayoutDesc, stPipeParamsMain);
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("main_tex", PIPELINE_KEY_MAIN_TEX, stTexturedLayoutDesc, stPipeParamsMain));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("wire_tex", PIPELINE_KEY_WIRE_TEX, stTexturedLayoutDesc, stPipeParamsWire));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_tex", PIPELINE_KEY_MASK_TEX, stTexturedLayoutDesc, stPipeParamsMask));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("transparent_tex", PIPELINE_KEY_TRANSPARENT_TEX, stTexturedLayoutDesc, stPipeParamsTransparent));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("main_untex", PIPELINE_KEY_MAIN_UNTEX, stUntexturedLayoutDesc, stPipeParamsMain));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("wire_untex", PIPELINE_KEY_WIRE_UNTEX, stUntexturedLayoutDesc, stPipeParamsWire));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_untex", PIPELINE_KEY_MASK_UNTEX, stUntexturedLayoutDesc, stPipeParamsMask));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("transparent_untex", PIPELINE_KEY_TRANSPARENT_UNTEX, stUntexturedLayoutDesc, stPipeParamsTransparent));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stUntexturedLayoutDesc, stPipeParamsMain));
     this->m_meshManager.SetDevice(this->m_device.GetDevice());
     this->m_meshManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
     this->m_meshManager.SetQueue(this->m_device.GetGraphicsQueue());
@@ -195,6 +195,9 @@ void VulkanApp::InitVulkan() {
     this->m_sceneManager.SetDependencies(&this->m_materialManager, &this->m_meshManager, &this->m_textureManager);
     this->m_meshManager.SetJobQueue(&this->m_jobQueue);
     this->m_textureManager.SetJobQueue(&this->m_jobQueue);
+    
+    /* Start resource manager thread for async cleanup */
+    this->m_resourceManagerThread.Start();
     
     // Load level from config (set via command-line)
     if (m_config.sLevelPath.empty()) {
@@ -417,11 +420,18 @@ void VulkanApp::MainLoop() {
         // Clean up unused texture descriptor sets before trimming textures
         CleanupUnusedTextureDescriptorSets();
         
-        this->m_shaderManager.TrimUnused();
-        this->m_pipelineManager.TrimUnused();
-        this->m_materialManager.TrimUnused();
-        this->m_meshManager.TrimUnused();
-        this->m_textureManager.TrimUnused();
+        /* Enqueue resource cleanup to worker thread (non-blocking) */
+        std::vector<ResourceManagerThread::Command> cleanupCommands = {
+            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimMaterials, 
+                [this]() { this->m_materialManager.TrimUnused(); }),
+            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimMeshes,
+                [this]() { this->m_meshManager.TrimUnused(); }),
+            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimTextures,
+                [this]() { this->m_textureManager.TrimUnused(); }),
+            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimPipelines,
+                [this]() { this->m_pipelineManager.TrimUnused(); }),
+        };
+        this->m_resourceManagerThread.EnqueueCommands(cleanupCommands);
 
         bQuit = this->m_pWindow->PollEvents();
         if (bQuit == true)

@@ -422,6 +422,7 @@ bool MeshManager::ParseObj(const uint8_t* pData, size_t size, std::vector<float>
 }
 
 std::shared_ptr<MeshHandle> MeshManager::GetMesh(const std::string& key) const {
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
     auto it = m_cache.find(key);
     if (it == m_cache.end())
         return nullptr;
@@ -429,6 +430,7 @@ std::shared_ptr<MeshHandle> MeshManager::GetMesh(const std::string& key) const {
 }
 
 void MeshManager::TrimUnused() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     for (auto it = m_cache.begin(); it != m_cache.end(); ) {
         if (it->second.use_count() == 1u) {
             m_pendingDestroy.push_back(std::move(it->second));
@@ -440,6 +442,7 @@ void MeshManager::TrimUnused() {
 }
 
 void MeshManager::ProcessPendingDestroys() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     m_pendingDestroy.clear();  /* shared_ptrs released → MeshHandle destructors → vkDestroyBuffer; safe after vkWaitForFences */
 }
 

@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <shared_mutex>
 #include <vulkan/vulkan.h>
 
 class PipelineManager;
@@ -57,5 +58,6 @@ public:
     void TrimUnused();
 
 private:
+    mutable std::shared_mutex m_mutex;
     std::map<std::string, std::shared_ptr<MaterialHandle>> m_registry;
 };

@@ -34,6 +34,7 @@ std::shared_ptr<MaterialHandle> MaterialManager::RegisterMaterial(const std::str
                                                                     const std::string& sPipelineKey,
                                                                     const PipelineLayoutDescriptor& layoutDescriptor,
                                                                     const GraphicsPipelineParams& pipelineParams) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     auto it = this->m_registry.find(sMaterialId);
     if (it != this->m_registry.end())
         return it->second;
@@ -43,6 +44,7 @@ std::shared_ptr<MaterialHandle> MaterialManager::RegisterMaterial(const std::str
 }
 
 std::shared_ptr<MaterialHandle> MaterialManager::GetMaterial(const std::string& sMaterialId) const {
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
     auto it = this->m_registry.find(sMaterialId);
     if (it == this->m_registry.end())
         return nullptr;
@@ -50,6 +52,7 @@ std::shared_ptr<MaterialHandle> MaterialManager::GetMaterial(const std::string& 
 }
 
 void MaterialManager::TrimUnused() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     for (auto it = this->m_registry.begin(); it != this->m_registry.end(); ) {
         if (it->second.use_count() == 1u)
             it = this->m_registry.erase(it);

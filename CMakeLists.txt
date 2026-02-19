@@ -85,6 +85,7 @@ set(SOURCES
     src/config/vulkan_config.cpp
     src/config/config_loader.cpp
     src/thread/job_queue.cpp
+    src/thread/resource_manager_thread.cpp
     src/window/window.cpp
     src/camera/camera.cpp
     src/vulkan/vulkan_utils.cpp
