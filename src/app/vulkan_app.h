@@ -6,6 +6,7 @@
 #include "managers/material_manager.h"
 #include "managers/mesh_manager.h"
 #include "managers/pipeline_manager.h"
+#include "managers/resource_cleanup_manager.h"
 #include "managers/scene_manager.h"
 #include "managers/texture_manager.h"
 #include "render/render_list_builder.h"
@@ -62,6 +63,7 @@ private:
     VulkanConfig m_config;
     JobQueue m_jobQueue;
     ResourceManagerThread m_resourceManagerThread;
+    ResourceCleanupManager m_resourceCleanupManager;
     VulkanShaderManager m_shaderManager;
     std::unique_ptr<Window> m_pWindow;
     VulkanInstance m_instance;

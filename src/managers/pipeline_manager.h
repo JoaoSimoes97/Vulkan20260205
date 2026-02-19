@@ -4,6 +4,7 @@
 #include "vulkan/vulkan_shader_manager.h"
 #include <map>
 #include <memory>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
@@ -71,4 +72,5 @@ private:
     };
     std::map<std::string, PipelineEntry> m_entries;
     std::vector<std::shared_ptr<PipelineHandle>> m_pendingDestroy;
+    mutable std::shared_mutex m_mutex;
 };

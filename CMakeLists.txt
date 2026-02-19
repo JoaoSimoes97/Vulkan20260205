@@ -106,6 +106,7 @@ set(SOURCES
     src/managers/mesh_manager.cpp
     src/managers/scene_manager.cpp
     src/managers/texture_manager.cpp
+    src/managers/resource_cleanup_manager.cpp
     src/loaders/gltf_loader.cpp
     src/loaders/gltf_mesh_utils.cpp
     src/loaders/procedural_mesh_factory.cpp
@@ -125,6 +126,7 @@ set(HEADERS
     src/managers/mesh_manager.h
     src/managers/scene_manager.h
     src/managers/texture_manager.h
+    src/managers/resource_cleanup_manager.h
     src/loaders/gltf_loader.h
     src/loaders/procedural_mesh_factory.h
     src/scene/scene.h

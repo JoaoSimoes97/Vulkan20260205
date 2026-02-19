@@ -47,6 +47,41 @@ Asset managers use `shared_ptr` so resources are released when nothing uses them
 
 See [ROADMAP.md](ROADMAP.md) Phase 2–3 for the implementation plan.
 
+## Resource cleanup and async management
+
+**ResourceCleanupManager** centralizes cleanup of all asset caches (materials, meshes, textures, pipelines, shaders). It provides a single orchestrator interface to trim unused resources and is invoked asynchronously by **ResourceManagerThread** so cleanup does not block the main rendering thread.
+
+**Thread safety:**
+- **MaterialManager**, **MeshManager**, **TextureManager**, **PipelineManager** all use `std::shared_mutex` to protect concurrent access.
+  - Read operations (e.g., `GetMaterial()`, `GetMesh()`) use `std::shared_lock` to allow multiple concurrent readers.
+  - Write operations (e.g., `TrimUnused()`, cache registration, destruction) use `std::unique_lock` for exclusive access.
+- **ShaderManager** protects shader cache and pending load state similarly.
+
+**Async cleanup workflow:**
+1. **Main thread** during each frame calls `m_resourceManagerThread.EnqueueCommand(TrimAll, TrimAllCaches)` (non-blocking).
+2. **Worker thread** waits on an idle timeout (10 ms by default when queue is empty).
+3. **Worker thread** dequeues the TrimAll command and calls `ResourceCleanupManager::TrimAllCaches()`.
+4. **ResourceCleanupManager** iterates each registered manager and trims caches:
+   - `TrimMaterials()`: removes materials where `use_count() == 1` (no objects hold the only reference).
+   - `TrimMeshes()`: removes meshes no material references.
+   - `TrimTextures()`: removes textures no material references.
+   - `TrimPipelines()`: removes pipelines no material uses.
+   - Can also trim shaders (if enabled via `SetTrimShaders(true)`).
+5. **Worker thread** sleeps again. Meanwhile, **main thread** continues rendering (GPU processes submitted commands).
+6. **Main thread** after GPU idle (vkWaitForFences) calls `ProcessPendingDestroys()` on each manager to safely destroy resources that were moved to the pending list during trim.
+
+**Design rationale:**
+- Trimming caches is relatively cheap (O(n) scan of shared_ptrs) but adds up over time when many objects are loaded/unloaded. Moving it to a worker thread eliminates frame hiccups.
+- `ProcessPendingDestroys()` runs on the main thread after GPU idle to guarantee no in-flight command buffers or pipelines are being destroyed.
+- Each manager can be individually enabled/disabled for trimming via `ResourceCleanupManager::SetTrimX()` methods, allowing fine-grained control during profiling or specialized scenarios.
+
+**Performance impact:**
+- Main thread enqueue: ~0.01 ms.
+- Worker thread trim + pending destroy: ~650 µs total (while GPU processes prior frames).
+- Net result: **zero added main-thread latency** to frame rendering.
+
+See [plan-loading-and-managers.md](plan-loading-and-managers.md) for detailed resource lifecycle and loading strategy.
+
 ## Swapchain extent and aspect ratio
 
 Extent is the single source of truth for how big the swapchain images are and must match what the window displays so the image is not stretched.

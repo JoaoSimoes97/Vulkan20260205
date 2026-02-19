@@ -192,12 +192,14 @@ void TextureManager::SetQueueFamilyIndex(uint32_t queueFamilyIndex) {
 }
 
 std::shared_ptr<TextureHandle> TextureManager::GetTexture(const std::string& path) const {
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
     auto it = m_cache.find(path);
     if (it == m_cache.end()) return nullptr;
     return it->second;
 }
 
 std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultTexture() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     const char* sDefaultKey = "__default";
     auto it = m_cache.find(sDefaultKey);
     if (it != m_cache.end())
@@ -210,6 +212,7 @@ std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultTexture() {
 }
 
 std::shared_ptr<TextureHandle> TextureManager::GetOrCreateFromMemory(const std::string& cacheKey, int width, int height, int channels, const unsigned char* pPixels) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     if (cacheKey.empty() || pPixels == nullptr || width <= 0 || height <= 0 || channels <= 0)
         return nullptr;
     auto it = m_cache.find(cacheKey);
@@ -230,6 +233,7 @@ void TextureManager::RequestLoadTexture(const std::string& path) {
 }
 
 void TextureManager::OnCompletedTexture(const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     if (this->m_pendingPaths.erase(sPath_ic) == 0)
         return;
     int iWidth = 0;
@@ -469,6 +473,7 @@ std::shared_ptr<TextureHandle> TextureManager::UploadTexture(int width, int heig
 }
 
 void TextureManager::TrimUnused() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     for (auto it = m_cache.begin(); it != m_cache.end(); ) {
         if (it->second.use_count() == 1)
             it = m_cache.erase(it);
@@ -478,6 +483,7 @@ void TextureManager::TrimUnused() {
 }
 
 void TextureManager::Destroy() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     m_pendingPaths.clear();
     m_cache.clear();
     m_pJobQueue = nullptr;

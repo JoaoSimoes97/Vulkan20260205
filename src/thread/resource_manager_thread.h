@@ -19,6 +19,8 @@ public:
         TrimMeshes,
         TrimTextures,
         TrimPipelines,
+        TrimShaders,
+        TrimAll,           // Trim all caches at once
         ProcessDestroys,  // Run all ProcessPendingDestroys
         Shutdown,
     };

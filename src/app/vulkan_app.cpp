@@ -199,6 +199,15 @@ void VulkanApp::InitVulkan() {
     /* Start resource manager thread for async cleanup */
     this->m_resourceManagerThread.Start();
     
+    /* Register all managers with cleanup orchestrator */
+    this->m_resourceCleanupManager.SetManagers(
+        &this->m_materialManager,
+        &this->m_meshManager,
+        &this->m_textureManager,
+        &this->m_pipelineManager,
+        &this->m_shaderManager
+    );
+    
     // Load level from config (set via command-line)
     if (m_config.sLevelPath.empty()) {
         VulkanUtils::LogErr("No level path specified in config");
@@ -420,18 +429,11 @@ void VulkanApp::MainLoop() {
         // Clean up unused texture descriptor sets before trimming textures
         CleanupUnusedTextureDescriptorSets();
         
-        /* Enqueue resource cleanup to worker thread (non-blocking) */
-        std::vector<ResourceManagerThread::Command> cleanupCommands = {
-            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimMaterials, 
-                [this]() { this->m_materialManager.TrimUnused(); }),
-            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimMeshes,
-                [this]() { this->m_meshManager.TrimUnused(); }),
-            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimTextures,
-                [this]() { this->m_textureManager.TrimUnused(); }),
-            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimPipelines,
-                [this]() { this->m_pipelineManager.TrimUnused(); }),
-        };
-        this->m_resourceManagerThread.EnqueueCommands(cleanupCommands);
+        /* Enqueue unified resource cleanup to worker thread (non-blocking) */
+        this->m_resourceManagerThread.EnqueueCommand(
+            ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimAll,
+                [this]() { this->m_resourceCleanupManager.TrimAllCaches(); })
+        );
 
         bQuit = this->m_pWindow->PollEvents();
         if (bQuit == true)

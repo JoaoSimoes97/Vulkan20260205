@@ -22,6 +22,7 @@ void PipelineManager::RequestPipeline(const std::string& sKey,
                                        VulkanShaderManager* pShaderManager,
                                        const std::string& sVertPath,
                                        const std::string& sFragPath) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     if (pShaderManager == nullptr || !pShaderManager->IsValid())
         return;
     auto it = m_entries.find(sKey);
@@ -40,6 +41,7 @@ std::shared_ptr<PipelineHandle> PipelineManager::GetPipelineHandleIfReady(const 
                                                                           const GraphicsPipelineParams& pipelineParams,
                                                                           const PipelineLayoutDescriptor& layoutDescriptor,
                                                                           bool renderPassHasDepth) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE || pShaderManager == nullptr)
         return nullptr;
     auto it = m_entries.find(sKey);
@@ -80,6 +82,7 @@ std::shared_ptr<PipelineHandle> PipelineManager::GetPipelineHandleIfReady(const 
 }
 
 void PipelineManager::TrimUnused() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     for (auto it = m_entries.begin(); it != m_entries.end(); ) {
         if (it->second.handle && it->second.handle.use_count() == 1u) {
             m_pendingDestroy.push_back(std::move(it->second.handle));
@@ -91,6 +94,7 @@ void PipelineManager::TrimUnused() {
 }
 
 void PipelineManager::ProcessPendingDestroys() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     for (auto& p : m_pendingDestroy) {
         if (p && p->IsValid())
             p->Destroy();
@@ -99,6 +103,7 @@ void PipelineManager::ProcessPendingDestroys() {
 }
 
 void PipelineManager::DestroyPipelines() {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     for (auto& p : m_pendingDestroy) {
         if (p && p->IsValid())
             p->Destroy();
