@@ -129,7 +129,8 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
         
         // Use per-object texture descriptor set if available, otherwise fall back to pipeline default
         if (getTextureDescriptorSet && obj.pTexture && obj.pTexture->IsValid()) {
-            VkDescriptorSet texDescSet = getTextureDescriptorSet(obj.pTexture);
+            // Pass both base color and metallic-roughness textures to callback
+            VkDescriptorSet texDescSet = getTextureDescriptorSet(obj.pTexture, obj.pMetallicRoughnessTexture);
             if (texDescSet != VK_NULL_HANDLE) {
                 stD.descriptorSets = { texDescSet };
             }

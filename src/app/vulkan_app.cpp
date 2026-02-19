@@ -168,6 +168,13 @@ void VulkanApp::InitVulkan() {
                 .descriptorCount    = 1u,
                 .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
                 .pImmutableSamplers = nullptr,
+            },
+            {
+                .binding            = 4u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount    = 1u,
+                .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
             }
         };
         if (this->m_descriptorSetLayoutManager.RegisterLayout(kLayoutKeyMainFragTex, bindings) == VK_NULL_HANDLE)
@@ -188,15 +195,20 @@ void VulkanApp::InitVulkan() {
         },
         .descriptorSetLayouts = { pMainFragLayout },
     };
+    // glTF 2.0 spec mandates counter-clockwise winding for front faces.
+    // We use CCW here to match the spec. DoubleSided materials disable culling entirely.
     GraphicsPipelineParams stPipeParamsMain = {
         .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         .primitiveRestartEnable  = VK_FALSE,
         .polygonMode             = VK_POLYGON_MODE_FILL,
         .cullMode                = static_cast<VkCullModeFlags>((this->m_config.bCullBackFaces == true) ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE),
-        .frontFace               = VK_FRONT_FACE_CLOCKWISE,
+        .frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .lineWidth               = static_cast<float>(1.0f),
         .rasterizationSamples    = VK_SAMPLE_COUNT_1_BIT,
     };
+    // Double-sided variant: always disable culling regardless of config
+    GraphicsPipelineParams stPipeParamsDoubleSided = stPipeParamsMain;
+    stPipeParamsDoubleSided.cullMode = VK_CULL_MODE_NONE;
     GraphicsPipelineParams stPipeParamsWire = stPipeParamsMain;
     stPipeParamsWire.polygonMode = VK_POLYGON_MODE_LINE;
     GraphicsPipelineParams stPipeParamsMask = stPipeParamsMain;
@@ -210,6 +222,7 @@ void VulkanApp::InitVulkan() {
     stPipeParamsTransparent.alphaBlendOp = VK_BLEND_OP_ADD;
     stPipeParamsTransparent.depthWriteEnable = VK_FALSE;
 
+    // Single-sided materials (use configured culling)
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("main_tex", PIPELINE_KEY_MAIN_TEX, stTexturedLayoutDesc, stPipeParamsMain));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("wire_tex", PIPELINE_KEY_WIRE_TEX, stTexturedLayoutDesc, stPipeParamsWire));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_tex", PIPELINE_KEY_MASK_TEX, stTexturedLayoutDesc, stPipeParamsMask));
@@ -219,6 +232,13 @@ void VulkanApp::InitVulkan() {
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_untex", PIPELINE_KEY_MASK_UNTEX, stUntexturedLayoutDesc, stPipeParamsMask));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("transparent_untex", PIPELINE_KEY_TRANSPARENT_UNTEX, stUntexturedLayoutDesc, stPipeParamsTransparent));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stUntexturedLayoutDesc, stPipeParamsMain));
+    // Double-sided material variants (glTF doubleSided=true)
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("main_tex_ds", PIPELINE_KEY_MAIN_TEX, stTexturedLayoutDesc, stPipeParamsDoubleSided));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_tex_ds", PIPELINE_KEY_MASK_TEX, stTexturedLayoutDesc, stPipeParamsDoubleSided));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("transparent_tex_ds", PIPELINE_KEY_TRANSPARENT_TEX, stTexturedLayoutDesc, stPipeParamsDoubleSided));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("main_untex_ds", PIPELINE_KEY_MAIN_UNTEX, stUntexturedLayoutDesc, stPipeParamsDoubleSided));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_untex_ds", PIPELINE_KEY_MASK_UNTEX, stUntexturedLayoutDesc, stPipeParamsDoubleSided));
+    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("transparent_untex_ds", PIPELINE_KEY_TRANSPARENT_UNTEX, stUntexturedLayoutDesc, stPipeParamsDoubleSided));
     this->m_meshManager.SetDevice(this->m_device.GetDevice());
     this->m_meshManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
     this->m_meshManager.SetQueue(this->m_device.GetGraphicsQueue());
@@ -377,7 +397,14 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
         .range  = VK_WHOLE_SIZE,
     };
     
-    std::array<VkWriteDescriptorSet, 3> writeDescriptors = {{
+    /* Default MR texture: white (1,1,1,1) so metallic/roughness factors are used as-is */
+    VkDescriptorImageInfo stMRImageInfo = {
+        .sampler     = pDefaultTex->GetSampler(),
+        .imageView   = pDefaultTex->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    
+    std::array<VkWriteDescriptorSet, 4> writeDescriptors = {{
         {
             .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext            = nullptr,
@@ -412,6 +439,18 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
             .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .pImageInfo       = nullptr,
             .pBufferInfo      = &stLightBufferInfo,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = this->m_descriptorSetMain,
+            .dstBinding       = 4,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &stMRImageInfo,
+            .pBufferInfo      = nullptr,
             .pTexelBufferView = nullptr,
         }
     }};
@@ -448,6 +487,13 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<Te
         return VK_NULL_HANDLE;
     }
     
+    // Get default MR texture (white = metallic/roughness factors used as-is)
+    std::shared_ptr<TextureHandle> pDefaultMRTex = m_textureManager.GetOrCreateDefaultTexture();
+    if (!pDefaultMRTex || !pDefaultMRTex->IsValid()) {
+        VulkanUtils::LogErr("GetOrCreateDescriptorSetForTexture: failed to get default MR texture");
+        return VK_NULL_HANDLE;
+    }
+    
     // Write texture to descriptor set
     VkDescriptorImageInfo imageInfo = {
         .sampler     = pTexture->GetSampler(),
@@ -467,7 +513,14 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<Te
         .range  = VK_WHOLE_SIZE,
     };
     
-    std::array<VkWriteDescriptorSet, 3> writes = {{
+    /* Default MR texture: white (1,1,1,1) so metallic/roughness factors are used as-is */
+    VkDescriptorImageInfo mrImageInfo = {
+        .sampler     = pDefaultMRTex->GetSampler(),
+        .imageView   = pDefaultMRTex->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    
+    std::array<VkWriteDescriptorSet, 4> writes = {{
         {
             .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext            = nullptr,
@@ -503,6 +556,18 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<Te
             .pImageInfo       = nullptr,
             .pBufferInfo      = &lightBufferInfo,
             .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 4,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &mrImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
         }
     }};
     vkUpdateDescriptorSets(m_device.GetDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
@@ -510,6 +575,125 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<Te
     // Cache it (with reference to keep texture alive)
     m_textureDescriptorSets[pRawTexture] = newSet;
     m_descriptorSetTextures[newSet] = pTexture;
+    
+    return newSet;
+}
+
+VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<TextureHandle> pBaseColorTexture,
+                                                                std::shared_ptr<TextureHandle> pMetallicRoughnessTexture) {
+    if (!pBaseColorTexture || !pBaseColorTexture->IsValid())
+        return VK_NULL_HANDLE;
+    
+    // Create combined cache key from both texture pointers
+    TextureHandle* pRawBaseColor = pBaseColorTexture.get();
+    TextureHandle* pRawMR = pMetallicRoughnessTexture ? pMetallicRoughnessTexture.get() : nullptr;
+    
+    // For caching, use pair hash or combine pointers
+    // Simple approach: use the base color pointer for cache (since MR is optional and often the same)
+    // Better: create a multi-key cache. For now, generate a unique key per (base, MR) pair.
+    // Use pair cache key:
+    std::pair<TextureHandle*, TextureHandle*> cacheKey = {pRawBaseColor, pRawMR};
+    
+    auto it = m_texturePairDescriptorSets.find(cacheKey);
+    if (it != m_texturePairDescriptorSets.end())
+        return it->second;
+    
+    // Allocate new descriptor set
+    VkDescriptorSet newSet = m_descriptorPoolManager.AllocateSet(std::string("main_frag_tex"));
+    if (newSet == VK_NULL_HANDLE) {
+        VulkanUtils::LogErr("GetOrCreateDescriptorSetForTextures: failed to allocate descriptor set");
+        return VK_NULL_HANDLE;
+    }
+    
+    // Get default MR texture (white = metallic/roughness factors used as-is)
+    std::shared_ptr<TextureHandle> pMRToUse = pMetallicRoughnessTexture;
+    if (!pMRToUse || !pMRToUse->IsValid()) {
+        pMRToUse = m_textureManager.GetOrCreateDefaultTexture();
+    }
+    if (!pMRToUse || !pMRToUse->IsValid()) {
+        VulkanUtils::LogErr("GetOrCreateDescriptorSetForTextures: failed to get MR texture");
+        return VK_NULL_HANDLE;
+    }
+    
+    // Write textures to descriptor set
+    VkDescriptorImageInfo baseColorImageInfo = {
+        .sampler     = pBaseColorTexture->GetSampler(),
+        .imageView   = pBaseColorTexture->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    
+    VkDescriptorBufferInfo bufferInfo = {
+        .buffer = this->m_objectDataBuffer,
+        .offset = 0,
+        .range  = VK_WHOLE_SIZE,
+    };
+    
+    VkDescriptorBufferInfo lightBufferInfo = {
+        .buffer = this->m_lightBuffer,
+        .offset = 0,
+        .range  = VK_WHOLE_SIZE,
+    };
+    
+    VkDescriptorImageInfo mrImageInfo = {
+        .sampler     = pMRToUse->GetSampler(),
+        .imageView   = pMRToUse->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    
+    std::array<VkWriteDescriptorSet, 4> writes = {{
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 0,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &baseColorImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 2,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &bufferInfo,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 3,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &lightBufferInfo,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 4,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &mrImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        }
+    }};
+    vkUpdateDescriptorSets(m_device.GetDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    
+    // Cache it
+    m_texturePairDescriptorSets[cacheKey] = newSet;
     
     return newSet;
 }
@@ -750,9 +934,9 @@ void VulkanApp::MainLoop() {
         EnsureMainDescriptorSetWritten();
 
         /* Build draw list from scene (frustum culling, push size validation, sort by pipeline/mesh). */
-        // Pass callback to get descriptor sets for per-object textures
-        auto getTextureDescriptorSet = [this](std::shared_ptr<TextureHandle> pTex) -> VkDescriptorSet {
-            return this->GetOrCreateDescriptorSetForTexture(pTex);
+        // Pass callback to get descriptor sets for per-object textures (base color + metallic-roughness)
+        auto getTextureDescriptorSet = [this](std::shared_ptr<TextureHandle> pBaseColor, std::shared_ptr<TextureHandle> pMR) -> VkDescriptorSet {
+            return this->GetOrCreateDescriptorSetForTextures(pBaseColor, pMR);
         };
         
         this->m_renderListBuilder.Build(this->m_drawCalls, pScene,

@@ -10,6 +10,10 @@ layout(push_constant) uniform Push {
 /* ---- Texture Sampler (binding 0) ---- */
 layout(set = 0, binding = 0) uniform sampler2D uTex;
 
+/* ---- Metallic-Roughness Texture (binding 4) ---- */
+/* glTF spec: Green channel = roughness, Blue channel = metallic */
+layout(set = 0, binding = 4) uniform sampler2D uMetallicRoughnessTex;
+
 /* ---- Object Data SSBO (binding 2) ---- */
 struct ObjectData {
     mat4 model;      // Model matrix (64 bytes)
@@ -118,10 +122,13 @@ void main() {
     vec2 uv = fract(inUV);
     vec4 texColor = texture(uTex, uv);
     
-    // Material properties
+    // Sample metallic-roughness texture (glTF: G=roughness, B=metallic)
+    vec4 mrTex = texture(uMetallicRoughnessTex, uv);
+    
+    // Material properties: factor * texture (per glTF spec)
     vec3 albedo = texColor.rgb * pc.color.rgb * objData.baseColor.rgb;
-    float metallic = clamp(objData.matProps.x, 0.0, 1.0);
-    float roughness = clamp(objData.matProps.y, MIN_ROUGHNESS, 1.0);
+    float metallic = clamp(objData.matProps.x * mrTex.b, 0.0, 1.0);
+    float roughness = clamp(objData.matProps.y * mrTex.g, MIN_ROUGHNESS, 1.0);
     vec3 emissive = objData.emissive.rgb * objData.emissive.a;
     
     // Normal and view direction

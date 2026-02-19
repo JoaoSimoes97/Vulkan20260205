@@ -24,9 +24,10 @@ public:
     RenderListBuilder() = default;
 
     /**
-     * Callback to get/create descriptor set for a texture. Returns VK_NULL_HANDLE for null/invalid textures.
+     * Callback to get/create descriptor set for textures. Returns VK_NULL_HANDLE for null/invalid textures.
+     * Takes base color texture and optional metallic-roughness texture.
      */
-    using GetTextureDescriptorSetFunc = std::function<VkDescriptorSet(std::shared_ptr<TextureHandle>)>;
+    using GetTextureDescriptorSetFunc = std::function<VkDescriptorSet(std::shared_ptr<TextureHandle>, std::shared_ptr<TextureHandle>)>;
     
     /**
      * Build draw calls from current scene. Fills outDrawCalls (cleared first).

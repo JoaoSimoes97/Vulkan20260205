@@ -8,6 +8,7 @@ Engine documentation organized by topic.
 
 | Document | Description |
 |----------|-------------|
+| [architecture-evolution.md](architecture-evolution.md) | **Active discussion: architecture improvements** |
 | [ROADMAP.md](ROADMAP.md) | Development status and planned features |
 | [getting-started.md](getting-started.md) | Build setup for Windows/Linux/macOS |
 | [architecture.md](architecture.md) | System design and module structure |

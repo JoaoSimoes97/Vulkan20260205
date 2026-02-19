@@ -25,7 +25,8 @@ struct Object {
     /** Material, mesh, and texture refs; draw list resolves these to VkPipeline, buffers, and descriptor sets. */
     std::shared_ptr<MaterialHandle> pMaterial;
     std::shared_ptr<MeshHandle>     pMesh;
-    std::shared_ptr<TextureHandle>  pTexture; // Per-object texture (from glTF baseColorTexture); nullptr = use default white
+    std::shared_ptr<TextureHandle>  pTexture;                  // Per-object texture (from glTF baseColorTexture); nullptr = use default white
+    std::shared_ptr<TextureHandle>  pMetallicRoughnessTexture; // Metallic-roughness texture (glTF); nullptr = use factors only
 
     /** Render mode: visualization choice (solid vs wireframe). Can be overridden at runtime. */
     RenderMode               renderMode    = RenderMode::Auto;

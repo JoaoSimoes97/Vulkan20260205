@@ -20,7 +20,7 @@
     "clear_color_b": 0.4000000059604645,
     "clear_color_g": 0.10000000149011612,
     "clear_color_r": 0.10000000149011612,
-    "cull_back_faces": false
+    "cull_back_faces": true
   },
   "swapchain": {
     "image_count": 3,

@@ -22,21 +22,30 @@ using json = nlohmann::json;
 namespace {
 
 /**
- * Resolve engine pipeline key from glTF material alphaMode and object renderMode.
- * Material (glTF) = appearance (color, texture). RenderMode = visualization choice (solid, wireframe).
+ * Resolve engine pipeline key from glTF material properties and object renderMode.
+ * Material (glTF) = appearance (color, texture, doubleSided). RenderMode = visualization choice (solid, wireframe).
+ * doubleSided materials get "_ds" suffix for no-cull pipeline variant.
  * No fallbacks: if unresolved, returns empty.
  */
-std::string ResolvePipelineKey(const std::string& alphaMode, RenderMode renderMode, bool hasTexture) {
-    // Explicit render mode override
+std::string ResolvePipelineKey(const std::string& alphaMode, RenderMode renderMode, bool hasTexture, bool doubleSided) {
+    std::string key;
+    
+    // Explicit render mode override (wireframe ignores doubleSided since it's for debugging)
     if (renderMode == RenderMode::Wireframe) return hasTexture ? "wire_tex" : "wire_untex";
-    if (renderMode == RenderMode::Solid) return hasTexture ? "main_tex" : "main_untex";
+    if (renderMode == RenderMode::Solid) key = hasTexture ? "main_tex" : "main_untex";
+    else {
+        // Auto: use material alphaMode
+        if (alphaMode == "OPAQUE") key = hasTexture ? "main_tex" : "main_untex";
+        else if (alphaMode == "MASK") key = hasTexture ? "mask_tex" : "mask_untex";
+        else if (alphaMode == "BLEND") key = hasTexture ? "transparent_tex" : "transparent_untex";
+    }
     
-    // Auto: use material alphaMode
-    if (alphaMode == "OPAQUE") return hasTexture ? "main_tex" : "main_untex";
-    if (alphaMode == "MASK") return hasTexture ? "mask_tex" : "mask_untex";
-    if (alphaMode == "BLEND") return hasTexture ? "transparent_tex" : "transparent_untex";
+    if (key.empty()) return {};  // Unrecognized alphaMode
     
-    return {};  // Unrecognized alphaMode
+    // Append double-sided suffix if needed
+    if (doubleSided) key += "_ds";
+    
+    return key;
 }
 
 /**
@@ -362,7 +371,7 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                 continue;
             }
 
-            const std::string pipelineKey = ResolvePipelineKey("OPAQUE", renderMode, false);
+            const std::string pipelineKey = ResolvePipelineKey("OPAQUE", renderMode, false, false);
             std::shared_ptr<MaterialHandle> pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
             if (!pMaterial) {
                 VulkanUtils::LogErr("SceneManager: pipeline \"{}\" not registered for procedural \"{}\"", pipelineKey, source);
@@ -446,7 +455,8 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
 
                     const tinygltf::Material& gltfMat = model->materials[size_t(prim.material)];
                     const bool hasTexture = (gltfMat.pbrMetallicRoughness.baseColorTexture.index >= 0);
-                    const std::string pipelineKey = ResolvePipelineKey(gltfMat.alphaMode, renderMode, hasTexture);
+                    const bool doubleSided = gltfMat.doubleSided;
+                    const std::string pipelineKey = ResolvePipelineKey(gltfMat.alphaMode, renderMode, hasTexture, doubleSided);
                     if (pipelineKey.empty()) {
                         VulkanUtils::LogErr("SceneManager: glTF \"{}\" mesh {} primitive {} alphaMode \"{}\" could not be mapped",
                                            gltfPath, meshIndex, primIndex, gltfMat.alphaMode);
@@ -490,10 +500,29 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                         }
                     }
 
+                    // Load metallicRoughnessTexture from glTF (blue=metallic, green=roughness per glTF spec)
+                    std::shared_ptr<TextureHandle> pMetallicRoughnessTexture;
+                    if (m_pTextureManager) {
+                        int mrTexIdx = gltfMat.pbrMetallicRoughness.metallicRoughnessTexture.index;
+                        if (mrTexIdx >= 0 && size_t(mrTexIdx) < model->textures.size()) {
+                            const tinygltf::Texture& mrTex = model->textures[size_t(mrTexIdx)];
+                            if (mrTex.source >= 0 && size_t(mrTex.source) < model->images.size()) {
+                                const tinygltf::Image& mrImg = model->images[size_t(mrTex.source)];
+                                if (!mrImg.image.empty() && mrImg.width > 0 && mrImg.height > 0 && mrImg.component > 0) {
+                                    std::string mrTexName = mrImg.uri.empty()
+                                        ? ("mr_tex_" + gltfPath + "_" + std::to_string(mrTex.source))
+                                        : ("mr_" + mrImg.uri);
+                                    pMetallicRoughnessTexture = m_pTextureManager->GetOrCreateFromMemory(mrTexName, mrImg.width, mrImg.height, mrImg.component, mrImg.image.data());
+                                }
+                            }
+                        }
+                    }
+
                     Object obj;
                     obj.pMesh = std::move(pMesh);
                     obj.pMaterial = std::move(pMaterial);
                     obj.pTexture = std::move(pTexture);
+                    obj.pMetallicRoughnessTexture = std::move(pMetallicRoughnessTexture);
 
                     float combined[16];
                     MatMultiply(combined, instanceTransform, nodeWorld);

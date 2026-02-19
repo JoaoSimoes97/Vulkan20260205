@@ -79,8 +79,12 @@ private:
     /** Write default texture into the main descriptor set when ready; then add main/wire to m_pipelineDescriptorSets. Idempotent. */
     void EnsureMainDescriptorSetWritten();
     
-    /** Get or create a descriptor set for the given texture. Returns VK_NULL_HANDLE on failure. Caches result. */
+    /** Get or create a descriptor set for a single texture. Returns VK_NULL_HANDLE on failure. Caches result. */
     VkDescriptorSet GetOrCreateDescriptorSetForTexture(std::shared_ptr<TextureHandle> pTexture);
+    
+    /** Get or create a descriptor set for the given textures. Returns VK_NULL_HANDLE on failure. Caches result. */
+    VkDescriptorSet GetOrCreateDescriptorSetForTextures(std::shared_ptr<TextureHandle> pBaseColorTexture,
+                                                        std::shared_ptr<TextureHandle> pMetallicRoughnessTexture);
     
     /** Clean up descriptor sets for textures that are no longer referenced by any objects. Call after scene changes. */
     void CleanupUnusedTextureDescriptorSets();
@@ -121,6 +125,8 @@ private:
     std::vector<std::shared_ptr<MaterialHandle>> m_cachedMaterials;
     /** Per-texture descriptor set cache: texture -> descriptor set. */
     std::map<TextureHandle*, VkDescriptorSet> m_textureDescriptorSets;
+    /** Per-texture-pair descriptor set cache: (baseColor, metallicRoughness) -> descriptor set. */
+    std::map<std::pair<TextureHandle*, TextureHandle*>, VkDescriptorSet> m_texturePairDescriptorSets;
     /** Reverse map: descriptor set -> texture (for reference counting and cleanup). */
     std::map<VkDescriptorSet, std::shared_ptr<TextureHandle>> m_descriptorSetTextures;
     /** Per-object data SSBO buffer (4096 objects × 256 bytes = 1MB). Written each frame. */
