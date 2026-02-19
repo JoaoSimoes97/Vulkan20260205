@@ -288,8 +288,8 @@ See [architecture.md](architecture.md) for the full module layout, init/cleanup 
 
 | Document | Link | Purpose |
 |----------|------|---------|
-| **Architecture** | [architecture.md](architecture.md) | Module layout, init/cleanup, swapchain, config, resource cleanup, threading |
-| **Resource Loading** | [plan-loading-and-managers.md](plan-loading-and-managers.md) | Asset managers, lifecycle, async cleanup, thread safety patterns |
+| **Module Reference** | [architecture.md](architecture.md) | Vulkan stack, managers, resource loading lifecycle, async cleanup, threading |
+| **System Design** | [engine-design.md](engine-design.md) | GameObject/Component, Physics, Scripting, memory layout, gap analysis |
 | **Getting Started** | [getting-started.md](getting-started.md) | Build, run, config files |
 | **Troubleshooting** | [troubleshooting.md](troubleshooting.md) | Common issues and fixes |
 | **Guidelines** | [guidelines/coding-guidelines.md](guidelines/coding-guidelines.md) | Code style, patterns |

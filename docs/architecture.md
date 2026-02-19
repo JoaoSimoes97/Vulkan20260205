@@ -47,40 +47,246 @@ Asset managers use `shared_ptr` so resources are released when nothing uses them
 
 See [ROADMAP.md](ROADMAP.md) Phase 2–3 for the implementation plan.
 
-## Resource cleanup and async management
+---
 
-**ResourceCleanupManager** centralizes cleanup of all asset caches (materials, meshes, textures, pipelines, shaders). It provides a single orchestrator interface to trim unused resources and is invoked asynchronously by **ResourceManagerThread** so cleanup does not block the main rendering thread.
+## Resource Loading and Lifecycle
 
-**Thread safety:**
-- **MaterialManager**, **MeshManager**, **TextureManager**, **PipelineManager** all use `std::shared_mutex` to protect concurrent access.
-  - Read operations (e.g., `GetMaterial()`, `GetMesh()`) use `std::shared_lock` to allow multiple concurrent readers.
-  - Write operations (e.g., `TrimUnused()`, cache registration, destruction) use `std::unique_lock` for exclusive access.
-- **ShaderManager** protects shader cache and pending load state similarly.
+All asset managers follow a **shared_ptr-based reference counting** pattern where resources are automatically released when nothing references them anymore. This eliminates manual ref-counting and `Release()` calls.
 
-**Async cleanup workflow:**
-1. **Main thread** during each frame calls `m_resourceManagerThread.EnqueueCommand(TrimAll, TrimAllCaches)` (non-blocking).
-2. **Worker thread** waits on an idle timeout (10 ms by default when queue is empty).
-3. **Worker thread** dequeues the TrimAll command and calls `ResourceCleanupManager::TrimAllCaches()`.
-4. **ResourceCleanupManager** iterates each registered manager and trims caches:
-   - `TrimMaterials()`: removes materials where `use_count() == 1` (no objects hold the only reference).
-   - `TrimMeshes()`: removes meshes no material references.
-   - `TrimTextures()`: removes textures no material references.
-   - `TrimPipelines()`: removes pipelines no material uses.
-   - Can also trim shaders (if enabled via `SetTrimShaders(true)`).
-5. **Worker thread** sleeps again. Meanwhile, **main thread** continues rendering (GPU processes submitted commands).
-6. **Main thread** after GPU idle (vkWaitForFences) calls `ProcessPendingDestroys()` on each manager to safely destroy resources that were moved to the pending list during trim.
+### Asset Lifecycle Overview
 
-**Design rationale:**
-- Trimming caches is relatively cheap (O(n) scan of shared_ptrs) but adds up over time when many objects are loaded/unloaded. Moving it to a worker thread eliminates frame hiccups.
-- `ProcessPendingDestroys()` runs on the main thread after GPU idle to guarantee no in-flight command buffers or pipelines are being destroyed.
-- Each manager can be individually enabled/disabled for trimming via `ResourceCleanupManager::SetTrimX()` methods, allowing fine-grained control during profiling or specialized scenarios.
+```
+Request Asset
+    ↓
+Asset loaded/created (stored in shared_ptr cache)
+    ↓
+Object acquires shared_ptr (use_count > 1)
+    ↓
+Object released from scene
+    ↓
+Async cleanup: TrimUnused() scans cache; removes entries where use_count == 1
+    ↓
+Worker thread pending destroy list
+    ↓
+Main thread ProcessPendingDestroys() after GPU idle
+    ↓
+Asset destroyed (destructors run, Vulkan resources freed)
+```
 
-**Performance impact:**
-- Main thread enqueue: ~0.01 ms.
-- Worker thread trim + pending destroy: ~650 µs total (while GPU processes prior frames).
-- Net result: **zero added main-thread latency** to frame rendering.
+### MaterialManager
 
-See [plan-loading-and-managers.md](plan-loading-and-managers.md) for detailed resource lifecycle and loading strategy.
+**Purpose:** Registry of materials. Material = pipeline key + layout descriptor + rendering state.
+
+**Data structure:** `std::map<std::string, shared_ptr<MaterialHandle>>`
+
+**Key methods:**
+- `RegisterMaterial(id, pipelineKey, layoutDesc, params)` → `shared_ptr<MaterialHandle>` (added to cache).
+- `GetMaterial(id)` → `shared_ptr<MaterialHandle>` or nullptr (read-lock protected).
+- `TrimUnused()` → removes entries where `use_count() == 1` (unique-lock protected).
+- `ProcessPendingDestroys()` → destroys moved handles (unique-lock protected).
+
+**Lifecycle:**
+1. Objects in a scene reference a material id.
+2. When scene is loaded, SceneManager calls RegisterMaterial for each material used.
+3. Objects acquire shared_ptr to MaterialHandle via GetMaterial.
+4. When objects are removed or scene is unloaded, shared_ptr refs are released.
+5. TrimUnused finds materials with `use_count() == 1` and moves them to pending destroy.
+6. ProcessPendingDestroys runs after GPU idle and destroys them.
+
+**Thread safety:** `std::shared_mutex` protects cache and pending destroy list.
+- Read: `GetMaterial()` uses `std::shared_lock`.
+- Write: `RegisterMaterial()`, `TrimUnused()`, `ProcessPendingDestroys()` use `std::unique_lock`.
+
+### MeshManager
+
+**Purpose:** Registry of mesh geometry. MeshHandle owns VkBuffer (vertex data) and VkDeviceMemory.
+
+**Data structure:** `std::map<std::string, shared_ptr<MeshHandle>>`
+
+**Key methods:**
+- `GetOrCreateProcedural(key)` → procedurally generated mesh (triangle, circle, rectangle, cube).
+- `RequestLoadMesh(path)` → enqueue async load via JobQueue.
+- `OnCompletedMeshFile(path, data)` → parse .obj and upload buffer (callback from JobQueue).
+- `GetMesh(path)` → `shared_ptr<MeshHandle>` or nullptr (read-lock protected).
+- `TrimUnused()` → removes entries where `use_count() == 1` (unique-lock protected).
+- `ProcessPendingDestroys()` → destroys moved handles (unique-lock protected).
+- `Destroy()` → clears entire cache (call before device destroy).
+
+**Lifecycle:**
+1. Scene objects reference mesh paths/keys.
+2. When loading, RequestLoadMesh enqueues load; JobQueue reads file asynchronously.
+3. OnCompletedMeshFile parses and uploads vertex buffer.
+4. Objects acquire shared_ptr via GetMesh.
+5. On UnloadScene, shared_ptrs release refs.
+6. TrimUnused moves unused to pending; ProcessPendingDestroys destroys them.
+
+**Thread safety:** `std::shared_mutex` protects cache and pending destroy list.
+- Read: `GetMesh()` uses `std::shared_lock`.
+- Write: `OnCompletedMeshFile()`, `TrimUnused()`, `ProcessPendingDestroys()` use `std::unique_lock`.
+
+### TextureManager
+
+**Purpose:** Registry of texture images. TextureHandle owns VkImage, VkImageView, VkSampler, VkDeviceMemory.
+
+**Data structure:** `std::map<std::string, shared_ptr<TextureHandle>>`
+
+**Key methods:**
+- `RequestLoadTexture(path)` → enqueue async load via JobQueue.
+- `OnCompletedTexture(path, data)` → decode with stbi_image and upload image/sampler (callback from JobQueue).
+- `GetTexture(path)` → `shared_ptr<TextureHandle>` or nullptr (read-lock protected).
+- `GetOrCreateDefaultTexture()` → white 1x1 pixel texture (unique-lock protected).
+- `GetOrCreateFromMemory(key, width, height, channels, pixels)` → upload from buffer (unique-lock protected).
+- `TrimUnused()` → removes entries where `use_count() == 1` (unique-lock protected).
+- `Destroy()` → clears entire cache (call before device destroy).
+
+**Lifecycle:**
+1. Materials reference texture paths.
+2. RequestLoadTexture enqueues load; JobQueue fetches file asynchronously.
+3. OnCompletedTexture decodes image data and uploads texture.
+4. Materials acquire shared_ptr via GetTexture.
+5. When scene unloads or material is replaced, refs release.
+6. TrimUnused finds unused and moves to pending destroy.
+
+**Thread safety:** `std::shared_mutex` protects cache and pending paths set.
+- Read: `GetTexture()` uses `std::shared_lock`.
+- Write: `GetOrCreateDefaultTexture()`, `GetOrCreateFromMemory()`, `OnCompletedTexture()`, `TrimUnused()`, `Destroy()` use `std::unique_lock`.
+
+**Special case:** Default texture (`__default`) is kept alive by `m_cachedMaterials` vector in VulkanApp to prevent TrimUnused from discarding it (descriptor set depends on its sampler).
+
+### PipelineManager
+
+**Purpose:** Registry of graphics pipelines. Returns `VkPipeline` and `VkPipelineLayout` when shaders are ready.
+
+**Data structure:** `std::map<std::string, PipelineEntry>` where entry holds shader paths, pipeline handle, render pass, last params.
+
+**Key methods:**
+- `RequestPipeline(key, pShaderManager, vertPath, fragPath)` → register pipeline request (unique-lock protected).
+- `GetPipelineHandleIfReady(key, device, renderPass, params, layoutDesc, ...)` → returns `shared_ptr<PipelineHandle>` when shaders ready; rebuilds if render pass or params changed (unique-lock protected).
+- `TrimUnused()` → removes entries where `use_count() == 1` (unique-lock protected).
+- `ProcessPendingDestroys()` → destroys moved handles (unique-lock protected).
+- `DestroyPipelines()` → clears entire cache (call on swapchain recreate).
+
+**Lifecycle:**
+1. Materials reference a pipeline key (e.g., "main_tex", "wire_untex").
+2. RequestPipeline enqueues shader loads.
+3. GetPipelineHandleIfReady checks if shaders are ready; if so, creates VulkanPipeline and returns handle.
+4. Materials hold `shared_ptr<PipelineHandle>`.
+5. On swapchain recreate or render pass change, pipelines are destroyed and recreated.
+6. TrimUnused moves unused to pending; ProcessPendingDestroys destroys them.
+
+**Thread safety:** `std::shared_mutex` protects entries and pending destroy list.
+- Write: `RequestPipeline()`, `GetPipelineHandleIfReady()`, `TrimUnused()`, `ProcessPendingDestroys()`, `DestroyPipelines()` all use `std::unique_lock`.
+
+### VulkanShaderManager
+
+**Purpose:** Registry of compiled shader modules. Caches `shared_ptr<VkShaderModule>` with custom deleter.
+
+**Key methods:**
+- `RequestLoad(path)` → enqueue compile (if not already pending/loaded).
+- `IsLoadReady(path)` → true if shader is compiled and ready.
+- `GetShaderIfReady(device, path)` → `shared_ptr<VkShaderModule>` or nullptr.
+- `TrimUnused()` → removes shaders where `use_count() == 1` (pipelines don't hold refs anymore).
+
+**Lifecycle:**
+1. PipelineManager requests shader loads.
+2. Shaders are compiled asynchronously (glslc).
+3. Pipelines acquire shared_ptrs to shader modules.
+4. When pipeline is destroyed, shader refs release.
+5. TrimUnused finds shaders no pipeline uses.
+
+---
+
+## Resource Cleanup Architecture
+
+### ResourceCleanupManager
+
+**Purpose:** Centralized orchestrator for all manager cleanup operations. Provides single interface to trim all caches and supports per-manager enable/disable.
+
+**Key methods:**
+- `SetManagers(materials, meshes, textures, pipelines, shaders)` → register all manager pointers.
+- `TrimAllCaches()` → calls TrimUnused on all enabled managers.
+- `SetTrimMaterials(bool)`, `SetTrimMeshes(bool)`, etc. → enable/disable per-manager trimming.
+
+**Design:** Allows centralized, orchestrated cleanup while remaining decoupled from individual manager implementations.
+
+### ResourceManagerThread
+
+**Purpose:** Worker thread that executes resource cleanup commands asynchronously so main thread is not blocked.
+
+**Architecture:**
+- Lock-free command queue (enqueue from main, dequeue on worker).
+- Worker thread sleeps 10 ms during idle; wakes when command enqueued.
+- Supports multiple command types: `TrimMaterials`, `TrimMeshes`, `TrimTextures`, `TrimPipelines`, `TrimShaders`, `TrimAll`, `ProcessDestroys`, `Shutdown`.
+- Each command can carry a callback (lambda) to execute.
+
+**Workflow:**
+1. Main thread calls `EnqueueCommand(TrimAll, callback)` (non-blocking, ~0.01 ms).
+2. Worker thread dequeues and calls the callback on worker thread.
+3. Callback executes `ResourceCleanupManager::TrimAllCaches()`.
+4. Worker thread returns to idle state.
+5. Main thread continues rendering; GPU processes prior command buffers.
+6. After GPU idle (vkWaitForFences), main thread calls `ProcessPendingDestroys()` on each manager to safely destroy.
+
+### Async Cleanup Workflow
+
+```cpp
+// Each frame in MainLoop:
+ProcessCompletedJobs();
+CleanupUnusedTextureDescriptorSets();
+
+// Enqueue async cleanup
+m_resourceManagerThread.EnqueueCommand(
+    ResourceManagerThread::Command(
+        ResourceManagerThread::CommandType::TrimAll,
+        [this]() { this->m_resourceCleanupManager.TrimAllCaches(); }
+    )
+);
+
+// Poll input, update camera, etc.
+// ...
+
+// After GPU idle
+vkWaitForFences(...);
+
+// Execute pending destroys on main thread (safe from GPU perspective)
+m_materialManager.ProcessPendingDestroys();
+m_meshManager.ProcessPendingDestroys();
+m_textureManager.ProcessPendingDestroys();
+m_pipelineManager.ProcessPendingDestroys();
+```
+
+### Performance Characteristics
+
+| Operation | Thread | Time | Impact |
+|-----------|--------|------|--------|
+| Enqueue TrimAll | Main | ~0.01 ms | Negligible |
+| Scan + trim cache | Worker | ~300–650 µs | While GPU busy |
+| ProcessPendingDestroys | Main | ~100–300 µs | After GPU idle |
+| **Total per frame** | **Net** | **+0 ms main** | No frame hiccup |
+
+The worker thread operates while the GPU processes prior frames, so the main thread pays **zero cost** for cleanup in the hot path (render loop).
+
+### Thread Safety Summary
+
+| Manager | Mutex | Read (shared_lock) | Write (unique_lock) |
+|---------|-------|-------------------|---------------------|
+| MaterialManager | shared_mutex | GetMaterial | Register, TrimUnused, ProcessDestroys |
+| MeshManager | shared_mutex | GetMesh | Register, TrimUnused, ProcessDestroys |
+| TextureManager | shared_mutex | GetTexture | Create, TrimUnused, Destroy |
+| PipelineManager | shared_mutex | — | All ops (GetPipelineHandleIfReady modifies state) |
+| ShaderManager | shared_mutex | GetShaderIfReady | RequestLoad, TrimUnused |
+
+All write operations are safe to execute on worker thread while main thread renders, thanks to reader-writer locks (shared_mutex).
+
+### Best Practices
+
+1. **Always call `ProcessPendingDestroys()` after GPU idle.** Otherwise destroyed resources remain in memory until next frame.
+2. **Keep references to frequently-used assets** (e.g., `m_cachedMaterials`) to prevent accidental trim.
+3. **Enable/disable per-manager trimming** via `ResourceCleanupManager::SetTrimX()` during profiling to identify hotspots.
+4. **Avoid holding raw pointers into manager caches.** Always use shared_ptrs returned by Get/RegisterX methods.
+5. **Call UnloadScene before switching levels.** This releases all object refs so TrimUnused can clean up resources.
+
+---
 
 ## Swapchain extent and aspect ratio
 
@@ -134,7 +340,9 @@ Validation layers are **not** in the config file (dev/debug only); enabled when 
 
 See [vulkan/swapchain-rebuild-cases.md](vulkan/swapchain-rebuild-cases.md). For config file location and editing see [getting-started.md](getting-started.md) (Config). For aspect/resize issues see [troubleshooting.md](troubleshooting.md).
 
-See also [ROADMAP.md](ROADMAP.md) for the complete phase breakdown.
+See also:
+- [ROADMAP.md](ROADMAP.md) — Complete phase breakdown and feature status
+- [engine-design.md](engine-design.md) — GameObject/Component architecture and system design
 
 ## Rendering and draw list
 

@@ -14,8 +14,8 @@ Overview of project documentation. All paths are relative to the project root.
 | Document | Purpose |
 |----------|---------|
 | [ROADMAP.md](ROADMAP.md) | **Complete project plan:** phases 1–5, status, features, next steps. Start here. |
-| [architecture.md](architecture.md) | Module layout, initialization/cleanup order, swapchain, config, resource cleanup and threading. |
-| [plan-loading-and-managers.md](plan-loading-and-managers.md) | **Resource loading and lifecycle:** asset managers, MaterialManager, MeshManager, TextureManager, async cleanup, thread safety. |
+| [architecture.md](architecture.md) | **Module reference:** Vulkan stack, managers, resource loading lifecycle, async cleanup, thread safety. |
+| [engine-design.md](engine-design.md) | **System design:** GameObject/Component architecture, Physics, Scripting, memory layout, threading, gap analysis. |
 | [getting-started.md](getting-started.md) | Setup (Windows/Linux/macOS), build, shader compilation, run examples. |
 | [troubleshooting.md](troubleshooting.md) | Common issues: validation layers, Vulkan/SDL3, shaders, build. |
 | [guidelines/coding-guidelines.md](guidelines/coding-guidelines.md) | Code style: naming, comments, classes, formatting. |
@@ -26,8 +26,8 @@ Overview of project documentation. All paths are relative to the project root.
 ## Quick Links
 
 - 📍 **Start here:** [ROADMAP.md](ROADMAP.md) — phases, status, features
-- 🏗️ **Architecture** — [architecture.md](architecture.md)
-- � **Resource Loading & Management** — [plan-loading-and-managers.md](plan-loading-and-managers.md)
+- 🏗️ **Module Reference** — [architecture.md](architecture.md) — Vulkan stack, managers, resources
+- 🎮 **System Design** — [engine-design.md](engine-design.md) — GameObject, Physics, Scripting, threading
 - �🚀 **Getting Started** — [getting-started.md](getting-started.md)
 - 🐛 **Troubleshooting** — [troubleshooting.md](troubleshooting.md)
 - 🎨 **Code Style** — [guidelines/coding-guidelines.md](guidelines/coding-guidelines.md)
