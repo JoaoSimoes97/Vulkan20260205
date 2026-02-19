@@ -1,50 +1,68 @@
-# Cross-Platform Vulkan Application
+# Vulkan Game Engine
 
-A cross-platform Vulkan application (SDL3 window, Vulkan 1.4, swapchain, draw list with multiple objects). Linux, Windows, and macOS — one codebase. Native Vulkan on Linux/Windows; MoltenVK (Vulkan → Metal) on macOS.
-
-## Quick start
-
-**Linux / macOS**
-
-```bash
-./setup.sh
-scripts/linux/build.sh --debug
-./install/Debug/bin/VulkanApp levels/default/level.json
-```
-
-**Windows**
-
-```cmd
-scripts\windows\setup_windows.bat
-scripts\windows\build.bat --debug
-install\Debug\bin\VulkanApp.exe levels/default/level.json
-```
-
-**Note:** Level path is required. See `levels/` folder for available levels.
-
-Use `--release` for an optimized build. Full setup, manual install per platform, and build options: **[docs/getting-started.md](docs/getting-started.md)**.
-
-## Documentation
-
-| Link | Contents |
-|------|----------|
-| [docs/README.md](docs/README.md) | Documentation index and quick links |
-| [docs/getting-started.md](docs/getting-started.md) | Setup, build, project structure |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Common issues and fixes |
-| [docs/architecture.md](docs/architecture.md) | Module layout, init order, swapchain |
-
-Android and iOS: [docs/platforms/android.md](docs/platforms/android.md), [docs/platforms/ios.md](docs/platforms/ios.md).
+A modular, component-based game engine built on Vulkan with PBR rendering.
 
 ## Features
 
-- Cross-platform (Linux, Windows, macOS), Vulkan 1.4, C++23
-- SDL3 window and Vulkan surface; automated setup and build scripts
-- Swapchain, render pass, pipeline manager, draw list (multiple objects, per-object color/texture)
-- glTF 2.0 support with textures, materials, and PBR properties
-- Procedural mesh generation (cube, sphere, cylinder, cone, triangle, rectangle)
-- Dynamic descriptor pool management with automatic growth
-- Command-line level loading with JSON scene format
-- Code style: [docs/guidelines/coding-guidelines.md](docs/guidelines/coding-guidelines.md)
+- **Entity-Component System** — GameObjects with modular components (Transform, Renderer, Light, Physics, Script)
+- **PBR Rendering** — Cook-Torrance BRDF with metallic/roughness workflow
+- **Multi-Light System** — Point, Spot, and Directional lights (up to 256 per scene)
+- **glTF 2.0 Support** — Full material loading with textures
+- **Cross-Platform** — Windows, Linux, macOS (via MoltenVK)
+- **Vulkan 1.3+** — Modern API with proper synchronization
+
+## Quick Start
+
+**Windows**
+```powershell
+scripts\windows\setup_windows.bat
+scripts\windows\build.bat --debug
+build\Debug\VulkanApp.exe levels/default/level.json
+```
+
+**Linux / macOS**
+```bash
+./setup.sh
+scripts/linux/build.sh --debug
+./build/Debug/VulkanApp levels/default/level.json
+```
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/architecture.md](docs/architecture.md) | Engine architecture, ECS, rendering pipeline |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Development status and planned features |
+| [docs/getting-started.md](docs/getting-started.md) | Build setup for all platforms |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Common issues and solutions |
+
+## Project Structure
+
+```
+src/
+├── app/          # Application entry (VulkanApp)
+├── core/         # ECS: GameObject, Transform, Components
+├── managers/     # Asset managers (Mesh, Texture, Material)
+├── vulkan/       # Vulkan abstraction layer
+├── render/       # Draw call generation
+└── loaders/      # glTF loader
+
+shaders/source/   # GLSL shaders (PBR)
+levels/           # Scene definitions (JSON)
+docs/             # Documentation
+```
+
+## Architecture
+
+The engine uses a **component-based architecture**:
+
+- **GameObject** — Lightweight container with component indices
+- **Transform** — Position, rotation, scale, cached model matrix
+- **RendererComponent** — Mesh + texture + PBR material properties
+- **LightComponent** — Point/Spot/Directional with intensity, range, cones
+- **SceneNew** — SoA component pools for cache efficiency
+
+See [docs/architecture.md](docs/architecture.md) for details.
 
 ## License
 

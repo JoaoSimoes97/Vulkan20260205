@@ -3,10 +3,14 @@
  */
 #include "vulkan_app.h"
 #include "vulkan_utils.h"
+#include "config/config_loader.h"
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+
+static const char* CONFIG_PATH_USER    = "config/config.json";
+static const char* CONFIG_PATH_DEFAULT = "config/default.json";
 
 int main(int argc, char** argv) {
 #ifdef NDEBUG
@@ -27,7 +31,7 @@ int main(int argc, char** argv) {
     std::string levelPath = argv[1];
 
     try {
-        VulkanConfig config;
+        VulkanConfig config = LoadConfigFromFileOrCreate(CONFIG_PATH_USER, CONFIG_PATH_DEFAULT);
         config.sLevelPath = levelPath;
         VulkanApp app(config);
         app.Run();

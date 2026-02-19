@@ -61,6 +61,10 @@ struct VulkanConfig {
     float fClearColorB = 0.4f;
     float fClearColorA = 1.f;
 
+    /* --- Debug --- */
+    /** Show light debug visualization (wireframe spheres/cones for lights). */
+    bool bShowLightDebug = true;
+
     /* Dev/debug only: not persisted in config file. Set from build type or env when implementing. */
     bool bValidationLayers = static_cast<bool>(false);
 

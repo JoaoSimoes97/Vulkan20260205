@@ -38,6 +38,10 @@ struct Object {
     float                    color[4]      = { 1.f, 1.f, 1.f, 1.f };
     /** Emissive color (RGB) + strength (A). For self-illuminated materials (future lighting). */
     float                    emissive[4]   = { 0.f, 0.f, 0.f, 1.f };
+    /** Metallic factor (0-1). From glTF pbrMetallicRoughness.metallicFactor. */
+    float                    metallicFactor  = 1.f;
+    /** Roughness factor (0-1). From glTF pbrMetallicRoughness.roughnessFactor. */
+    float                    roughnessFactor = 1.f;
     /** Arbitrary data pushed to the GPU (e.g. mat4 + color). Filled each frame from projection * localTransform + color. */
     std::vector<uint8_t>     pushData;
     uint32_t                 pushDataSize  = 0u;
@@ -129,13 +133,15 @@ inline void ObjectSetFromPositionRotationScale(float* out16,
     ObjectMat4Multiply(out16, t, rs);
 }
 
-/** Push layout: mat4 (64 bytes) + vec4 color (16 bytes) = 80 bytes. */
+/** Push layout: mat4 (64 bytes) + vec4 color (16 bytes) + uint objectIndex (4 bytes) + padding (4 bytes) = 88 bytes. */
 constexpr uint32_t kObjectMat4Bytes       = 64u;
 constexpr uint32_t kObjectColorBytes      = 16u;
-constexpr uint32_t kObjectPushConstantSize = kObjectMat4Bytes + kObjectColorBytes;
+constexpr uint32_t kObjectIndexBytes      = 4u;
+constexpr uint32_t kObjectPushPaddingBytes = 4u;
+constexpr uint32_t kObjectPushConstantSize = kObjectMat4Bytes + kObjectColorBytes + kObjectIndexBytes + kObjectPushPaddingBytes;
 
-/** Fill object pushData from viewProj * localTransform and color. Ensures pushData is sized; call each frame before draw. */
-inline void ObjectFillPushData(Object& obj, const float* viewProj) {
+/** Fill object pushData from viewProj * localTransform, color, and objectIndex. Ensures pushData is sized; call each frame before draw. */
+inline void ObjectFillPushData(Object& obj, const float* viewProj, uint32_t objectIndex) {
     if (obj.pushData.size() < kObjectPushConstantSize) {
         obj.pushData.resize(kObjectPushConstantSize);
         obj.pushDataSize = kObjectPushConstantSize;
@@ -143,6 +149,8 @@ inline void ObjectFillPushData(Object& obj, const float* viewProj) {
     if (viewProj && obj.pushData.size() >= kObjectPushConstantSize) {
         ObjectMat4Multiply(reinterpret_cast<float*>(obj.pushData.data()), viewProj, obj.localTransform);
         std::memcpy(obj.pushData.data() + kObjectMat4Bytes, obj.color, kObjectColorBytes);
+        std::memcpy(obj.pushData.data() + kObjectMat4Bytes + kObjectColorBytes, &objectIndex, kObjectIndexBytes);
+        std::memset(obj.pushData.data() + kObjectMat4Bytes + kObjectColorBytes + kObjectIndexBytes, 0, kObjectPushPaddingBytes);
     }
 }
 

@@ -76,6 +76,11 @@ void ApplyJsonToConfig(const json& jRoot, VulkanConfig& stConfig) {
         if ((jRender.contains("clear_color_a") == true) && (jRender["clear_color_a"].is_number() == true))
             stConfig.fClearColorA = static_cast<float>(jRender["clear_color_a"].get<double>());
     }
+    if (jRoot.contains("debug") == true) {
+        const json& jDebug = jRoot["debug"];
+        if ((jDebug.contains("show_light_debug") == true) && (jDebug["show_light_debug"].is_boolean() == true))
+            stConfig.bShowLightDebug = jDebug["show_light_debug"].get<bool>();
+    }
     /* validation_layers not loaded from config — dev/debug only, set from build type or env. */
 }
 
@@ -108,6 +113,7 @@ VulkanConfig GetDefaultConfig() {
     stCfg.fClearColorG = 0.1f;
     stCfg.fClearColorB = 0.4f;
     stCfg.fClearColorA = 1.f;
+    stCfg.bShowLightDebug = true;
     stCfg.bValidationLayers = static_cast<bool>(false);
     stCfg.bSwapchainDirty = static_cast<bool>(false);
     return stCfg;
@@ -196,6 +202,9 @@ void SaveConfigToFile(const std::string& sPath_ic, const VulkanConfig& stConfig_
             { "clear_color_g", stConfig_ic.fClearColorG },
             { "clear_color_b", stConfig_ic.fClearColorB },
             { "clear_color_a", stConfig_ic.fClearColorA }
+        }},
+        { "debug", {
+            { "show_light_debug", stConfig_ic.bShowLightDebug }
         }}
     };
     std::ofstream stmOut(sPath_ic);

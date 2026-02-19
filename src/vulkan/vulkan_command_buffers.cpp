@@ -63,7 +63,8 @@ void VulkanCommandBuffers::Destroy() {
 void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_ic, VkFramebuffer pFramebuffer_ic,
                                   VkRect2D stRenderArea_ic, VkViewport stViewport_ic, VkRect2D stScissor_ic,
                                   const std::vector<DrawCall>& vecDrawCalls_ic,
-                                  const VkClearValue* pClearValues_ic, uint32_t lClearValueCount_ic) {
+                                  const VkClearValue* pClearValues_ic, uint32_t lClearValueCount_ic,
+                                  std::function<void(VkCommandBuffer)> postSceneCallback) {
     if ((lIndex_ic >= this->m_commandBuffers.size()) || (pRenderPass_ic == VK_NULL_HANDLE) || (pFramebuffer_ic == VK_NULL_HANDLE)) {
         VulkanUtils::LogErr("VulkanCommandBuffers::Record: invalid index or handles");
         throw std::runtime_error("VulkanCommandBuffers::Record: invalid parameters");
@@ -115,9 +116,17 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
 
     for (const auto& stD : vecDrawCalls_ic) {
         vkCmdBindPipeline(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipeline);
-        if (!stD.descriptorSets.empty())
-            vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipelineLayout, 0,
-                                    static_cast<uint32_t>(stD.descriptorSets.size()), stD.descriptorSets.data(), 0, nullptr);
+        if (!stD.descriptorSets.empty()) {
+            /* Bind descriptor sets with or without dynamic offsets. */
+            if (!stD.dynamicOffsets.empty()) {
+                vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipelineLayout, 0,
+                                        static_cast<uint32_t>(stD.descriptorSets.size()), stD.descriptorSets.data(),
+                                        static_cast<uint32_t>(stD.dynamicOffsets.size()), stD.dynamicOffsets.data());
+            } else {
+                vkCmdBindDescriptorSets(pCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, stD.pipelineLayout, 0,
+                                        static_cast<uint32_t>(stD.descriptorSets.size()), stD.descriptorSets.data(), 0, nullptr);
+            }
+        }
         if (stD.vertexBuffer != VK_NULL_HANDLE || stD.instanceBuffer != VK_NULL_HANDLE) {
             VkBuffer buffers[2] = { stD.vertexBuffer, stD.instanceBuffer };
             VkDeviceSize offsets[2] = { stD.vertexBufferOffset, stD.instanceBufferOffset };
@@ -138,6 +147,11 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
         if ((stD.pPushConstants != nullptr) && (stD.pushConstantSize > 0))
             vkCmdPushConstants(pCmd, stD.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, stD.pushConstantSize, stD.pPushConstants);
         vkCmdDraw(pCmd, stD.vertexCount, stD.instanceCount, stD.firstVertex, stD.firstInstance);
+    }
+
+    /* Post-scene callback for debug rendering (inside render pass). */
+    if (postSceneCallback) {
+        postSceneCallback(pCmd);
     }
 
     vkCmdEndRenderPass(pCmd);

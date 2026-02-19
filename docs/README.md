@@ -1,38 +1,62 @@
 # Documentation
 
-Overview of project documentation. All paths are relative to the project root.
-
-## Core Documents
-
-**First stop:** [ROADMAP.md](ROADMAP.md) — Complete development plan with phases 1–5, feature status, and next steps.
-
+Engine documentation organized by topic.
 
 ---
 
-## Navigation
+## Quick Start
 
-| Document | Purpose |
-|----------|---------|
-| [ROADMAP.md](ROADMAP.md) | **Complete project plan:** phases 1–5, status, features, next steps. Start here. |
-| [architecture.md](architecture.md) | **Module reference:** Vulkan stack, managers, resource loading lifecycle, async cleanup, thread safety. |
-| [engine-design.md](engine-design.md) | **System design:** GameObject/Component architecture, Physics, Scripting, memory layout, threading, gap analysis. |
-| [getting-started.md](getting-started.md) | Setup (Windows/Linux/macOS), build, shader compilation, run examples. |
-| [troubleshooting.md](troubleshooting.md) | Common issues: validation layers, Vulkan/SDL3, shaders, build. |
-| [guidelines/coding-guidelines.md](guidelines/coding-guidelines.md) | Code style: naming, comments, classes, formatting. |
-| [vulkan/](vulkan/) | Vulkan details: validation, swapchain rebuild, version support. |
-| [platforms/](platforms/) | Platform setup: Android, iOS. |
-| [future-ideas/](future-ideas/) | Proposed features: animation/skinning, indirect buffers, logging, ImGui, profiling. |
+| Document | Description |
+|----------|-------------|
+| [ROADMAP.md](ROADMAP.md) | Development status and planned features |
+| [getting-started.md](getting-started.md) | Build setup for Windows/Linux/macOS |
+| [architecture.md](architecture.md) | System design and module structure |
 
-## Quick Links
+---
 
-- 📍 **Start here:** [ROADMAP.md](ROADMAP.md) — phases, status, features
-- 🏗️ **Module Reference** — [architecture.md](architecture.md) — Vulkan stack, managers, resources
-- 🎮 **System Design** — [engine-design.md](engine-design.md) — GameObject, Physics, Scripting, threading
-- �🚀 **Getting Started** — [getting-started.md](getting-started.md)
-- 🐛 **Troubleshooting** — [troubleshooting.md](troubleshooting.md)
-- 🎨 **Code Style** — [guidelines/coding-guidelines.md](guidelines/coding-guidelines.md)
-- 🎬 **Animation & Skinning (Future)** — [future-ideas/animation-skinning-roadmap.md](future-ideas/animation-skinning-roadmap.md)
-- 📊 **Indirect Buffers (Future)** — [future-ideas/indirect-buffers.md](future-ideas/indirect-buffers.md)
-- 🔗 **Tutorial Order** — [vulkan/tutorial-order.md](vulkan/tutorial-order.md)
-- 📱 **Android Setup** — [platforms/android.md](platforms/android.md)
-- 🍎 **iOS Setup** — [platforms/ios.md](platforms/ios.md)
+## Core Documentation
+
+| Document | Description |
+|----------|-------------|
+| [architecture.md](architecture.md) | Engine architecture, ECS, rendering pipeline |
+| [ROADMAP.md](ROADMAP.md) | Feature status and development phases |
+| [engine-design.md](engine-design.md) | Original design specification (historical) |
+
+---
+
+## Guides
+
+| Document | Description |
+|----------|-------------|
+| [getting-started.md](getting-started.md) | Build and run the engine |
+| [troubleshooting.md](troubleshooting.md) | Common issues and solutions |
+| [guidelines/coding-guidelines.md](guidelines/coding-guidelines.md) | Code style and conventions |
+
+---
+
+## Vulkan Reference
+
+| Document | Description |
+|----------|-------------|
+| [vulkan/validation-layers.md](vulkan/validation-layers.md) | Debug validation setup |
+| [vulkan/swapchain-rebuild-cases.md](vulkan/swapchain-rebuild-cases.md) | When swapchain recreates |
+| [vulkan/version-support.md](vulkan/version-support.md) | Vulkan version requirements |
+
+---
+
+## Platform Setup
+
+| Document | Description |
+|----------|-------------|
+| [platforms/android.md](platforms/android.md) | Android NDK setup |
+| [platforms/ios.md](platforms/ios.md) | iOS MoltenVK setup |
+
+---
+
+## Future Ideas
+
+| Document | Description |
+|----------|-------------|
+| [future-ideas/editor-roadmap.md](future-ideas/editor-roadmap.md) | Editor features: ImGui, selection, gizmos |
+| [future-ideas/animation-skinning-roadmap.md](future-ideas/animation-skinning-roadmap.md) | Animation system design |
+| [future-ideas/indirect-buffers.md](future-ideas/indirect-buffers.md) | GPU-driven rendering |

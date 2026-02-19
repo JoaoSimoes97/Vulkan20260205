@@ -24,12 +24,12 @@ public:
         m_objects.clear();
     }
 
-    /** Fill push data for all objects (viewProj * localTransform, color). Call each frame before building draw list. */
+    /** Fill push data for all objects (viewProj * localTransform, color, objectIndex). Call each frame before building draw list. */
     void FillPushDataForAllObjects(const float* pViewProj_ic) {
         if (pViewProj_ic == nullptr)
             return;
-        for (auto& obj : m_objects)
-            ObjectFillPushData(obj, pViewProj_ic);
+        for (size_t i = 0; i < m_objects.size(); ++i)
+            ObjectFillPushData(m_objects[i], pViewProj_ic, static_cast<uint32_t>(i));
     }
 
 private:

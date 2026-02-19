@@ -1,5 +1,7 @@
 # Vulkan Engine Architecture - Full System Design
 
+> **Note:** This is the original design specification. The core ECS and rendering architecture is implemented. See [ROADMAP.md](ROADMAP.md) for current status and [architecture.md](architecture.md) for a concise overview.
+
 This document describes the complete engine architecture: objects, components, physics, scripting, data layout, and threading model.
 
 ---

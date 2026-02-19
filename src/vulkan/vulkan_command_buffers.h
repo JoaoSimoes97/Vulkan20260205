@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <functional>
 #include <vulkan/vulkan.h>
 
 /**
@@ -22,6 +23,8 @@ struct DrawCall {
     /** Optional instance buffer (vertex input binding 1). When valid, instanceCount > 1 uses per-instance data. */
     VkBuffer          instanceBuffer       = VK_NULL_HANDLE;
     VkDeviceSize      instanceBufferOffset = 0;
+    /** Dynamic offsets for descriptor sets (one per dynamic binding). Empty = no dynamic offsets. */
+    std::vector<uint32_t> dynamicOffsets;
 };
 
 /*
@@ -36,11 +39,13 @@ public:
     void Create(VkDevice pDevice_ic, uint32_t lQueueFamilyIndex_ic, uint32_t lBufferCount_ic);
     void Destroy();
 
-    /** Record buffer: begin render pass (renderArea, clearValues), set viewport/scissor, then for each DrawCall: bind pipeline, push constants (if any), draw. */
+    /** Record buffer: begin render pass (renderArea, clearValues), set viewport/scissor, then for each DrawCall: bind pipeline, push constants (if any), draw.
+     *  @param postSceneCallback Optional callback invoked inside render pass after main draws, for debug rendering. */
     void Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_ic, VkFramebuffer pFramebuffer_ic,
                 VkRect2D stRenderArea_ic, VkViewport stViewport_ic, VkRect2D stScissor_ic,
                 const std::vector<DrawCall>& vecDrawCalls_ic,
-                const VkClearValue* pClearValues_ic, uint32_t lClearValueCount_ic);
+                const VkClearValue* pClearValues_ic, uint32_t lClearValueCount_ic,
+                std::function<void(VkCommandBuffer)> postSceneCallback = nullptr);
 
     VkCommandBuffer Get(uint32_t lIndex_ic) const;
     uint32_t GetCount() const { return static_cast<uint32_t>(this->m_commandBuffers.size()); }

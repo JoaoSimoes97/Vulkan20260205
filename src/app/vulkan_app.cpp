@@ -40,6 +40,18 @@ static const char* LAYOUT_KEY_MAIN_FRAG_TEX = "main_frag_tex";
 static constexpr float kDefaultPanSpeed = 0.012f;
 static constexpr float kOrthoFallbackHalfExtent = 8.f;
 
+namespace {
+    uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+        VkPhysicalDeviceMemoryProperties memProps;
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
+        for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
+            if ((typeFilter & (1u << i)) && (memProps.memoryTypes[i].propertyFlags & properties) == properties)
+                return i;
+        }
+        throw std::runtime_error("FindMemoryType: no suitable memory type");
+    }
+}
+
 VulkanApp::VulkanApp(const VulkanConfig& config_in)
     : m_config(config_in)
     , m_completedJobHandler([this](LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
@@ -128,13 +140,36 @@ void VulkanApp::InitVulkan() {
     static const std::string kLayoutKeyMainFragTex("main_frag_tex");
     this->m_descriptorSetLayoutManager.SetDevice(this->m_device.GetDevice());
     {
-        std::vector<VkDescriptorSetLayoutBinding> bindings = { {
-            .binding            = 0u,
-            .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount    = 1u,
-            .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = nullptr,
-        } };
+        std::vector<VkDescriptorSetLayoutBinding> bindings = {
+            {
+                .binding            = 0u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount    = 1u,
+                .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
+            },
+            {
+                .binding            = 1u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount    = 1u,
+                .stageFlags         = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT),
+                .pImmutableSamplers = nullptr,
+            },
+            {
+                .binding            = 2u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount    = 1u,
+                .stageFlags         = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT),
+                .pImmutableSamplers = nullptr,
+            },
+            {
+                .binding            = 3u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount    = 1u,
+                .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
+            }
+        };
         if (this->m_descriptorSetLayoutManager.RegisterLayout(kLayoutKeyMainFragTex, bindings) == VK_NULL_HANDLE)
             throw std::runtime_error("VulkanApp::InitVulkan: descriptor set layout main_frag_tex failed");
     }
@@ -151,7 +186,7 @@ void VulkanApp::InitVulkan() {
         .pushConstantRanges = {
             { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kMainPushConstantSize }
         },
-        .descriptorSetLayouts = {},
+        .descriptorSetLayouts = { pMainFragLayout },
     };
     GraphicsPipelineParams stPipeParamsMain = {
         .topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -231,6 +266,64 @@ void VulkanApp::InitVulkan() {
     this->m_descriptorSetMain = this->m_descriptorPoolManager.AllocateSet(kLayoutKeyMainFragTex);
     if (this->m_descriptorSetMain == VK_NULL_HANDLE)
         throw std::runtime_error("VulkanApp::InitVulkan: descriptor set allocation failed");
+    
+    /* Create object data SSBO (Storage Buffer for Per-Object Data).
+       4096 objects × 256 bytes each = 1MB total. Updated each frame with all object data.
+       GPU accesses via dynamic offsets: offset = objectIndex × 256. */
+    {
+        constexpr uint32_t MAX_OBJECTS = 4096;
+        constexpr uint32_t OBJECT_DATA_SIZE = 256;  // sizeof(ObjectData)
+        constexpr VkDeviceSize bufSize = MAX_OBJECTS * OBJECT_DATA_SIZE;  // 1MB
+        
+        VkBufferCreateInfo bufInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = static_cast<VkBufferCreateFlags>(0),
+            .size = bufSize,
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = nullptr,
+        };
+        
+        VkResult r = vkCreateBuffer(this->m_device.GetDevice(), &bufInfo, nullptr, &this->m_objectDataBuffer);
+        if (r != VK_SUCCESS) {
+            VulkanUtils::LogErr("vkCreateBuffer (object data SSBO) failed: {}", static_cast<int>(r));
+            throw std::runtime_error("VulkanApp::InitVulkan: object data buffer creation failed");
+        }
+        
+        VkMemoryRequirements memReqs{};
+        vkGetBufferMemoryRequirements(this->m_device.GetDevice(), this->m_objectDataBuffer, &memReqs);
+        
+        VkMemoryAllocateInfo allocInfo = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .allocationSize = memReqs.size,
+            .memoryTypeIndex = FindMemoryType(this->m_device.GetPhysicalDevice(), memReqs.memoryTypeBits,
+                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+        };
+        
+        r = vkAllocateMemory(this->m_device.GetDevice(), &allocInfo, nullptr, &this->m_objectDataMemory);
+        if (r != VK_SUCCESS) {
+            vkDestroyBuffer(this->m_device.GetDevice(), this->m_objectDataBuffer, nullptr);
+            this->m_objectDataBuffer = VK_NULL_HANDLE;
+            VulkanUtils::LogErr("vkAllocateMemory (object data) failed: {}", static_cast<int>(r));
+            throw std::runtime_error("VulkanApp::InitVulkan: object data memory allocation failed");
+        }
+        
+        vkBindBufferMemory(this->m_device.GetDevice(), this->m_objectDataBuffer, this->m_objectDataMemory, 0);
+        VulkanUtils::LogInfo("Object data SSBO created: {} objects × {} bytes = {} MB", MAX_OBJECTS, OBJECT_DATA_SIZE, (bufSize / 1024 / 1024));
+    }
+    
+    /* Create LightManager which owns the light SSBO.
+       16 bytes header (light count) + 256 lights × 64 bytes = ~16KB.
+       Updated each frame from SceneNew lights. */
+    this->m_lightManager.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice());
+    
+    // Also keep the raw buffer handles for legacy code paths (will be removed after full migration)
+    this->m_lightBuffer = this->m_lightManager.GetLightBuffer();
+    // Note: m_lightBufferMemory is now managed by LightManager
+    
     /* Add main/wire to the map only after we write the set with a valid default texture (see EnsureMainDescriptorSetWritten). */
     EnsureMainDescriptorSetWritten();
 
@@ -244,6 +337,13 @@ void VulkanApp::InitVulkan() {
 
     uint32_t lMaxFramesInFlight = (this->m_config.lMaxFramesInFlight >= 1u) ? this->m_config.lMaxFramesInFlight : static_cast<uint32_t>(1u);
     this->m_sync.Create(this->m_device.GetDevice(), lMaxFramesInFlight, this->m_swapchain.GetImageCount());
+
+    /* Initialize light debug renderer if enabled. Creates separate pipeline for debug line drawing. */
+    if (this->m_config.bShowLightDebug) {
+        if (!this->m_lightDebugRenderer.Create(this->m_device.GetDevice(), this->m_renderPass.Get(), this->m_device.GetPhysicalDevice())) {
+            VulkanUtils::LogErr("Failed to create light debug renderer (continuing without debug visualization)");
+        }
+    }
 
 }
 
@@ -264,23 +364,70 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
         .imageView   = pDefaultTex->GetView(),
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
-    VkWriteDescriptorSet stWrite = {
-        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .pNext            = nullptr,
-        .dstSet           = this->m_descriptorSetMain,
-        .dstBinding       = 0,
-        .dstArrayElement  = 0,
-        .descriptorCount  = 1,
-        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo       = &stImageInfo,
-        .pBufferInfo      = nullptr,
-        .pTexelBufferView = nullptr,
+    
+    VkDescriptorBufferInfo stBufferInfo = {
+        .buffer = this->m_objectDataBuffer,
+        .offset = 0,
+        .range  = VK_WHOLE_SIZE,  /* Entire SSBO buffer available for dynamic offset access */
     };
-    vkUpdateDescriptorSets(this->m_device.GetDevice(), 1, &stWrite, 0, nullptr);
+    
+    VkDescriptorBufferInfo stLightBufferInfo = {
+        .buffer = this->m_lightBuffer,
+        .offset = 0,
+        .range  = VK_WHOLE_SIZE,
+    };
+    
+    std::array<VkWriteDescriptorSet, 3> writeDescriptors = {{
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = this->m_descriptorSetMain,
+            .dstBinding       = 0,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &stImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = this->m_descriptorSetMain,
+            .dstBinding       = 2,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &stBufferInfo,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = this->m_descriptorSetMain,
+            .dstBinding       = 3,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &stLightBufferInfo,
+            .pTexelBufferView = nullptr,
+        }
+    }};
+    
+    vkUpdateDescriptorSets(this->m_device.GetDevice(), static_cast<uint32_t>(writeDescriptors.size()), writeDescriptors.data(), 0, nullptr);
+    
+    /* Register descriptor set for all pipeline keys (both textured and untextured). */
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MAIN_TEX)] = { this->m_descriptorSetMain };
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_WIRE_TEX)] = { this->m_descriptorSetMain };
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MASK_TEX)] = { this->m_descriptorSetMain };
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_TRANSPARENT_TEX)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MAIN_UNTEX)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_WIRE_UNTEX)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MASK_UNTEX)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_TRANSPARENT_UNTEX)] = { this->m_descriptorSetMain };
+    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_ALT)] = { this->m_descriptorSetMain };
 }
 
 VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<TextureHandle> pTexture) {
@@ -307,19 +454,58 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<Te
         .imageView   = pTexture->GetView(),
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
-    VkWriteDescriptorSet write = {
-        .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .pNext            = nullptr,
-        .dstSet           = newSet,
-        .dstBinding       = 0,
-        .dstArrayElement  = 0,
-        .descriptorCount  = 1,
-        .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo       = &imageInfo,
-        .pBufferInfo      = nullptr,
-        .pTexelBufferView = nullptr,
+    
+    VkDescriptorBufferInfo bufferInfo = {
+        .buffer = this->m_objectDataBuffer,
+        .offset = 0,
+        .range  = VK_WHOLE_SIZE,
     };
-    vkUpdateDescriptorSets(m_device.GetDevice(), 1, &write, 0, nullptr);
+    
+    VkDescriptorBufferInfo lightBufferInfo = {
+        .buffer = this->m_lightBuffer,
+        .offset = 0,
+        .range  = VK_WHOLE_SIZE,
+    };
+    
+    std::array<VkWriteDescriptorSet, 3> writes = {{
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 0,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &imageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 2,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &bufferInfo,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 3,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &lightBufferInfo,
+            .pTexelBufferView = nullptr,
+        }
+    }};
+    vkUpdateDescriptorSets(m_device.GetDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     
     // Cache it (with reference to keep texture alive)
     m_textureDescriptorSets[pRawTexture] = newSet;
@@ -485,8 +671,80 @@ void VulkanApp::MainLoop() {
         ObjectMat4Multiply(fViewProj, fProjMat4, fViewMat4);
 
         Scene* pScene = this->m_sceneManager.GetCurrentScene();
-        if (pScene != nullptr)
-            pScene->FillPushDataForAllObjects(fViewProj);
+        if (pScene != nullptr) {
+            const auto& objects = pScene->GetObjects();
+            for (size_t i = 0; i < objects.size(); ++i) {
+                Object& obj = const_cast<Object&>(objects[i]);
+                ObjectFillPushData(obj, fViewProj, static_cast<uint32_t>(i));
+            }
+        }
+
+        /* Update object data SSBO: write all objects' per-object data (model matrix, emissive, material properties).
+           Each object occupies 256 bytes at offset = objectIndex × 256.
+           GPU accesses via push constant objectIndex to index into the SSBO array. */
+        {
+            constexpr uint32_t OBJECT_DATA_SIZE = 256;
+            constexpr uint32_t MAX_OBJECTS = 4096;
+            
+            void* pMapped = nullptr;
+            vkMapMemory(this->m_device.GetDevice(), this->m_objectDataMemory, 0, VK_WHOLE_SIZE, 0, &pMapped);
+            if (pMapped) {
+                uint8_t* pBuffer = static_cast<uint8_t*>(pMapped);
+                const auto& objects = pScene->GetObjects();
+                
+                /* Write each object's data at its reserved offset. */
+                for (size_t i = 0; i < objects.size() && i < MAX_OBJECTS; ++i) {
+                    const Object& obj = objects[i];
+                    ObjectData* pObjData = reinterpret_cast<ObjectData*>(pBuffer + i * OBJECT_DATA_SIZE);
+                    
+                    /* Model matrix (for normal transform, world position). */
+                    pObjData->model = glm::mat4(
+                        obj.localTransform[0],  obj.localTransform[1],  obj.localTransform[2],  obj.localTransform[3],
+                        obj.localTransform[4],  obj.localTransform[5],  obj.localTransform[6],  obj.localTransform[7],
+                        obj.localTransform[8],  obj.localTransform[9],  obj.localTransform[10], obj.localTransform[11],
+                        obj.localTransform[12], obj.localTransform[13], obj.localTransform[14], obj.localTransform[15]
+                    );
+                    
+                    /* Emissive color + strength (from glTF). */
+                    pObjData->emissive = glm::vec4(obj.emissive[0], obj.emissive[1], obj.emissive[2], obj.emissive[3]);
+                    
+                    /* Material properties: metallic, roughness (from glTF). */
+                    pObjData->matProps = glm::vec4(obj.metallicFactor, obj.roughnessFactor, 0.f, 0.f);
+                    
+                    /* Base color (from glTF baseColorFactor). */
+                    pObjData->baseColor = glm::vec4(obj.color[0], obj.color[1], obj.color[2], obj.color[3]);
+                    
+                    /* Reserved fields for future use (phase 3+ extensions: lighting, animation, physics, etc). */
+                    pObjData->reserved0 = glm::vec4(0.f);
+                    pObjData->reserved1 = glm::vec4(0.f);
+                    pObjData->reserved2 = glm::vec4(0.f);
+                    pObjData->reserved3 = glm::vec4(0.f);
+                    pObjData->reserved4 = glm::vec4(0.f);
+                    pObjData->reserved5 = glm::vec4(0.f);
+                    pObjData->reserved6 = glm::vec4(0.f);
+                    pObjData->reserved7 = glm::vec4(0.f);
+                    pObjData->reserved8 = glm::vec4(0.f);
+                }
+                
+                vkUnmapMemory(this->m_device.GetDevice(), this->m_objectDataMemory);
+            }
+        } // End of SSBO write block
+        
+        /* Update light buffer from SceneNew.
+           This uploads light data from the ECS scene to the GPU light SSBO. */
+        {
+            SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
+            if (pSceneNew) {
+                // Update all transform matrices before reading positions
+                pSceneNew->UpdateAllTransforms();
+                
+                // Set scene on light manager if not already set
+                this->m_lightManager.SetScene(pSceneNew);
+                
+                // Upload light data to GPU
+                this->m_lightManager.UpdateLightBuffer();
+            }
+        }
 
         /* Ensure main descriptor set is written (default texture) before drawing main/wire; idempotent. */
         EnsureMainDescriptorSetWritten();
@@ -503,7 +761,7 @@ void VulkanApp::MainLoop() {
                                   fViewProj, &this->m_pipelineDescriptorSets, getTextureDescriptorSet);
 
         /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
-        if (!DrawFrame(this->m_drawCalls))
+        if (!DrawFrame(this->m_drawCalls, fViewProj))
             break;
 
         /* FPS in window title (smoothed, update every 0.25 s). */
@@ -585,6 +843,24 @@ void VulkanApp::Cleanup() {
         this->m_descriptorPoolManager.FreeSet(this->m_descriptorSetMain);
         this->m_descriptorSetMain = VK_NULL_HANDLE;
     }
+    
+    /* Clean up object data SSBO. */
+    if (this->m_objectDataBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(this->m_device.GetDevice(), this->m_objectDataBuffer, nullptr);
+        this->m_objectDataBuffer = VK_NULL_HANDLE;
+    }
+    if (this->m_objectDataMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(this->m_device.GetDevice(), this->m_objectDataMemory, nullptr);
+        this->m_objectDataMemory = VK_NULL_HANDLE;
+    }
+    
+    /* Clean up light manager (owns the light SSBO). */
+    this->m_lightManager.Destroy();
+    this->m_lightBuffer = VK_NULL_HANDLE;  // Was just a reference to LightManager's buffer
+    
+    /* Clean up light debug renderer. */
+    this->m_lightDebugRenderer.Destroy();
+    
     this->m_descriptorPoolManager.Destroy();
     this->m_descriptorSetLayoutManager.Destroy();
     this->m_shaderManager.Destroy();
@@ -596,7 +872,7 @@ void VulkanApp::Cleanup() {
     this->m_jobQueue.Stop();
 }
 
-bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
+bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const float* pViewProjMat16_ic) {
     VkDevice pDevice = this->m_device.GetDevice();
     uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
     VkFence pInFlightFence = this->m_sync.GetInFlightFence(lFrameIndex);
@@ -669,10 +945,19 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic) {
     vecClearValues[1].depthStencil = { .depth = static_cast<float>(1.0f), .stencil = static_cast<uint32_t>(0) };
     const uint32_t lClearValueCount = (this->m_renderPass.HasDepthAttachment() == true) ? static_cast<uint32_t>(2u) : static_cast<uint32_t>(1u);
 
+    /* Build post-scene callback for debug rendering (inside render pass, after scene objects). */
+    std::function<void(VkCommandBuffer)> postSceneCallback = nullptr;
+    if (this->m_config.bShowLightDebug && this->m_lightDebugRenderer.IsReady() && pViewProjMat16_ic != nullptr) {
+        SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
+        postSceneCallback = [this, pSceneNew, pViewProjMat16_ic](VkCommandBuffer cmd) {
+            this->m_lightDebugRenderer.Draw(cmd, pSceneNew, pViewProjMat16_ic);
+        };
+    }
+
     this->m_commandBuffers.Record(lImageIndex, this->m_renderPass.Get(),
                             this->m_framebuffers.Get()[lImageIndex],
                             stRenderArea, stViewport, stScissor, vecDrawCalls_ic,
-                            vecClearValues.data(), lClearValueCount);
+                            vecClearValues.data(), lClearValueCount, postSceneCallback);
 
     VkCommandBuffer pCmd = this->m_commandBuffers.Get(lImageIndex);
     VkPipelineStageFlags uWaitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

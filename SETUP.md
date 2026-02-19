@@ -1,83 +1,26 @@
-# Quick Setup Guide
+# Quick Setup
 
-This is a quick reference for setting up the project on a new machine.
+Quick reference for setting up the project. For detailed instructions, see [docs/getting-started.md](docs/getting-started.md).
 
-## One-Command Setup
-
-### Linux
+## Linux / macOS
 ```bash
-./setup_linux.sh && ./build.sh
+./setup.sh
+scripts/linux/build.sh --debug
+./install/Debug/bin/VulkanApp levels/default/level.json
 ```
 
-### Windows
+## Windows
 ```cmd
-setup_windows.bat
-build.bat
+scripts\windows\setup_windows.bat
+scripts\windows\build.bat --debug
+install\Debug\bin\VulkanApp.exe levels/default/level.json
 ```
 
-## Step-by-Step
+## More Info
 
-### 1. Check/Install Dependencies
-
-**Linux:**
-```bash
-./check_dependencies.sh
-# If missing dependencies:
-./setup_linux.sh
-```
-
-**Windows:**
-```cmd
-check_dependencies.bat
-# If missing dependencies:
-setup_windows.bat
-```
-
-### 2. Build
-
-**Linux/macOS:**
-```bash
-./build.sh
-```
-
-**Windows:**
-```cmd
-build.bat
-```
-
-### 3. Run
-
-**Linux/macOS:**
-```bash
-./build/VulkanApp
-```
-
-**Windows:**
-```cmd
-build\Release\VulkanApp.exe
-```
-
-## What Gets Installed
-
-### Linux
-- Vulkan SDK (development packages)
-- SDL3 (windowing; or fetched by CMake)
-- nlohmann-json (config; install per distro — see README)
-- CMake (build system)
-- GCC/G++ (C++ compiler)
-- Vulkan validation layers (optional, for debugging)
-
-### Windows
-- Vulkan SDK (manual installation required)
-- CMake (manual installation required)
-- Visual Studio or MinGW (C++ compiler)
-- nlohmann-json (vcpkg install nlohmann-json)
-- SDL3 (vcpkg or fetched by CMake)
-
-### macOS
-- MoltenVK, SDL3, nlohmann-json, CMake (e.g. brew install molten-vk sdl3 nlohmann-json cmake)
-
-## Troubleshooting
+- [docs/getting-started.md](docs/getting-started.md) — Full setup guide
+- [docs/ROADMAP.md](docs/ROADMAP.md) — Feature status
+- [docs/troubleshooting.md](docs/troubleshooting.md) — Common issues
 
 If setup fails, check:
 1. Internet connection (for package downloads)

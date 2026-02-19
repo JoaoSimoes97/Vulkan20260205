@@ -1,6 +1,43 @@
 {
   "name": "Default Level - glTF Showcase",
   "version": "1.0",
+  "lights": [
+    {
+      "name": "Sun",
+      "type": "directional",
+      "position": [0.0, 10.0, 0.0],
+      "rotation": [0.259, 0.0, 0.0, 0.966],
+      "color": [1.0, 0.98, 0.95],
+      "intensity": 2.0
+    },
+    {
+      "name": "PointLight_Red",
+      "type": "point",
+      "position": [-3.0, 2.0, 0.0],
+      "color": [1.0, 0.3, 0.2],
+      "intensity": 5.0,
+      "range": 8.0
+    },
+    {
+      "name": "PointLight_Blue",
+      "type": "point",
+      "position": [3.0, 2.0, 0.0],
+      "color": [0.2, 0.4, 1.0],
+      "intensity": 5.0,
+      "range": 8.0
+    },
+    {
+      "name": "Spotlight_Yellow",
+      "type": "spot",
+      "position": [0.0, 4.0, 2.0],
+      "rotation": [0.383, 0.0, 0.0, 0.924],
+      "color": [1.0, 1.0, 0.6],
+      "intensity": 10.0,
+      "range": 15.0,
+      "innerConeAngle": 0.3,
+      "outerConeAngle": 0.5
+    }
+  ],
   "instances": [
     {
       "source": "../../models/DamagedHelmet.glb",

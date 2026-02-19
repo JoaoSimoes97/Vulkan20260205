@@ -1,147 +1,37 @@
 # Portable Development Setup
 
-This document explains how to make your project portable and set it up on any machine.
+This project is portable across Windows, Linux, and macOS. See [docs/getting-started.md](docs/getting-started.md) for full setup instructions.
 
-## What Makes This Project Portable
+## What Makes It Portable
 
-✅ **Automated Setup Scripts** - Install dependencies automatically  
-✅ **Cross-Platform Build System** - CMake works on Linux, Windows, macOS  
-✅ **Automatic Shader Compilation** - Shaders compile during build  
-✅ **Dependency Checking** - Scripts verify all requirements  
-✅ **No Hardcoded Paths** - Everything uses relative paths  
-✅ **Package Manager Integration** - Uses system package managers  
+- **Automated setup scripts** — Install dependencies automatically
+- **CMake build system** — Cross-platform
+- **No hardcoded paths** — Everything relative
+- **Vendored dependencies** — stb, TinyGLTF in deps/
 
-## Setting Up on a New Machine
+## Moving to a New Machine
 
-### Option 1: Automated (Recommended)
+Transfer only these files:
+```
+CMakeLists.txt, vcpkg.json, setup.sh
+scripts/, src/, shaders/source/, config/, levels/, deps/
+```
 
-**Linux:**
+Do NOT transfer: `build/`, `*.spv`, IDE files, `toolchain/`
+
+Then run:
 ```bash
-# 1. Copy/clone project to new machine
-# 2. Run setup
-./setup_linux.sh
-
-# 3. Build
-./build.sh
-
-# 4. Run
-./build/VulkanApp
+./setup.sh && scripts/linux/build.sh --debug
 ```
 
-**Windows:**
-```cmd
-REM 1. Copy/clone project to new machine
-REM 2. Run setup (checks dependencies)
-setup_windows.bat
+## Clean Reinstall
 
-REM 3. Build
-build.bat
-
-REM 4. Run
-build\Release\VulkanApp.exe
+```bash
+rm -rf build/
+./setup.sh
+scripts/linux/build.sh --debug
 ```
 
-### Option 2: Manual
+## More Info
 
-Follow the detailed instructions in [README.md](README.md).
-
-## What to Backup/Transfer
-
-When moving to a new machine, you only need:
-
-```
-VulkanProjects/
-├── CMakeLists.txt
-├── scripts/
-│   ├── linux/     # build.sh, compile_shaders.sh, setup_linux.sh, check_dependencies.sh
-│   ├── windows/   # build.bat, compile_shaders.bat, setup_windows.bat, check_dependencies.bat
-│   └── macos/     # compile_shaders.sh, setup_macos.sh
-├── include/
-├── src/
-└── shaders/
-    └── source/
-        ├── vert.vert
-        └── frag.frag
-```
-
-On any OS, run from project root: **Linux** `scripts/linux/compile_shaders.sh`, **macOS** `scripts/macos/compile_shaders.sh`, **Windows** `scripts\windows\compile_shaders.bat`. All use input `shaders/source/` and output `build/shaders/`.
-
-**When distributing/shipping:** Ship the executable plus `shaders/` (compiled `.spv`) and optionally `config/` in the same directory (or use the install target). Paths are resolved relative to the executable.
-
-**Do NOT backup:**
-- `build/` directory (will be regenerated)
-- `*.spv` files (compiled automatically)
-- Any IDE-specific files (if using .gitignore)
-
-## Version Control
-
-If using Git, the `.gitignore` is already configured to exclude:
-- Build artifacts
-- Compiled shaders
-- IDE files
-- Temporary files
-
-This keeps your repository clean and portable.
-
-## Platform-Specific Notes
-
-### Linux
-- Works on: Arch, Ubuntu, Debian, Fedora, openSUSE, and derivatives
-- Setup script auto-detects distribution
-- Uses system package manager (pacman, apt, dnf, zypper)
-
-### Windows
-- Requires manual Vulkan SDK installation (one-time)
-- CMake auto-downloads GLFW if needed
-- Works with Visual Studio, MinGW, or Clang
-
-### macOS
-- Requires manual Vulkan SDK installation
-- Uses Homebrew for dependencies
-- Follow macOS setup in README.md
-
-## Reinstalling Everything
-
-If you need to completely reinstall:
-
-1. **Delete build directory**: `rm -rf build/` (Linux) or `rmdir /s build` (Windows)
-2. **Run setup script again**: `./setup_linux.sh` or `setup_windows.bat`
-3. **Rebuild**: `./build.sh` or `build.bat`
-
-## Troubleshooting New Installations
-
-1. **Run dependency checker first**:
-   ```bash
-   ./check_dependencies.sh  # Linux
-   check_dependencies.bat    # Windows
-   ```
-
-2. **Check setup script output** for any errors
-
-3. **Verify PATH** contains:
-   - Vulkan SDK binaries (glslc)
-   - CMake
-   - C++ compiler
-
-4. **Check permissions** (Linux):
-   - Scripts need execute permission: `chmod +x *.sh`
-
-## Quick Reference
-
-| Task | Linux | Windows |
-|------|-------|---------|
-| Install deps | `./setup_linux.sh` | `setup_windows.bat` |
-| Check deps | `./check_dependencies.sh` | `check_dependencies.bat` |
-| Build | `./build.sh` | `build.bat` |
-| Run | `./build/VulkanApp` | `build\Release\VulkanApp.exe` |
-| Clean | `rm -rf build/` | `rmdir /s build` |
-
-## Tips for Maximum Portability
-
-1. **Always use relative paths** in code (already done)
-2. **Keep shader sources** in version control (`.spv` files are auto-generated)
-3. **Use CMake** for all builds (already configured)
-4. **Test on multiple platforms** before committing
-5. **Document any platform-specific requirements**
-
-Your project is now fully portable! 🚀
+See [docs/getting-started.md](docs/getting-started.md) for detailed platform-specific instructions.

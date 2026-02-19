@@ -81,7 +81,8 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
     vecOpaque.reserve(vecObjects.size());
     vecTransparent.reserve(vecObjects.size());
 
-    for (const auto& obj : vecObjects) {
+    for (size_t objIndex = 0; objIndex < vecObjects.size(); ++objIndex) {
+        const auto& obj = vecObjects[objIndex];
         if ((obj.pMaterial == nullptr) || (obj.pMesh == nullptr) || (obj.pMesh->HasValidBuffer() == false) || (obj.pushDataSize == 0u) || (obj.pushData.empty() == true))
             continue;
         const uint32_t lMaxPush = MaxPushConstantSize(obj.pMaterial->layoutDescriptor);
@@ -123,6 +124,7 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
             .descriptorSets     = {},
             .instanceBuffer     = VK_NULL_HANDLE,
             .instanceBufferOffset = 0,
+            .dynamicOffsets     = {},  /* Not using dynamic offsets; SSBO indexed via push constant objectIndex */
         };
         
         // Use per-object texture descriptor set if available, otherwise fall back to pipeline default

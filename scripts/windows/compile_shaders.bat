@@ -42,6 +42,10 @@ if "%COMPILER%"=="glslc" (
     if %ERRORLEVEL% NEQ 0 ( echo Error compiling alt fragment shader! & exit /b 1 )
     glslc %SHADER_SOURCE_DIR%\frag_untextured.frag -o %OUTPUT_DIR%\frag_untextured.spv
     if %ERRORLEVEL% NEQ 0 ( echo Error compiling untextured fragment shader! & exit /b 1 )
+    glslc %SHADER_SOURCE_DIR%\debug_line.vert -o %OUTPUT_DIR%\debug_line.vert.spv
+    if %ERRORLEVEL% NEQ 0 ( echo Error compiling debug line vertex shader! & exit /b 1 )
+    glslc %SHADER_SOURCE_DIR%\debug_line.frag -o %OUTPUT_DIR%\debug_line.frag.spv
+    if %ERRORLEVEL% NEQ 0 ( echo Error compiling debug line fragment shader! & exit /b 1 )
 ) else (
     glslangValidator -V %SHADER_SOURCE_DIR%\vert.vert -o %OUTPUT_DIR%\vert.spv
     if %ERRORLEVEL% NEQ 0 ( echo Error compiling vertex shader! & exit /b 1 )
@@ -51,6 +55,10 @@ if "%COMPILER%"=="glslc" (
     if %ERRORLEVEL% NEQ 0 ( echo Error compiling alt fragment shader! & exit /b 1 )
     glslangValidator -V %SHADER_SOURCE_DIR%\frag_untextured.frag -o %OUTPUT_DIR%\frag_untextured.spv
     if %ERRORLEVEL% NEQ 0 ( echo Error compiling untextured fragment shader! & exit /b 1 )
+    glslangValidator -V %SHADER_SOURCE_DIR%\debug_line.vert -o %OUTPUT_DIR%\debug_line.vert.spv
+    if %ERRORLEVEL% NEQ 0 ( echo Error compiling debug line vertex shader! & exit /b 1 )
+    glslangValidator -V %SHADER_SOURCE_DIR%\debug_line.frag -o %OUTPUT_DIR%\debug_line.frag.spv
+    if %ERRORLEVEL% NEQ 0 ( echo Error compiling debug line fragment shader! & exit /b 1 )
 )
 
 echo Shaders compiled successfully!

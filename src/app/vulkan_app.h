@@ -1,6 +1,10 @@
 #pragma once
 
+#include <glm/glm.hpp>
 #include "camera.h"
+#include "core/light_component.h"
+#include "core/light_manager.h"
+#include "core/light_debug_renderer.h"
 #include "managers/descriptor_pool_manager.h"
 #include "managers/descriptor_set_layout_manager.h"
 #include "managers/material_manager.h"
@@ -30,6 +34,29 @@
 
 class VulkanShaderManager;
 
+/**
+ * Per-object data stored in SSBO for GPU access.
+ * Each object gets a 256-byte slot (index * 256 = offset for dynamic binding).
+ */
+struct ObjectData {
+    glm::mat4 model;              // 64 bytes - model matrix for lighting
+    glm::vec4 emissive;           // 16 bytes - RGB + strength
+    glm::vec4 matProps;           // 16 bytes - metallic, roughness, reserved x2
+    glm::vec4 baseColor;          // 16 bytes - RGBA color
+    glm::vec4 reserved0;          // 16 bytes - reserved for future (lighting)
+    glm::vec4 reserved1;          // 16 bytes - reserved for future (animation)
+    glm::vec4 reserved2;          // 16 bytes - reserved for future (physics)
+    glm::vec4 reserved3;          // 16 bytes - reserved for future (particles)
+    glm::vec4 reserved4;          // 16 bytes - reserved for future (phase 3B)
+    glm::vec4 reserved5;          // 16 bytes - reserved for future (UI/effects)
+    glm::vec4 reserved6;          // 16 bytes - reserved for future (audio/events)
+    glm::vec4 reserved7;          // 16 bytes - reserved for future (custom)
+    glm::vec4 reserved8;          // 16 bytes - reserved for future expansion
+    // Total: 256 bytes (64 + 12*vec4 = 64 + 192 = 256)
+};
+
+static_assert(sizeof(ObjectData) == 256, "ObjectData must be 256 bytes");
+
 class VulkanApp {
 public:
     explicit VulkanApp(const VulkanConfig& config_in);
@@ -45,8 +72,9 @@ private:
 
     /**
      * DrawFrame: record and present. Returns false on fatal error (e.g. device lost); caller should exit the loop.
+     * @param viewProjMat16_ic 16-float view-projection matrix for debug rendering (may be null).
      */
-    bool DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic);
+    bool DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const float* pViewProjMat16_ic);
     void RecreateSwapchainAndDependents();
     /** Write default texture into the main descriptor set when ready; then add main/wire to m_pipelineDescriptorSets. Idempotent. */
     void EnsureMainDescriptorSetWritten();
@@ -95,6 +123,21 @@ private:
     std::map<TextureHandle*, VkDescriptorSet> m_textureDescriptorSets;
     /** Reverse map: descriptor set -> texture (for reference counting and cleanup). */
     std::map<VkDescriptorSet, std::shared_ptr<TextureHandle>> m_descriptorSetTextures;
+    /** Per-object data SSBO buffer (4096 objects × 256 bytes = 1MB). Written each frame. */
+    VkBuffer m_objectDataBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory m_objectDataMemory = VK_NULL_HANDLE;
+    
+    /** Light data SSBO buffer (16 byte header + 256 lights × 64 bytes = ~16KB). 
+        Note: We have both raw buffer (created early) and LightManager (manages upload).
+        The LightManager uses its own buffer internally which is bound to the descriptor set. */
+    VkBuffer m_lightBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory m_lightBufferMemory = VK_NULL_HANDLE;
+    
+    /** Light manager for uploading scene lights to GPU. */
+    LightManager m_lightManager;
+    
+    /** Light debug renderer for visualizing lights in debug mode. */
+    LightDebugRenderer m_lightDebugRenderer;
 
     Camera m_camera;
     float m_avgFrameTimeSec = 1.f / 60.f;

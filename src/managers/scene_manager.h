@@ -2,6 +2,8 @@
 
 #include "gltf_loader.h"
 #include "scene/scene.h"
+#include "core/scene_new.h"
+#include <nlohmann/json_fwd.hpp>
 #include <memory>
 #include <string>
 #include <map>
@@ -19,6 +21,8 @@ class TextureManager;
  * SceneManager: owns current scene and level loading. Level = JSON descriptor + many glTFs (one per instance).
  * SetDependencies() must be called before LoadLevelFromFile or LoadDefaultLevelOrCreate.
  * Supports procedural meshes via "procedural:type" syntax (e.g., "procedural:cube").
+ * 
+ * During migration: maintains both legacy Scene and new SceneNew for ECS components.
  */
 class SceneManager {
 public:
@@ -30,9 +34,13 @@ public:
     /** Unload current scene (drops refs; managers can TrimUnused). */
     void UnloadScene();
 
-    /** Current scene (may be null). */
+    /** Current legacy scene (may be null). */
     Scene* GetCurrentScene() { return m_currentScene.get(); }
     const Scene* GetCurrentScene() const { return m_currentScene.get(); }
+
+    /** Current ECS scene (may be null). Contains lights and ECS components. */
+    SceneNew* GetSceneNew() { return m_sceneNew.get(); }
+    const SceneNew* GetSceneNew() const { return m_sceneNew.get(); }
 
     /** Set current scene. Replaces any current scene. */
     void SetCurrentScene(std::unique_ptr<Scene> scene);
@@ -56,6 +64,9 @@ private:
     /** Helper: check if source is procedural (starts with "procedural:"), extract type, return mesh. */
     std::shared_ptr<MeshHandle> LoadProceduralMesh(const std::string& source);
 
+    /** Load lights from JSON into SceneNew. */
+    void LoadLightsFromJson(const nlohmann::json& j);
+
     /**
      * Future-work hooks: if called, log once per glTF so animation/skinning tasks are not forgotten.
      */
@@ -67,6 +78,7 @@ private:
     MeshManager*     m_pMeshManager     = nullptr;
     TextureManager*  m_pTextureManager  = nullptr;
     std::unique_ptr<Scene> m_currentScene;
+    std::unique_ptr<SceneNew> m_sceneNew;
     
     /** Cache for procedural meshes (type -> mesh). */
     std::map<std::string, std::shared_ptr<MeshHandle>> m_proceduralMeshCache;

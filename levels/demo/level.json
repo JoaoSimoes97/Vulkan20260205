@@ -1,4 +1,43 @@
 {
+  "name": "Demo Level - Feature Showcase",
+  "version": "1.0",
+  "lights": [
+    {
+      "name": "Sun",
+      "type": "directional",
+      "position": [0.0, 10.0, 0.0],
+      "rotation": [0.259, 0.0, 0.0, 0.966],
+      "color": [1.0, 0.98, 0.95],
+      "intensity": 2.0
+    },
+    {
+      "name": "PointLight_Red",
+      "type": "point",
+      "position": [-5.0, 2.5, -3.0],
+      "color": [1.0, 0.3, 0.2],
+      "intensity": 8.0,
+      "range": 10.0
+    },
+    {
+      "name": "PointLight_Green",
+      "type": "point",
+      "position": [5.0, 2.5, -3.0],
+      "color": [0.2, 1.0, 0.3],
+      "intensity": 8.0,
+      "range": 10.0
+    },
+    {
+      "name": "Spotlight_Blue",
+      "type": "spot",
+      "position": [0.0, 5.0, 3.0],
+      "rotation": [0.383, 0.0, 0.0, 0.924],
+      "color": [0.4, 0.6, 1.0],
+      "intensity": 15.0,
+      "range": 20.0,
+      "innerConeAngle": 0.3,
+      "outerConeAngle": 0.6
+    }
+  ],
   "instances": [
     {
       "name": "Floor",

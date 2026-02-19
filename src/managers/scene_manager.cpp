@@ -226,6 +226,7 @@ void SceneManager::SetDependencies(MaterialManager* pMaterialManager_ic, MeshMan
 
 void SceneManager::UnloadScene() {
     m_currentScene.reset();
+    m_sceneNew.reset();
     // Clear procedural mesh cache to release all mesh handles
     m_proceduralMeshCache.clear();
 }
@@ -524,6 +525,10 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                         obj.emissive[3] = emissiveOverride[3];
                     }
 
+                    // Load metallic and roughness factors from glTF material
+                    obj.metallicFactor = static_cast<float>(gltfMat.pbrMetallicRoughness.metallicFactor);
+                    obj.roughnessFactor = static_cast<float>(gltfMat.pbrMetallicRoughness.roughnessFactor);
+
                     obj.pushData.resize(kObjectPushConstantSize);
                     obj.pushDataSize = kObjectPushConstantSize;
                     objs.push_back(std::move(obj));
@@ -542,7 +547,13 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
 
     const size_t objectCount = objs.size();
     SetCurrentScene(std::move(scene));
-    VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" ({} objects)", path, objectCount);
+    
+    // Create SceneNew for ECS components (lights, etc.) and load lights
+    m_sceneNew = std::make_unique<SceneNew>(sceneName);
+    LoadLightsFromJson(j);
+    
+    VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" ({} objects, {} lights)", 
+                         path, objectCount, m_sceneNew->GetLights().size());
     return true;
 }
 
@@ -587,4 +598,146 @@ std::shared_ptr<MeshHandle> SceneManager::LoadProceduralMesh(const std::string& 
     }
     
     return pMesh;
+}
+
+void SceneManager::LoadLightsFromJson(const nlohmann::json& j) {
+    if (!m_sceneNew) return;
+    
+    if (!j.contains("lights") || !j["lights"].is_array()) {
+        // No lights in the level - add a default ambient-ish directional light
+        uint32_t goId = m_sceneNew->CreateGameObject("DefaultSun");
+        Transform* t = m_sceneNew->GetTransform(goId);
+        if (t) {
+            TransformSetPosition(*t, 0.f, 10.f, 0.f);
+            // Point slightly downward (rotation around X axis by ~30 degrees)
+            TransformSetRotation(*t, 0.259f, 0.f, 0.f, 0.966f);
+        }
+        
+        LightComponent light;
+        light.type = LightType::Directional;
+        light.color[0] = 1.f; light.color[1] = 1.f; light.color[2] = 1.f;
+        light.intensity = 1.5f;
+        m_sceneNew->AddLight(goId, light);
+        
+        VulkanUtils::LogInfo("SceneManager: no lights in level, created default directional light");
+        return;
+    }
+    
+    for (const auto& jLight : j["lights"]) {
+        if (!jLight.is_object()) continue;
+        
+        // Get light name
+        std::string name = "Light";
+        if (jLight.contains("name") && jLight["name"].is_string()) {
+            name = jLight["name"].get<std::string>();
+        }
+        
+        // Create GameObject for this light
+        uint32_t goId = m_sceneNew->CreateGameObject(name);
+        Transform* t = m_sceneNew->GetTransform(goId);
+        
+        // Parse position
+        if (t && jLight.contains("position") && jLight["position"].is_array() && jLight["position"].size() >= 3) {
+            float px = static_cast<float>(jLight["position"][0].get<double>());
+            float py = static_cast<float>(jLight["position"][1].get<double>());
+            float pz = static_cast<float>(jLight["position"][2].get<double>());
+            TransformSetPosition(*t, px, py, pz);
+        }
+        
+        // Parse rotation (quaternion: x, y, z, w)
+        if (t && jLight.contains("rotation") && jLight["rotation"].is_array() && jLight["rotation"].size() >= 4) {
+            float qx = static_cast<float>(jLight["rotation"][0].get<double>());
+            float qy = static_cast<float>(jLight["rotation"][1].get<double>());
+            float qz = static_cast<float>(jLight["rotation"][2].get<double>());
+            float qw = static_cast<float>(jLight["rotation"][3].get<double>());
+            TransformSetRotation(*t, qx, qy, qz, qw);
+        }
+        
+        // Parse light properties
+        LightComponent light;
+        
+        // Type
+        if (jLight.contains("type") && jLight["type"].is_string()) {
+            std::string typeStr = jLight["type"].get<std::string>();
+            if (typeStr == "directional" || typeStr == "Directional") {
+                light.type = LightType::Directional;
+            } else if (typeStr == "point" || typeStr == "Point") {
+                light.type = LightType::Point;
+            } else if (typeStr == "spot" || typeStr == "Spot") {
+                light.type = LightType::Spot;
+            } else {
+                VulkanUtils::LogWarn("SceneManager: unknown light type \"{}\" for \"{}\", defaulting to point",
+                                     typeStr, name);
+                light.type = LightType::Point;
+            }
+        }
+        
+        // Color
+        if (jLight.contains("color") && jLight["color"].is_array() && jLight["color"].size() >= 3) {
+            light.color[0] = static_cast<float>(jLight["color"][0].get<double>());
+            light.color[1] = static_cast<float>(jLight["color"][1].get<double>());
+            light.color[2] = static_cast<float>(jLight["color"][2].get<double>());
+        }
+        
+        // Intensity
+        if (jLight.contains("intensity") && jLight["intensity"].is_number()) {
+            light.intensity = static_cast<float>(jLight["intensity"].get<double>());
+        }
+        
+        // Range (for point and spot lights)
+        if (jLight.contains("range") && jLight["range"].is_number()) {
+            light.range = static_cast<float>(jLight["range"].get<double>());
+        }
+        
+        // Cone angles (for spot lights)
+        if (jLight.contains("innerConeAngle") && jLight["innerConeAngle"].is_number()) {
+            light.innerConeAngle = static_cast<float>(jLight["innerConeAngle"].get<double>());
+        }
+        if (jLight.contains("outerConeAngle") && jLight["outerConeAngle"].is_number()) {
+            light.outerConeAngle = static_cast<float>(jLight["outerConeAngle"].get<double>());
+        }
+        
+        // Falloff exponent
+        if (jLight.contains("falloff") && jLight["falloff"].is_number()) {
+            light.falloffExponent = static_cast<float>(jLight["falloff"].get<double>());
+        }
+        
+        // Active flag
+        if (jLight.contains("active") && jLight["active"].is_boolean()) {
+            light.bActive = jLight["active"].get<bool>();
+        }
+        
+        // Cast shadows (future)
+        if (jLight.contains("castShadows") && jLight["castShadows"].is_boolean()) {
+            light.bCastShadows = jLight["castShadows"].get<bool>();
+        }
+        
+        m_sceneNew->AddLight(goId, light);
+        
+        const char* typeStr = (light.type == LightType::Directional) ? "Directional" :
+                              (light.type == LightType::Point) ? "Point" :
+                              (light.type == LightType::Spot) ? "Spot" : "Unknown";
+        VulkanUtils::LogInfo("Light[{}]: {} \"{}\" pos=({:.1f}, {:.1f}, {:.1f}) color=({:.2f}, {:.2f}, {:.2f}) intensity={:.2f} range={:.1f}",
+                             goId, typeStr, name,
+                             t ? t->position[0] : 0.f,
+                             t ? t->position[1] : 0.f,
+                             t ? t->position[2] : 0.f,
+                             light.color[0], light.color[1], light.color[2],
+                             light.intensity, light.range);
+    }
+    
+    // Summary
+    const auto& lights = m_sceneNew->GetLights();
+    uint32_t pointCount = 0, spotCount = 0, dirCount = 0;
+    for (const auto& l : lights) {
+        if (!l.bActive) continue;
+        switch (l.type) {
+            case LightType::Point: ++pointCount; break;
+            case LightType::Spot: ++spotCount; break;
+            case LightType::Directional: ++dirCount; break;
+            default: break;
+        }
+    }
+    VulkanUtils::LogInfo("Lights loaded: {} directional, {} point, {} spot (total: {})",
+                         dirCount, pointCount, spotCount, lights.size());
 }

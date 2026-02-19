@@ -1,19 +1,64 @@
 #version 450
 
+/* ---- Push Constants ---- */
 layout(push_constant) uniform Push {
-    mat4 proj;
-    vec4 color;
+    mat4 mvp;           // Model-View-Projection matrix
+    vec4 color;         // Per-object tint color
+    uint objectIndex;   // Index into object data SSBO
 } pc;
 
+/* ---- Object Data SSBO (binding 2) ---- */
+/* Must match C++ ObjectData = 256 bytes */
+struct ObjectData {
+    mat4 model;      // Model matrix (64 bytes)
+    vec4 emissive;   // Emissive RGB + strength (16 bytes)
+    vec4 matProps;   // x=metallic, y=roughness, z=normalScale, w=occlusion (16 bytes)
+    vec4 baseColor;  // Base color RGBA (16 bytes)
+    vec4 reserved0;  // 16 bytes
+    vec4 reserved1;  // 16 bytes
+    vec4 reserved2;  // 16 bytes
+    vec4 reserved3;  // 16 bytes
+    vec4 reserved4;  // 16 bytes
+    vec4 reserved5;  // 16 bytes
+    vec4 reserved6;  // 16 bytes
+    vec4 reserved7;  // 16 bytes
+    vec4 reserved8;  // 16 bytes
+    // Total: 64 + 12*16 = 256 bytes
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer ObjectDataBlock {
+    ObjectData objects[];
+} objectData;
+
+/* ---- Vertex Inputs ---- */
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec2 inUV;
 layout(location = 2) in vec3 inNormal;
 
+/* ---- Outputs to Fragment Shader ---- */
 layout(location = 0) out vec2 outUV;
 layout(location = 1) out vec3 outNormal;
+layout(location = 2) out vec3 outWorldPos;
+layout(location = 3) flat out uint outObjectIndex;
 
 void main() {
-    gl_Position = pc.proj * vec4(inPosition, 1.0);
+    // Get model matrix from SSBO
+    mat4 model = objectData.objects[pc.objectIndex].model;
+    
+    // Transform to clip space
+    gl_Position = pc.mvp * vec4(inPosition, 1.0);
+    
+    // Pass through UV (with wrapping handled in fragment shader)
     outUV = inUV;
-    outNormal = inNormal; // For now, no model transform (or assume orthonormal)
+    
+    // Transform normal to world space
+    // Using mat3(model) for non-uniform scale; transpose(inverse()) for correct normals
+    mat3 normalMatrix = mat3(model);
+    outNormal = normalize(normalMatrix * inNormal);
+    
+    // World position for lighting calculations
+    outWorldPos = (model * vec4(inPosition, 1.0)).xyz;
+    
+    // Pass object index to fragment shader
+    outObjectIndex = pc.objectIndex;
 }

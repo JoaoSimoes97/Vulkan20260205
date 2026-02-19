@@ -68,6 +68,7 @@ endif()
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${CMAKE_SOURCE_DIR}/src/app)
 include_directories(${CMAKE_SOURCE_DIR}/src/config)
+include_directories(${CMAKE_SOURCE_DIR}/src/core)
 include_directories(${CMAKE_SOURCE_DIR}/src/managers)
 include_directories(${CMAKE_SOURCE_DIR}/src/thread)
 include_directories(${CMAKE_SOURCE_DIR}/src/window)
@@ -111,6 +112,9 @@ set(SOURCES
     src/loaders/gltf_mesh_utils.cpp
     src/loaders/procedural_mesh_factory.cpp
     src/render/render_list_builder.cpp
+    src/core/light_manager.cpp
+    src/core/light_debug_renderer.cpp
+    src/core/scene_new.cpp
 )
 
 # Header files (same layout)
@@ -146,6 +150,18 @@ set(HEADERS
     src/vulkan/vulkan_command_buffers.h
     src/vulkan/vulkan_sync.h
     src/vulkan/vulkan_shader_manager.h
+    src/core/camera_component.h
+    src/core/component.h
+    src/core/core.h
+    src/core/gameobject.h
+    src/core/light_component.h
+    src/core/light_debug_renderer.h
+    src/core/light_manager.h
+    src/core/physics_component.h
+    src/core/renderer_component.h
+    src/core/scene_new.h
+    src/core/script_component.h
+    src/core/transform.h
 )
 
 # Create executable
@@ -156,6 +172,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/app
     ${CMAKE_SOURCE_DIR}/src/config
+    ${CMAKE_SOURCE_DIR}/src/core
     ${CMAKE_SOURCE_DIR}/src/loaders
     ${CMAKE_SOURCE_DIR}/src/managers
     ${CMAKE_SOURCE_DIR}/src/thread
@@ -242,6 +259,18 @@ if(GLSLC)
         DEPENDS ${SHADERS_SOURCE_DIR}/frag_untextured.frag
         COMMENT "Compiling untextured fragment shader"
     )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv
+        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/debug_line.vert -o ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/debug_line.vert
+        COMMENT "Compiling debug line vertex shader"
+    )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
+        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/debug_line.frag -o ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/debug_line.frag
+        COMMENT "Compiling debug line fragment shader"
+    )
 elseif(GLSLANGVALIDATOR)
     message(STATUS "Found glslangValidator, will auto-compile shaders (source: shaders/source/ -> build/shaders/)")
     add_custom_command(
@@ -268,6 +297,18 @@ elseif(GLSLANGVALIDATOR)
         DEPENDS ${SHADERS_SOURCE_DIR}/frag_untextured.frag
         COMMENT "Compiling untextured fragment shader"
     )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv
+        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/debug_line.vert -o ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/debug_line.vert
+        COMMENT "Compiling debug line vertex shader"
+    )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
+        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/debug_line.frag -o ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/debug_line.frag
+        COMMENT "Compiling debug line fragment shader"
+    )
 else()
     message(WARNING "No shader compiler found (glslc or glslangValidator). Shaders must be compiled manually.")
     file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
@@ -276,7 +317,7 @@ endif()
 file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 
 add_custom_target(compile_shaders ALL
-    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/frag_alt.spv ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
+    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/frag_alt.spv ${SHADERS_OUTPUT_DIR}/frag_untextured.spv ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
 )
 
 # Ensure shaders are built before the app, and copy shaders + config + levels + models next to the exe so the app finds them regardless of cwd.
@@ -288,6 +329,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_alt.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_untextured.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/levels $<TARGET_FILE_DIR:${PROJECT_NAME}>/levels
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/models $<TARGET_FILE_DIR:${PROJECT_NAME}>/models
