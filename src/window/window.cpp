@@ -121,9 +121,39 @@ bool Window::PollEvents() {
             case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
                 this->m_bFramebufferResized = true;
                 break;
+            case SDL_EVENT_MOUSE_MOTION:
+                if (this->m_bMouseCaptured) {
+                    this->m_mouseDeltaX += evt.motion.xrel;
+                    this->m_mouseDeltaY += evt.motion.yrel;
+                }
+                break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                // Right-click to toggle mouse capture
+                if (evt.button.button == SDL_BUTTON_RIGHT) {
+                    SetMouseCapture(!m_bMouseCaptured);
+                }
+                break;
+            case SDL_EVENT_KEY_DOWN:
+                // Escape to release mouse capture
+                if (evt.key.key == SDLK_ESCAPE && m_bMouseCaptured) {
+                    SetMouseCapture(false);
+                }
+                break;
             default:
                 break;
         }
     }
     return false;
+}
+
+void Window::GetMouseDelta(float& deltaX, float& deltaY) {
+    deltaX = m_mouseDeltaX;
+    deltaY = m_mouseDeltaY;
+    m_mouseDeltaX = 0.f;
+    m_mouseDeltaY = 0.f;
+}
+
+void Window::SetMouseCapture(bool capture) {
+    m_bMouseCaptured = capture;
+    SDL_SetWindowRelativeMouseMode(m_pWindow, capture);
 }

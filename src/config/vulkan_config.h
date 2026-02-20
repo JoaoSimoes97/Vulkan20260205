@@ -45,8 +45,8 @@ struct VulkanConfig {
     float fOrthoNear = -10.f;
     /** Ortho only: far Z in view space. */
     float fOrthoFar = 10.f;
-    /** Camera pan/move speed per frame (WASD / arrows / QE). */
-    float fPanSpeed = 0.012f;
+    /** Camera move speed in units per second (WASD / arrows / QE). */
+    float fPanSpeed = 8.0f;
     /** Initial camera position (world space). Perspective: use positive Z to start behind the scene. */
     float fInitialCameraX = 0.f;
     float fInitialCameraY = 0.f;

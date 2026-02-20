@@ -36,6 +36,13 @@ public:
     bool GetFramebufferResized() const { return this->m_bFramebufferResized; }
     void SetFramebufferResized(bool b_ic) { this->m_bFramebufferResized = b_ic; }
     bool GetWindowMinimized() const { return this->m_bWindowMinimized; }
+    
+    /** Get accumulated mouse delta since last call (resets delta). */
+    void GetMouseDelta(float& deltaX, float& deltaY);
+    
+    /** Enable/disable mouse capture (relative mode for FPS camera). */
+    void SetMouseCapture(bool capture);
+    bool GetMouseCapture() const { return m_bMouseCaptured; }
 
 private:
     SDL_Window* m_pWindow = static_cast<SDL_Window*>(nullptr);
@@ -44,4 +51,7 @@ private:
     uint32_t m_height = static_cast<uint32_t>(0);
     bool m_bFramebufferResized = static_cast<bool>(false);
     bool m_bWindowMinimized = static_cast<bool>(false);
+    bool m_bMouseCaptured = false;
+    float m_mouseDeltaX = 0.f;
+    float m_mouseDeltaY = 0.f;
 };

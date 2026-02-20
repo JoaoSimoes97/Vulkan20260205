@@ -5,6 +5,10 @@ layout(push_constant) uniform Push {
     mat4 mvp;           // Model-View-Projection (unused in frag)
     vec4 color;         // Per-object tint color
     uint objectIndex;   // Index into object data SSBO
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
+    vec4 camPos;        // Camera world position
 } pc;
 
 /* ---- Object Data SSBO (binding 2) ---- */
@@ -178,7 +182,24 @@ void main() {
         Lo = diffuse * 0.8 + specular * 0.3;
     }
     
-    vec3 ambient = vec3(0.03) * albedo;
+    // Procedural sky environment for reflections (same as frag.frag)
+    vec3 R = reflect(-V, N);
+    float skyGradient = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 skyColor = mix(vec3(0.9, 0.85, 0.8), vec3(0.3, 0.5, 0.95), skyGradient);
+    vec3 groundColor = vec3(0.25, 0.22, 0.18);
+    vec3 envColor = R.y > 0.0 ? skyColor : groundColor;
+    
+    // Fresnel for environment reflection
+    vec3 F_env = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - max(dot(N, V), 0.0), 0.0, 1.0), 5.0);
+    
+    // Metals get stronger environment reflection
+    float envStrength = mix(0.3, 1.5, metallic) * (1.0 - roughness * 0.7);
+    vec3 envReflection = envColor * F_env * envStrength;
+    
+    vec3 kD_env = (1.0 - F_env) * (1.0 - metallic);
+    vec3 ambientDiffuse = kD_env * albedo * vec3(0.15);
+    
+    vec3 ambient = ambientDiffuse + envReflection;
     vec3 color = ambient + Lo + emissive;
     
     // Tone mapping + gamma

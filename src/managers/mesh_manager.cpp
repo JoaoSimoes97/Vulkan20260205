@@ -304,8 +304,16 @@ std::shared_ptr<MeshHandle> MeshManager::GetOrCreateFromPositions(const std::str
         return it->second;
     // Legacy: position-only data (3 floats per vertex)
     std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(pPositions, vertexCount, sizeof(float) * 3u);
-    if (p)
+    if (p) {
+        // Compute AABB from vertex positions
+        MeshAABB aabb;
+        for (uint32_t i = 0; i < vertexCount; ++i) {
+            const float* pPos = pPositions + i * 3;
+            aabb.Expand(pPos[0], pPos[1], pPos[2]);
+        }
+        p->SetAABB(aabb);
         m_cache[key] = p;
+    }
     return p;
 }
 
@@ -318,8 +326,18 @@ std::shared_ptr<MeshHandle> MeshManager::GetOrCreateFromGltf(const std::string& 
     // glTF meshes use interleaved vertex data (pos+UV+normal, 32 bytes per vertex)
     constexpr uint32_t vertexStride = 32u; // sizeof(VertexData) = 8 floats * 4 bytes
     std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(pVertexData, vertexCount, vertexStride);
-    if (p)
+    if (p) {
+        // Compute AABB from vertex positions (first 3 floats of each vertex)
+        MeshAABB aabb;
+        const float* pFloats = static_cast<const float*>(pVertexData);
+        constexpr uint32_t floatsPerVertex = 8u; // 32 bytes / 4 bytes per float
+        for (uint32_t i = 0; i < vertexCount; ++i) {
+            const float* pPos = pFloats + i * floatsPerVertex;
+            aabb.Expand(pPos[0], pPos[1], pPos[2]);
+        }
+        p->SetAABB(aabb);
         m_cache[key] = p;
+    }
     return p;
 }
 
@@ -339,8 +357,16 @@ std::shared_ptr<MeshHandle> MeshManager::GetOrCreateProcedural(const std::string
     const uint32_t vertexCount = static_cast<uint32_t>(positions.size() / 3);
     // Procedural meshes are position-only (3 floats per vertex)
     std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(positions.data(), vertexCount, sizeof(float) * 3u);
-    if (p)
+    if (p) {
+        // Compute AABB from vertex positions
+        MeshAABB aabb;
+        for (uint32_t i = 0; i < vertexCount; ++i) {
+            const float* pPos = positions.data() + i * 3;
+            aabb.Expand(pPos[0], pPos[1], pPos[2]);
+        }
+        p->SetAABB(aabb);
         m_cache[key] = p;
+    }
     return p;
 }
 

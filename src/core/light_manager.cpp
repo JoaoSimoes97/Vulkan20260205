@@ -4,6 +4,7 @@
 #include "light_manager.h"
 #include "scene_new.h"
 #include <cstring>
+#include <cstdio>
 #include <stdexcept>
 
 LightManager::~LightManager() {
@@ -80,6 +81,13 @@ void LightManager::UpdateLightBuffer() {
     const auto& transforms = m_pScene->GetTransforms();
     const auto& lights = m_pScene->GetLights();
 
+    // Debug: log counts once at startup
+    static bool bLoggedOnce = false;
+    if (!bLoggedOnce) {
+        printf("[LightManager] gameObjects=%zu, lights=%zu\n", gameObjects.size(), lights.size());
+        bLoggedOnce = true;
+    }
+
     uint32_t lightCount = 0;
     GpuLightData* pLights = reinterpret_cast<GpuLightData*>(pData + kLightBufferHeaderSize);
 
@@ -107,6 +115,17 @@ void LightManager::UpdateLightBuffer() {
     // Write header (light count)
     std::memcpy(pData, &lightCount, sizeof(uint32_t));
     m_activeLightCount = lightCount;
+    
+    // Debug: log light count once
+    static bool bLoggedLightCount = false;
+    if (!bLoggedLightCount && lightCount > 0) {
+        const GpuLightData& l0 = pLights[0];
+        printf("[LightManager] lightCount=%u, light0: dir=(%.3f, %.3f, %.3f), color=(%.2f, %.2f, %.2f), intensity=%.2f, type=%.0f, active=%.0f\n",
+               lightCount, l0.direction[0], l0.direction[1], l0.direction[2],
+               l0.color[0], l0.color[1], l0.color[2], l0.color[3],
+               l0.direction[3], l0.params[3]);
+        bLoggedLightCount = true;
+    }
 }
 
 VkDescriptorBufferInfo LightManager::GetDescriptorBufferInfo() const {

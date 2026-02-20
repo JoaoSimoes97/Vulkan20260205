@@ -7,12 +7,49 @@
 #include <vector>
 #include <shared_mutex>
 #include <vulkan/vulkan.h>
+#include <cmath>
+#include <cfloat>
 
 struct JobQueue;
 
 /**
+ * Mesh-local bounding box (computed from vertices at mesh creation).
+ */
+struct MeshAABB {
+    float minX = FLT_MAX, minY = FLT_MAX, minZ = FLT_MAX;
+    float maxX = -FLT_MAX, maxY = -FLT_MAX, maxZ = -FLT_MAX;
+    
+    void Expand(float x, float y, float z) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        if (z > maxZ) maxZ = z;
+    }
+    
+    void GetCenter(float& cx, float& cy, float& cz) const {
+        cx = (minX + maxX) * 0.5f;
+        cy = (minY + maxY) * 0.5f;
+        cz = (minZ + maxZ) * 0.5f;
+    }
+    
+    float GetBoundingSphereRadius() const {
+        float dx = maxX - minX;
+        float dy = maxY - minY;
+        float dz = maxZ - minZ;
+        return 0.5f * std::sqrt(dx*dx + dy*dy + dz*dz);
+    }
+    
+    bool IsValid() const {
+        return minX <= maxX && minY <= maxY && minZ <= maxZ;
+    }
+};
+
+/**
  * Mesh handle: owns vertex buffer (and optionally index buffer later). Destructor frees GPU resources.
  * Draw params: vertexCount, firstVertex, instanceCount, firstInstance; indexCount/firstIndex for future indexed draw.
+ * Includes local-space AABB for frustum culling.
  */
 class MeshHandle {
 public:
@@ -26,6 +63,7 @@ public:
 
     void SetVertexBuffer(VkDevice device, VkBuffer buffer, VkDeviceMemory memory);
     void SetDrawParams(uint32_t vertexCount, uint32_t firstVertex = 0u, uint32_t instanceCount = 1u, uint32_t firstInstance = 0u);
+    void SetAABB(const MeshAABB& aabb) { m_aabb = aabb; }
 
     VkBuffer GetVertexBuffer() const { return m_vertexBuffer; }
     VkDeviceSize GetVertexBufferOffset() const { return 0; }
@@ -34,6 +72,7 @@ public:
     uint32_t GetFirstVertex() const { return m_firstVertex; }
     uint32_t GetFirstInstance() const { return m_firstInstance; }
     bool HasValidBuffer() const { return m_vertexBuffer != VK_NULL_HANDLE && m_device != VK_NULL_HANDLE; }
+    const MeshAABB& GetAABB() const { return m_aabb; }
 
 private:
     void Destroy();
@@ -45,6 +84,7 @@ private:
     uint32_t m_instanceCount = 1u;
     uint32_t m_firstVertex   = 0u;
     uint32_t m_firstInstance = 0u;
+    MeshAABB m_aabb;
 };
 
 /**

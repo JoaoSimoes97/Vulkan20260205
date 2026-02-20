@@ -5,6 +5,10 @@ layout(push_constant) uniform Push {
     mat4 mvp;           // Model-View-Projection matrix
     vec4 color;         // Per-object tint color
     uint objectIndex;   // Index into object data SSBO
+    uint _pad0;         // Padding for 16-byte alignment of camPos
+    uint _pad1;         // Padding
+    uint _pad2;         // Padding (total 12 bytes padding)
+    vec4 camPos;        // Camera world position (xyz), w unused
 } pc;
 
 /* ---- Object Data SSBO (binding 2) ---- */

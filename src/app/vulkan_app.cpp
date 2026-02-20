@@ -175,6 +175,27 @@ void VulkanApp::InitVulkan() {
                 .descriptorCount    = 1u,
                 .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
                 .pImmutableSamplers = nullptr,
+            },
+            {
+                .binding            = 5u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount    = 1u,
+                .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
+            },
+            {
+                .binding            = 6u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount    = 1u,
+                .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
+            },
+            {
+                .binding            = 7u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount    = 1u,
+                .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
             }
         };
         if (this->m_descriptorSetLayoutManager.RegisterLayout(kLayoutKeyMainFragTex, bindings) == VK_NULL_HANDLE)
@@ -404,7 +425,14 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
     
-    std::array<VkWriteDescriptorSet, 4> writeDescriptors = {{
+    /* Default emissive texture: white (1,1,1,1) so emissiveFactor is used as-is */
+    VkDescriptorImageInfo stEmissiveImageInfo = {
+        .sampler     = pDefaultTex->GetSampler(),
+        .imageView   = pDefaultTex->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    
+    std::array<VkWriteDescriptorSet, 5> writeDescriptors = {{
         {
             .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext            = nullptr,
@@ -450,6 +478,18 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
             .descriptorCount  = 1,
             .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .pImageInfo       = &stMRImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = this->m_descriptorSetMain,
+            .dstBinding       = 5,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &stEmissiveImageInfo,
             .pBufferInfo      = nullptr,
             .pTexelBufferView = nullptr,
         }
@@ -580,22 +620,25 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<Te
 }
 
 VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<TextureHandle> pBaseColorTexture,
-                                                                std::shared_ptr<TextureHandle> pMetallicRoughnessTexture) {
+                                                                std::shared_ptr<TextureHandle> pMetallicRoughnessTexture,
+                                                                std::shared_ptr<TextureHandle> pEmissiveTexture,
+                                                                std::shared_ptr<TextureHandle> pNormalTexture,
+                                                                std::shared_ptr<TextureHandle> pOcclusionTexture) {
     if (!pBaseColorTexture || !pBaseColorTexture->IsValid())
         return VK_NULL_HANDLE;
     
-    // Create combined cache key from both texture pointers
+    // Create combined cache key from all texture pointers
     TextureHandle* pRawBaseColor = pBaseColorTexture.get();
     TextureHandle* pRawMR = pMetallicRoughnessTexture ? pMetallicRoughnessTexture.get() : nullptr;
+    TextureHandle* pRawEmissive = pEmissiveTexture ? pEmissiveTexture.get() : nullptr;
+    TextureHandle* pRawNormal = pNormalTexture ? pNormalTexture.get() : nullptr;
+    TextureHandle* pRawOcclusion = pOcclusionTexture ? pOcclusionTexture.get() : nullptr;
     
-    // For caching, use pair hash or combine pointers
-    // Simple approach: use the base color pointer for cache (since MR is optional and often the same)
-    // Better: create a multi-key cache. For now, generate a unique key per (base, MR) pair.
-    // Use pair cache key:
-    std::pair<TextureHandle*, TextureHandle*> cacheKey = {pRawBaseColor, pRawMR};
+    // Use tuple cache key for (baseColor, MR, emissive, normal, occlusion)
+    auto cacheKey = std::make_tuple(pRawBaseColor, pRawMR, pRawEmissive, pRawNormal, pRawOcclusion);
     
-    auto it = m_texturePairDescriptorSets.find(cacheKey);
-    if (it != m_texturePairDescriptorSets.end())
+    auto it = m_textureQuintupleDescriptorSets.find(cacheKey);
+    if (it != m_textureQuintupleDescriptorSets.end())
         return it->second;
     
     // Allocate new descriptor set
@@ -605,15 +648,21 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
         return VK_NULL_HANDLE;
     }
     
-    // Get default MR texture (white = metallic/roughness factors used as-is)
-    std::shared_ptr<TextureHandle> pMRToUse = pMetallicRoughnessTexture;
-    if (!pMRToUse || !pMRToUse->IsValid()) {
-        pMRToUse = m_textureManager.GetOrCreateDefaultTexture();
-    }
-    if (!pMRToUse || !pMRToUse->IsValid()) {
-        VulkanUtils::LogErr("GetOrCreateDescriptorSetForTextures: failed to get MR texture");
+    // Get default texture for MR and emissive (white = factors used as-is)
+    std::shared_ptr<TextureHandle> pDefaultTex = m_textureManager.GetOrCreateDefaultTexture();
+    if (!pDefaultTex || !pDefaultTex->IsValid()) {
+        VulkanUtils::LogErr("GetOrCreateDescriptorSetForTextures: failed to get default texture");
         return VK_NULL_HANDLE;
     }
+    
+    std::shared_ptr<TextureHandle> pMRToUse = (pMetallicRoughnessTexture && pMetallicRoughnessTexture->IsValid()) 
+        ? pMetallicRoughnessTexture : pDefaultTex;
+    std::shared_ptr<TextureHandle> pEmissiveToUse = (pEmissiveTexture && pEmissiveTexture->IsValid()) 
+        ? pEmissiveTexture : pDefaultTex;
+    std::shared_ptr<TextureHandle> pNormalToUse = (pNormalTexture && pNormalTexture->IsValid()) 
+        ? pNormalTexture : pDefaultTex;
+    std::shared_ptr<TextureHandle> pOcclusionToUse = (pOcclusionTexture && pOcclusionTexture->IsValid()) 
+        ? pOcclusionTexture : pDefaultTex;
     
     // Write textures to descriptor set
     VkDescriptorImageInfo baseColorImageInfo = {
@@ -640,7 +689,25 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
     
-    std::array<VkWriteDescriptorSet, 4> writes = {{
+    VkDescriptorImageInfo emissiveImageInfo = {
+        .sampler     = pEmissiveToUse->GetSampler(),
+        .imageView   = pEmissiveToUse->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    
+    VkDescriptorImageInfo normalImageInfo = {
+        .sampler     = pNormalToUse->GetSampler(),
+        .imageView   = pNormalToUse->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    
+    VkDescriptorImageInfo occlusionImageInfo = {
+        .sampler     = pOcclusionToUse->GetSampler(),
+        .imageView   = pOcclusionToUse->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    
+    std::array<VkWriteDescriptorSet, 7> writes = {{
         {
             .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext            = nullptr,
@@ -688,12 +755,48 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
             .pImageInfo       = &mrImageInfo,
             .pBufferInfo      = nullptr,
             .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 5,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &emissiveImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 6,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &normalImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 7,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo       = &occlusionImageInfo,
+            .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
         }
     }};
     vkUpdateDescriptorSets(m_device.GetDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     
     // Cache it
-    m_texturePairDescriptorSets[cacheKey] = newSet;
+    m_textureQuintupleDescriptorSets[cacheKey] = newSet;
     
     return newSet;
 }
@@ -809,8 +912,15 @@ void VulkanApp::MainLoop() {
         if (bQuit == true)
             break;
 
-        const float fPanSpeed = (this->m_config.fPanSpeed > 0.f) ? this->m_config.fPanSpeed : kDefaultPanSpeed;
-        CameraController_Update(this->m_camera, SDL_GetKeyboardState(nullptr), fPanSpeed);
+        const float fMoveSpeed = (this->m_config.fPanSpeed > 0.f) ? this->m_config.fPanSpeed : kDefaultPanSpeed;
+        CameraController_Update(this->m_camera, SDL_GetKeyboardState(nullptr), fMoveSpeed, this->m_avgFrameTimeSec);
+        
+        // Mouse look (right-click to capture mouse, Escape to release)
+        float mouseDeltaX = 0.f, mouseDeltaY = 0.f;
+        this->m_pWindow->GetMouseDelta(mouseDeltaX, mouseDeltaY);
+        if (mouseDeltaX != 0.f || mouseDeltaY != 0.f) {
+            CameraController_MouseLook(this->m_camera, mouseDeltaX, mouseDeltaY);
+        }
 
         if (this->m_pWindow->GetWindowMinimized() == true) {
             VulkanUtils::LogTrace("Window minimized, skipping draw");
@@ -854,12 +964,19 @@ void VulkanApp::MainLoop() {
         alignas(16) float fViewProj[16];
         ObjectMat4Multiply(fViewProj, fProjMat4, fViewMat4);
 
+        /* Get camera position for PBR specular calculations. */
+        float fCamPos[3];
+        this->m_camera.GetPosition(fCamPos[0], fCamPos[1], fCamPos[2]);
+
         Scene* pScene = this->m_sceneManager.GetCurrentScene();
         if (pScene != nullptr) {
+            /* Update all objects with delta time (frame-rate independent). */
+            pScene->UpdateAllObjects(this->m_avgFrameTimeSec);
+            
             const auto& objects = pScene->GetObjects();
             for (size_t i = 0; i < objects.size(); ++i) {
                 Object& obj = const_cast<Object&>(objects[i]);
-                ObjectFillPushData(obj, fViewProj, static_cast<uint32_t>(i));
+                ObjectFillPushData(obj, fViewProj, static_cast<uint32_t>(i), fCamPos);
             }
         }
 
@@ -892,8 +1009,8 @@ void VulkanApp::MainLoop() {
                     /* Emissive color + strength (from glTF). */
                     pObjData->emissive = glm::vec4(obj.emissive[0], obj.emissive[1], obj.emissive[2], obj.emissive[3]);
                     
-                    /* Material properties: metallic, roughness (from glTF). */
-                    pObjData->matProps = glm::vec4(obj.metallicFactor, obj.roughnessFactor, 0.f, 0.f);
+                    /* Material properties: metallic, roughness, normalScale, occlusionStrength (from glTF). */
+                    pObjData->matProps = glm::vec4(obj.metallicFactor, obj.roughnessFactor, obj.normalScale, obj.occlusionStrength);
                     
                     /* Base color (from glTF baseColorFactor). */
                     pObjData->baseColor = glm::vec4(obj.color[0], obj.color[1], obj.color[2], obj.color[3]);
@@ -934,9 +1051,13 @@ void VulkanApp::MainLoop() {
         EnsureMainDescriptorSetWritten();
 
         /* Build draw list from scene (frustum culling, push size validation, sort by pipeline/mesh). */
-        // Pass callback to get descriptor sets for per-object textures (base color + metallic-roughness)
-        auto getTextureDescriptorSet = [this](std::shared_ptr<TextureHandle> pBaseColor, std::shared_ptr<TextureHandle> pMR) -> VkDescriptorSet {
-            return this->GetOrCreateDescriptorSetForTextures(pBaseColor, pMR);
+        // Pass callback to get descriptor sets for per-object PBR textures (base color, metallic-roughness, emissive, normal, occlusion)
+        auto getTextureDescriptorSet = [this](std::shared_ptr<TextureHandle> pBaseColor, 
+                                              std::shared_ptr<TextureHandle> pMR,
+                                              std::shared_ptr<TextureHandle> pEmissive,
+                                              std::shared_ptr<TextureHandle> pNormal,
+                                              std::shared_ptr<TextureHandle> pOcclusion) -> VkDescriptorSet {
+            return this->GetOrCreateDescriptorSetForTextures(pBaseColor, pMR, pEmissive, pNormal, pOcclusion);
         };
         
         this->m_renderListBuilder.Build(this->m_drawCalls, pScene,

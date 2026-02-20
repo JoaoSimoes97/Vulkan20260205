@@ -9,7 +9,7 @@
     "ortho_far": 10.0,
     "ortho_half_extent": 8.0,
     "ortho_near": -10.0,
-    "pan_speed": 0.012000000104308128,
+    "pan_speed": 8.0,
     "use_perspective": true
   },
   "debug": {
@@ -20,7 +20,7 @@
     "clear_color_b": 0.4000000059604645,
     "clear_color_g": 0.10000000149011612,
     "clear_color_r": 0.10000000149011612,
-    "cull_back_faces": true
+    "cull_back_faces": false
   },
   "swapchain": {
     "image_count": 3,

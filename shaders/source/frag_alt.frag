@@ -8,6 +8,10 @@ layout(push_constant) uniform Push {
     mat4 mvp;
     vec4 color;
     uint objectIndex;
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
+    vec4 camPos;
 } pc;
 
 /* ---- Object Data SSBO (binding 2) for layout compatibility ---- */

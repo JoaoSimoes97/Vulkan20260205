@@ -1,5 +1,5 @@
 /*
- * RenderListBuilder — build draw list from scene; sort by (pipeline, mesh); optional frustum culling and push size validation.
+ * RenderListBuilder — build draw list from scene; sort by (pipeline, mesh); proper frustum culling with bounding spheres.
  */
 #include "render_list_builder.h"
 #include "managers/material_manager.h"
@@ -10,6 +10,7 @@
 #include "scene/scene.h"
 #include "vulkan/vulkan_shader_manager.h"
 #include <algorithm>
+#include <cmath>
 
 namespace {
     bool DrawCallOrder(const DrawCall& stA_ic, const DrawCall& stB_ic) {
@@ -26,26 +27,128 @@ namespace {
         return pipelineKey.find("transparent") != std::string::npos;
     }
 
-    /** Object position from column-major localTransform (translation part). */
-    void ObjectPosition(const float* pLocalTransform_ic, float& fX_out, float& fY_out, float& fZ_out) {
-        fX_out = pLocalTransform_ic[12];
-        fY_out = pLocalTransform_ic[13];
-        fZ_out = pLocalTransform_ic[14];
-    }
+    /**
+     * Frustum planes extracted from view-projection matrix (Gribb/Hartmann method).
+     * Each plane is (A, B, C, D) where Ax + By + Cz + D = 0.
+     * Normalized so (A,B,C) is unit length for distance calculations.
+     */
+    struct FrustumPlanes {
+        float planes[6][4]; // Left, Right, Bottom, Top, Near, Far
+        
+        void ExtractFromViewProj(const float* vp) {
+            // Row-major extraction from column-major matrix
+            // Left: row3 + row0
+            planes[0][0] = vp[3] + vp[0];
+            planes[0][1] = vp[7] + vp[4];
+            planes[0][2] = vp[11] + vp[8];
+            planes[0][3] = vp[15] + vp[12];
+            
+            // Right: row3 - row0
+            planes[1][0] = vp[3] - vp[0];
+            planes[1][1] = vp[7] - vp[4];
+            planes[1][2] = vp[11] - vp[8];
+            planes[1][3] = vp[15] - vp[12];
+            
+            // Bottom: row3 + row1
+            planes[2][0] = vp[3] + vp[1];
+            planes[2][1] = vp[7] + vp[5];
+            planes[2][2] = vp[11] + vp[9];
+            planes[2][3] = vp[15] + vp[13];
+            
+            // Top: row3 - row1
+            planes[3][0] = vp[3] - vp[1];
+            planes[3][1] = vp[7] - vp[5];
+            planes[3][2] = vp[11] - vp[9];
+            planes[3][3] = vp[15] - vp[13];
+            
+            // Near: row3 + row2 (Vulkan: 0 to 1 depth)
+            planes[4][0] = vp[3] + vp[2];
+            planes[4][1] = vp[7] + vp[6];
+            planes[4][2] = vp[11] + vp[10];
+            planes[4][3] = vp[15] + vp[14];
+            
+            // Far: row3 - row2
+            planes[5][0] = vp[3] - vp[2];
+            planes[5][1] = vp[7] - vp[6];
+            planes[5][2] = vp[11] - vp[10];
+            planes[5][3] = vp[15] - vp[14];
+            
+            // Normalize all planes
+            for (int i = 0; i < 6; ++i) {
+                float len = std::sqrt(planes[i][0]*planes[i][0] + planes[i][1]*planes[i][1] + planes[i][2]*planes[i][2]);
+                if (len > 0.0001f) {
+                    float invLen = 1.0f / len;
+                    planes[i][0] *= invLen;
+                    planes[i][1] *= invLen;
+                    planes[i][2] *= invLen;
+                    planes[i][3] *= invLen;
+                }
+            }
+        }
+        
+        /**
+         * Test if sphere is visible (not completely outside any plane).
+         * Returns true if sphere intersects or is inside frustum.
+         */
+        bool IsSphereVisible(float cx, float cy, float cz, float radius) const {
+            for (int i = 0; i < 6; ++i) {
+                // Distance from sphere center to plane
+                float dist = planes[i][0]*cx + planes[i][1]*cy + planes[i][2]*cz + planes[i][3];
+                // If sphere is completely on negative side, it's outside
+                if (dist < -radius) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    };
 
-    /** Transform point (x,y,z,1) by column-major viewProj; write clip-space (cx, cy, cz, cw). */
-    void TransformToClip(const float* pViewProj_ic, float fX_ic, float fY_ic, float fZ_ic, float& fCx_out, float& fCy_out, float& fCz_out, float& fCw_out) {
-        fCx_out = pViewProj_ic[0]*fX_ic + pViewProj_ic[4]*fY_ic + pViewProj_ic[8]*fZ_ic + pViewProj_ic[12];
-        fCy_out = pViewProj_ic[1]*fX_ic + pViewProj_ic[5]*fY_ic + pViewProj_ic[9]*fZ_ic + pViewProj_ic[13];
-        fCz_out = pViewProj_ic[2]*fX_ic + pViewProj_ic[6]*fY_ic + pViewProj_ic[10]*fZ_ic + pViewProj_ic[14];
-        fCw_out = pViewProj_ic[3]*fX_ic + pViewProj_ic[7]*fY_ic + pViewProj_ic[11]*fZ_ic + pViewProj_ic[15];
-    }
-
-    /** True if clip-space point (cx,cy,cz,cw) is inside Vulkan NDC (-1..1, -1..1, 0..1). */
-    bool InsideFrustum(float fCx_ic, float fCy_ic, float fCz_ic, float fCw_ic) {
-        if (fCw_ic <= static_cast<float>(0.f))
-            return false;
-        return (fCx_ic >= -fCw_ic) && (fCx_ic <= fCw_ic) && (fCy_ic >= -fCw_ic) && (fCy_ic <= fCw_ic) && (fCz_ic >= static_cast<float>(0.f)) && (fCz_ic <= fCw_ic);
+    /**
+     * Compute world-space bounding sphere from mesh AABB and object transform.
+     */
+    void ComputeWorldBoundingSphere(const Object& obj, float& cx, float& cy, float& cz, float& radius) {
+        if (obj.pMesh == nullptr) {
+            // Fallback: use object position with small radius
+            cx = obj.localTransform[12];
+            cy = obj.localTransform[13];
+            cz = obj.localTransform[14];
+            radius = 1.0f;
+            return;
+        }
+        
+        const MeshAABB& aabb = obj.pMesh->GetAABB();
+        if (!aabb.IsValid()) {
+            // Fallback: use object position with default radius
+            cx = obj.localTransform[12];
+            cy = obj.localTransform[13];
+            cz = obj.localTransform[14];
+            radius = 2.0f;
+            return;
+        }
+        
+        // Get local AABB center
+        float localCx, localCy, localCz;
+        aabb.GetCenter(localCx, localCy, localCz);
+        
+        // Transform center to world space
+        const float* m = obj.localTransform;
+        cx = m[0]*localCx + m[4]*localCy + m[8]*localCz + m[12];
+        cy = m[1]*localCx + m[5]*localCy + m[9]*localCz + m[13];
+        cz = m[2]*localCx + m[6]*localCy + m[10]*localCz + m[14];
+        
+        // Compute world-space radius (account for non-uniform scale)
+        float localRadius = aabb.GetBoundingSphereRadius();
+        
+        // Get max scale from transform columns
+        float scaleX = std::sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
+        float scaleY = std::sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
+        float scaleZ = std::sqrt(m[8]*m[8] + m[9]*m[9] + m[10]*m[10]);
+        float maxScale = std::max(std::max(scaleX, scaleY), scaleZ);
+        
+        radius = localRadius * maxScale;
+        
+        // Add small epsilon to avoid culling objects exactly on plane
+        radius += 0.01f;
     }
 
     /** Max byte size allowed by layout's push constant ranges. */
@@ -81,6 +184,14 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
     vecOpaque.reserve(vecObjects.size());
     vecTransparent.reserve(vecObjects.size());
 
+    // Extract frustum planes once per frame (if view-proj is provided)
+    FrustumPlanes frustum;
+    bool hasFrustum = false;
+    if (pViewProj_ic != nullptr) {
+        frustum.ExtractFromViewProj(pViewProj_ic);
+        hasFrustum = true;
+    }
+
     for (size_t objIndex = 0; objIndex < vecObjects.size(); ++objIndex) {
         const auto& obj = vecObjects[objIndex];
         if ((obj.pMaterial == nullptr) || (obj.pMesh == nullptr) || (obj.pMesh->HasValidBuffer() == false) || (obj.pushDataSize == 0u) || (obj.pushData.empty() == true))
@@ -88,21 +199,28 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
         const uint32_t lMaxPush = MaxPushConstantSize(obj.pMaterial->layoutDescriptor);
         if ((lMaxPush > 0u) && (obj.pushDataSize > lMaxPush))
             continue;
-        float fDepthNdc = static_cast<float>(0.0f);
-        if (pViewProj_ic != nullptr) {
-            float fPx = static_cast<float>(0.f);
-            float fPy = static_cast<float>(0.f);
-            float fPz = static_cast<float>(0.f);
-            ObjectPosition(obj.localTransform, fPx, fPy, fPz);
-            float fCx = static_cast<float>(0.f);
-            float fCy = static_cast<float>(0.f);
-            float fCz = static_cast<float>(0.f);
-            float fCw = static_cast<float>(0.f);
-            TransformToClip(pViewProj_ic, fPx, fPy, fPz, fCx, fCy, fCz, fCw);
-            if (InsideFrustum(fCx, fCy, fCz, fCw) == false)
-                continue;
-            fDepthNdc = fCz / fCw;
+        
+        float fDepthNdc = 0.0f;
+        
+        // Proper frustum culling with bounding sphere
+        if (hasFrustum) {
+            float cx, cy, cz, radius;
+            ComputeWorldBoundingSphere(obj, cx, cy, cz, radius);
+            
+            // Test sphere against all frustum planes
+            if (!frustum.IsSphereVisible(cx, cy, cz, radius)) {
+                continue; // Completely outside frustum
+            }
+            
+            // Compute depth for transparent sorting (use sphere center)
+            float clipX = pViewProj_ic[0]*cx + pViewProj_ic[4]*cy + pViewProj_ic[8]*cz + pViewProj_ic[12];
+            float clipZ = pViewProj_ic[2]*cx + pViewProj_ic[6]*cy + pViewProj_ic[10]*cz + pViewProj_ic[14];
+            float clipW = pViewProj_ic[3]*cx + pViewProj_ic[7]*cy + pViewProj_ic[11]*cz + pViewProj_ic[15];
+            if (clipW > 0.0001f) {
+                fDepthNdc = clipZ / clipW;
+            }
         }
+        
         VkPipeline pPipe = obj.pMaterial->GetPipelineIfReady(pDevice_ic, pRenderPass_ic, pPipelineManager_ic, pShaderManager_ic, bRenderPassHasDepth_ic);
         VkPipelineLayout pLayout = obj.pMaterial->GetPipelineLayoutIfReady(pPipelineManager_ic);
         if ((pPipe == VK_NULL_HANDLE) || (pLayout == VK_NULL_HANDLE))
@@ -129,8 +247,8 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
         
         // Use per-object texture descriptor set if available, otherwise fall back to pipeline default
         if (getTextureDescriptorSet && obj.pTexture && obj.pTexture->IsValid()) {
-            // Pass both base color and metallic-roughness textures to callback
-            VkDescriptorSet texDescSet = getTextureDescriptorSet(obj.pTexture, obj.pMetallicRoughnessTexture);
+            // Pass all PBR textures: base color, metallic-roughness, emissive, normal, and occlusion
+            VkDescriptorSet texDescSet = getTextureDescriptorSet(obj.pTexture, obj.pMetallicRoughnessTexture, obj.pEmissiveTexture, obj.pNormalTexture, obj.pOcclusionTexture);
             if (texDescSet != VK_NULL_HANDLE) {
                 stD.descriptorSets = { texDescSet };
             }

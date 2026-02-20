@@ -104,7 +104,7 @@ VulkanConfig GetDefaultConfig() {
     stCfg.fOrthoHalfExtent = 8.f;
     stCfg.fOrthoNear = -10.f;
     stCfg.fOrthoFar = 10.f;
-    stCfg.fPanSpeed = 0.012f;
+    stCfg.fPanSpeed = 8.0f;
     stCfg.fInitialCameraX = 0.f;
     stCfg.fInitialCameraY = 0.f;
     stCfg.fInitialCameraZ = 8.f;

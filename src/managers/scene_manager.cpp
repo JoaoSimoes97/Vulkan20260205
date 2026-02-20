@@ -364,6 +364,22 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             emissiveOverride[3] = static_cast<float>(jInst["emissive"][3].get<double>());
         }
 
+        // Parse metallic factor (default 1.0 for metals, override in JSON for procedural meshes)
+        float metallicOverride = 1.0f;
+        bool hasMetallicOverride = false;
+        if (jInst.contains("metallic") && jInst["metallic"].is_number()) {
+            hasMetallicOverride = true;
+            metallicOverride = static_cast<float>(jInst["metallic"].get<double>());
+        }
+
+        // Parse roughness factor (default 1.0, override in JSON for procedural meshes)
+        float roughnessOverride = 1.0f;
+        bool hasRoughnessOverride = false;
+        if (jInst.contains("roughness") && jInst["roughness"].is_number()) {
+            hasRoughnessOverride = true;
+            roughnessOverride = static_cast<float>(jInst["roughness"].get<double>());
+        }
+
         if (source.rfind("procedural:", 0) == 0) {
             std::shared_ptr<MeshHandle> pMesh = LoadProceduralMesh(source);
             if (!pMesh) {
@@ -371,7 +387,8 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                 continue;
             }
 
-            const std::string pipelineKey = ResolvePipelineKey("OPAQUE", renderMode, false, false);
+            // Use textured pipeline for procedural meshes - default white texture enables PBR with factors
+            const std::string pipelineKey = ResolvePipelineKey("OPAQUE", renderMode, true, false);
             std::shared_ptr<MaterialHandle> pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
             if (!pMaterial) {
                 VulkanUtils::LogErr("SceneManager: pipeline \"{}\" not registered for procedural \"{}\"", pipelineKey, source);
@@ -381,7 +398,8 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             Object obj;
             obj.pMesh = pMesh;
             obj.pMaterial = pMaterial;
-            obj.pTexture = nullptr;
+            // Assign default white texture for PBR to work (shader expects valid textures)
+            obj.pTexture = m_pTextureManager ? m_pTextureManager->GetOrCreateDefaultTexture() : nullptr;
             std::memcpy(obj.localTransform, instanceTransform, sizeof(instanceTransform));
             if (hasColorOverride) {
                 obj.color[0] = colorOverride[0];
@@ -394,6 +412,12 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                 obj.emissive[1] = emissiveOverride[1];
                 obj.emissive[2] = emissiveOverride[2];
                 obj.emissive[3] = emissiveOverride[3];
+            }
+            if (hasMetallicOverride) {
+                obj.metallicFactor = metallicOverride;
+            }
+            if (hasRoughnessOverride) {
+                obj.roughnessFactor = roughnessOverride;
             }
             obj.pushData.resize(kObjectPushConstantSize);
             obj.pushDataSize = kObjectPushConstantSize;
@@ -518,11 +542,68 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                         }
                     }
 
+                    // Load emissiveTexture from glTF (emissive RGB per glTF spec)
+                    std::shared_ptr<TextureHandle> pEmissiveTexture;
+                    if (m_pTextureManager) {
+                        int emTexIdx = gltfMat.emissiveTexture.index;
+                        if (emTexIdx >= 0 && size_t(emTexIdx) < model->textures.size()) {
+                            const tinygltf::Texture& emTex = model->textures[size_t(emTexIdx)];
+                            if (emTex.source >= 0 && size_t(emTex.source) < model->images.size()) {
+                                const tinygltf::Image& emImg = model->images[size_t(emTex.source)];
+                                if (!emImg.image.empty() && emImg.width > 0 && emImg.height > 0 && emImg.component > 0) {
+                                    std::string emTexName = emImg.uri.empty()
+                                        ? ("em_tex_" + gltfPath + "_" + std::to_string(emTex.source))
+                                        : ("em_" + emImg.uri);
+                                    pEmissiveTexture = m_pTextureManager->GetOrCreateFromMemory(emTexName, emImg.width, emImg.height, emImg.component, emImg.image.data());
+                                }
+                            }
+                        }
+                    }
+
+                    // Load normalTexture from glTF (tangent-space normal map)
+                    std::shared_ptr<TextureHandle> pNormalTexture;
+                    if (m_pTextureManager) {
+                        int nrmTexIdx = gltfMat.normalTexture.index;
+                        if (nrmTexIdx >= 0 && size_t(nrmTexIdx) < model->textures.size()) {
+                            const tinygltf::Texture& nrmTex = model->textures[size_t(nrmTexIdx)];
+                            if (nrmTex.source >= 0 && size_t(nrmTex.source) < model->images.size()) {
+                                const tinygltf::Image& nrmImg = model->images[size_t(nrmTex.source)];
+                                if (!nrmImg.image.empty() && nrmImg.width > 0 && nrmImg.height > 0 && nrmImg.component > 0) {
+                                    std::string nrmTexName = nrmImg.uri.empty()
+                                        ? ("nrm_tex_" + gltfPath + "_" + std::to_string(nrmTex.source))
+                                        : ("nrm_" + nrmImg.uri);
+                                    pNormalTexture = m_pTextureManager->GetOrCreateFromMemory(nrmTexName, nrmImg.width, nrmImg.height, nrmImg.component, nrmImg.image.data());
+                                }
+                            }
+                        }
+                    }
+
+                    // Load occlusionTexture from glTF (ambient occlusion, red channel per spec)
+                    std::shared_ptr<TextureHandle> pOcclusionTexture;
+                    if (m_pTextureManager) {
+                        int occTexIdx = gltfMat.occlusionTexture.index;
+                        if (occTexIdx >= 0 && size_t(occTexIdx) < model->textures.size()) {
+                            const tinygltf::Texture& occTex = model->textures[size_t(occTexIdx)];
+                            if (occTex.source >= 0 && size_t(occTex.source) < model->images.size()) {
+                                const tinygltf::Image& occImg = model->images[size_t(occTex.source)];
+                                if (!occImg.image.empty() && occImg.width > 0 && occImg.height > 0 && occImg.component > 0) {
+                                    std::string occTexName = occImg.uri.empty()
+                                        ? ("occ_tex_" + gltfPath + "_" + std::to_string(occTex.source))
+                                        : ("occ_" + occImg.uri);
+                                    pOcclusionTexture = m_pTextureManager->GetOrCreateFromMemory(occTexName, occImg.width, occImg.height, occImg.component, occImg.image.data());
+                                }
+                            }
+                        }
+                    }
+
                     Object obj;
                     obj.pMesh = std::move(pMesh);
                     obj.pMaterial = std::move(pMaterial);
                     obj.pTexture = std::move(pTexture);
                     obj.pMetallicRoughnessTexture = std::move(pMetallicRoughnessTexture);
+                    obj.pEmissiveTexture = std::move(pEmissiveTexture);
+                    obj.pNormalTexture = std::move(pNormalTexture);
+                    obj.pOcclusionTexture = std::move(pOcclusionTexture);
 
                     float combined[16];
                     MatMultiply(combined, instanceTransform, nodeWorld);
@@ -542,10 +623,13 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                         obj.color[3] = colorOverride[3];
                     }
 
+                    // Emissive: Per glTF spec, emissive = emissiveFactor * emissiveTexture.
+                    // Always load emissiveFactor; shader will multiply by emissiveTexture (or white default if none).
                     if (gltfMat.emissiveFactor.size() >= 3u) {
                         obj.emissive[0] = static_cast<float>(gltfMat.emissiveFactor[0]);
                         obj.emissive[1] = static_cast<float>(gltfMat.emissiveFactor[1]);
                         obj.emissive[2] = static_cast<float>(gltfMat.emissiveFactor[2]);
+                        obj.emissive[3] = 1.0f; // Strength multiplier (always 1.0 for spec compliance)
                     }
                     if (hasEmissiveOverride) {
                         obj.emissive[0] = emissiveOverride[0];
@@ -557,6 +641,12 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                     // Load metallic and roughness factors from glTF material
                     obj.metallicFactor = static_cast<float>(gltfMat.pbrMetallicRoughness.metallicFactor);
                     obj.roughnessFactor = static_cast<float>(gltfMat.pbrMetallicRoughness.roughnessFactor);
+                    
+                    // Load normal texture scale from glTF material (default 1.0)
+                    obj.normalScale = static_cast<float>(gltfMat.normalTexture.scale);
+                    
+                    // Load occlusion texture strength from glTF material (default 1.0)
+                    obj.occlusionStrength = static_cast<float>(gltfMat.occlusionTexture.strength);
 
                     obj.pushData.resize(kObjectPushConstantSize);
                     obj.pushDataSize = kObjectPushConstantSize;

@@ -6,7 +6,7 @@
       "name": "Sun",
       "type": "directional",
       "position": [0.0, 10.0, 0.0],
-      "rotation": [0.259, 0.0, 0.0, 0.966],
+      "rotation": [-0.383, 0.0, 0.0, 0.924],
       "color": [1.0, 0.98, 0.95],
       "intensity": 2.0
     },
@@ -94,6 +94,17 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [0.8, 0.8, 0.8],
       "renderMode": "auto"
+    },
+    {
+      "name": "Debug Mirror Sphere",
+      "source": "procedural:sphere",
+      "position": [0.0, 2.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "color": [1.0, 1.0, 1.0, 1.0],
+      "metallic": 1.0,
+      "roughness": 0.0,
+      "renderMode": "solid"
     }
   ]
 }
