@@ -190,22 +190,26 @@ std::shared_ptr<MeshHandle> CreateSphere(MeshManager* pMeshManager, int segments
         }
     }
     
-    // Generate indices
+    // Generate indices (CCW winding for outward-facing normals)
+    // Quad layout viewed from outside:
+    //   v0 --- v2
+    //   |       |
+    //   v1 --- v3
     for (int r = 0; r < rings; ++r) {
         for (int s = 0; s < sectors; ++s) {
             uint32_t v0 = r * (sectors + 1) + s;
-            uint32_t v1 = v0 + sectors + 1;
-            uint32_t v2 = v0 + 1;
-            uint32_t v3 = v1 + 1;
+            uint32_t v1 = v0 + sectors + 1;  // below v0
+            uint32_t v2 = v0 + 1;             // right of v0
+            uint32_t v3 = v1 + 1;             // below v2
             
-            // Two triangles per quad
+            // Two triangles per quad (CCW from outside)
             indices.push_back(v0);
-            indices.push_back(v1);
             indices.push_back(v2);
+            indices.push_back(v1);
             
-            indices.push_back(v1);
-            indices.push_back(v3);
             indices.push_back(v2);
+            indices.push_back(v3);
+            indices.push_back(v1);
         }
     }
     
@@ -249,15 +253,20 @@ std::shared_ptr<MeshHandle> CreateCylinder(MeshManager* pMeshManager, int segmen
         vertices.push_back(vTop);
     }
     
-    // Side indices
+    // Side indices (CCW winding for outward-facing normals)
+    // Quad layout viewed from outside:
+    //   v1 (top) --- v3 (top)
+    //   |              |
+    //   v0 (bot) --- v2 (bot)
     for (int s = 0; s < segments; ++s) {
-        uint32_t v0 = s * 2;
-        uint32_t v1 = v0 + 1;
-        uint32_t v2 = v0 + 2;
-        uint32_t v3 = v0 + 3;
+        uint32_t v0 = s * 2;       // bottom at angle s
+        uint32_t v1 = v0 + 1;      // top at angle s
+        uint32_t v2 = v0 + 2;      // bottom at angle s+1
+        uint32_t v3 = v0 + 3;      // top at angle s+1
         
-        indices.push_back(v0); indices.push_back(v2); indices.push_back(v1);
-        indices.push_back(v1); indices.push_back(v2); indices.push_back(v3);
+        // CCW from outside: BL→TL→BR, TL→TR→BR
+        indices.push_back(v0); indices.push_back(v1); indices.push_back(v2);
+        indices.push_back(v1); indices.push_back(v3); indices.push_back(v2);
     }
     
     // Convert indexed vertices to triangle list (expand indices)

@@ -378,8 +378,8 @@ void main() {
     // Tone mapping (ACES filmic - better highlight handling than Reinhard)
     color = toneMapACES(color);
     
-    // Convert from linear to sRGB for display
-    color = linearToSRGB(color);
+    // NOTE: No linearToSRGB() here - swapchain is VK_FORMAT_B8G8R8A8_SRGB
+    // which automatically converts linear output to sRGB for display
     
     outColor = vec4(color, texColor.a * pc.color.a * objData.baseColor.a);
 }

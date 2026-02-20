@@ -49,6 +49,9 @@ VkSurfaceFormatKHR ChooseSurfaceFormat(VkPhysicalDevice physicalDevice, VkSurfac
         if ((stFmt.format == VK_FORMAT_B8G8R8A8_SRGB) && (stFmt.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR))
             return stFmt;
     }
+    /* WARN: Falling back to first format - may not be sRGB! Shader assumes SRGB swapchain for gamma. */
+    VulkanUtils::LogWarn("Preferred B8G8R8A8_SRGB not available. Using {}+{} - colors may be incorrect if non-sRGB!",
+        FormatToString(vecFormats[0].format), ColorSpaceToString(vecFormats[0].colorSpace));
     return vecFormats[0];
 }
 
@@ -138,6 +141,9 @@ void VulkanSwapchain::Create(VkDevice pDevice_ic, VkPhysicalDevice pPhysicalDevi
     VkPresentModeKHR ePresentMode = ChoosePresentMode(pPhysicalDevice_ic, surface_ic, stConfig_ic.ePresentMode);
     this->m_extent = ChooseExtent(pPhysicalDevice_ic, surface_ic, stConfig_ic.lWidth, stConfig_ic.lHeight);
     this->m_imageFormat = stSurfaceFormat.format;
+
+    VulkanUtils::LogInfo("Swapchain format: {} + {}",
+        FormatToString(stSurfaceFormat.format), ColorSpaceToString(stSurfaceFormat.colorSpace));
 
     /* Surface caps: validate config image count; no clamping, fail if invalid. */
     VkSurfaceCapabilitiesKHR stCaps = {};
