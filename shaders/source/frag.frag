@@ -177,15 +177,21 @@ vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
 
 // KHR_lights_punctual range attenuation with inverse-square falloff
 // From: https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_lights_punctual
+// Added minimum distance to prevent singularities when light source is at surface
+const float MIN_LIGHT_DISTANCE = 0.01; // Minimum distance to avoid numerical instability
+
 float CalcAttenuation(float distance, float range, float falloff) {
+    // Clamp distance to minimum to prevent division by near-zero
+    float clampedDistance = max(distance, MIN_LIGHT_DISTANCE);
+    
     // Inverse-square falloff (physically based)
-    float distanceSquared = distance * distance;
-    float rangeAttenuation = 1.0 / max(distanceSquared, 0.0001);
+    float distanceSquared = clampedDistance * clampedDistance;
+    float rangeAttenuation = 1.0 / distanceSquared;
     
     // Smooth window function to avoid hard cutoff at range
     // smoothAttenuation = max(min(1.0 - (distance/range)^4, 1), 0)^2
     if (range > 0.0) {
-        float d_over_r = distance / range;
+        float d_over_r = clampedDistance / range;
         float d_over_r_4 = d_over_r * d_over_r * d_over_r * d_over_r;
         float smoothWindow = clamp(1.0 - d_over_r_4, 0.0, 1.0);
         rangeAttenuation *= smoothWindow * smoothWindow;
@@ -290,13 +296,25 @@ void main() {
             // Point light
             vec3 lightVec = light.position.xyz - inWorldPos;
             float distance = length(lightVec);
-            L = normalize(lightVec);
+            
+            // Skip this light if too close (avoids NaN from normalizing near-zero vector)
+            if (distance < MIN_LIGHT_DISTANCE) {
+                continue;
+            }
+            
+            L = lightVec / distance; // normalize manually since we already have distance
             attenuation = CalcAttenuation(distance, light.position.w, light.params.z);
         } else {
             // Spot light
             vec3 lightVec = light.position.xyz - inWorldPos;
             float distance = length(lightVec);
-            L = normalize(lightVec);
+            
+            // Skip this light if too close (avoids NaN from normalizing near-zero vector)
+            if (distance < MIN_LIGHT_DISTANCE) {
+                continue;
+            }
+            
+            L = lightVec / distance; // normalize manually since we already have distance
             attenuation = CalcAttenuation(distance, light.position.w, light.params.z);
             attenuation *= CalcSpotAttenuation(L, light.direction.xyz, light.params.x, light.params.y);
         }

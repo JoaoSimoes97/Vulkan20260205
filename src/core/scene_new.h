@@ -8,6 +8,7 @@
 #include "transform.h"
 #include "renderer_component.h"
 #include "light_component.h"
+#include "camera_component.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -67,6 +68,10 @@ public:
     const std::vector<LightComponent>& GetLights() const { return m_lights; }
     std::vector<LightComponent>& GetLights() { return m_lights; }
 
+    /** Get Camera pool. */
+    const std::vector<CameraComponent>& GetCameras() const { return m_cameras; }
+    std::vector<CameraComponent>& GetCameras() { return m_cameras; }
+
     /* ---- Component Add/Remove ---- */
 
     /** Add a RendererComponent to a GameObject. Returns renderer index. */
@@ -75,11 +80,17 @@ public:
     /** Add a LightComponent to a GameObject. Returns light index. */
     uint32_t AddLight(uint32_t gameObjectId, const LightComponent& light);
 
+    /** Add a CameraComponent to a GameObject. Returns camera index. */
+    uint32_t AddCamera(uint32_t gameObjectId, const CameraComponent& camera);
+
     /** Remove RendererComponent from a GameObject. */
     void RemoveRenderer(uint32_t gameObjectId);
 
     /** Remove LightComponent from a GameObject. */
     void RemoveLight(uint32_t gameObjectId);
+
+    /** Remove CameraComponent from a GameObject. */
+    void RemoveCamera(uint32_t gameObjectId);
 
     /* ---- Transform Helpers ---- */
 
@@ -115,6 +126,7 @@ private:
     std::vector<Transform> m_transforms;
     std::vector<RendererComponent> m_renderers;
     std::vector<LightComponent> m_lights;
+    std::vector<CameraComponent> m_cameras;
 
     // Free list indices for component reuse (future optimization)
     // std::vector<uint32_t> m_freeTransformIndices;

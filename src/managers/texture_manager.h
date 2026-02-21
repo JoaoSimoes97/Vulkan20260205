@@ -8,7 +8,7 @@
 #include <shared_mutex>
 #include <vulkan/vulkan.h>
 
-struct JobQueue;
+class JobQueue;
 
 /**
  * Texture handle: owns VkImage, VkImageView, VkSampler, VkDeviceMemory. Destructor frees GPU resources.
@@ -58,6 +58,14 @@ public:
     std::shared_ptr<TextureHandle> GetTexture(const std::string& path) const;
     /** Create and cache a 1x1 white texture for default/fallback (e.g. descriptor set). Returns nullptr if device not set. */
     std::shared_ptr<TextureHandle> GetOrCreateDefaultTexture();
+    /** Create and cache a 1x1 flat normal map (0.5, 0.5, 1.0) for default normal texture. */
+    std::shared_ptr<TextureHandle> GetOrCreateDefaultNormalTexture();
+    /** Create and cache a 1x1 white texture for metallic-roughness (factors applied as-is). */
+    std::shared_ptr<TextureHandle> GetOrCreateDefaultMRTexture();
+    /** Create and cache a 1x1 black texture for default emissive (no emission). */
+    std::shared_ptr<TextureHandle> GetOrCreateDefaultEmissiveTexture();
+    /** Create and cache a 1x1 white texture for default occlusion (no occlusion). */
+    std::shared_ptr<TextureHandle> GetOrCreateDefaultOcclusionTexture();
     /** Create and cache texture from memory (e.g. glTF embedded image). Cache key = cacheKey param. */
     std::shared_ptr<TextureHandle> GetOrCreateFromMemory(const std::string& cacheKey, int width, int height, int channels, const unsigned char* pPixels);
     void RequestLoadTexture(const std::string& path);

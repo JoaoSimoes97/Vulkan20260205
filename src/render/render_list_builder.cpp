@@ -213,7 +213,6 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
             }
             
             // Compute depth for transparent sorting (use sphere center)
-            float clipX = pViewProj_ic[0]*cx + pViewProj_ic[4]*cy + pViewProj_ic[8]*cz + pViewProj_ic[12];
             float clipZ = pViewProj_ic[2]*cx + pViewProj_ic[6]*cy + pViewProj_ic[10]*cz + pViewProj_ic[14];
             float clipW = pViewProj_ic[3]*cx + pViewProj_ic[7]*cy + pViewProj_ic[11]*cz + pViewProj_ic[15];
             if (clipW > 0.0001f) {

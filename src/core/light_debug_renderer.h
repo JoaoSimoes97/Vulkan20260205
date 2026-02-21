@@ -10,8 +10,10 @@
  */
 #pragma once
 
-#include <vulkan/vulkan.h>
+#include "light_component.h"
+#include "light_manager.h" // For EmissiveLightData
 #include <vector>
+#include <vulkan/vulkan.h>
 #include <cstdint>
 
 // Forward declarations
@@ -57,6 +59,14 @@ public:
     void Draw(VkCommandBuffer cmd, const SceneNew* pScene, const float* viewProjMatrix);
 
     /**
+     * Set emissive lights for debug visualization.
+     * Call before Draw() each frame with current emissive lights.
+     */
+    void SetEmissiveLights(const std::vector<EmissiveLightData>& emissiveLights) {
+        m_emissiveLights = emissiveLights;
+    }
+
+    /**
      * Check if ready to render.
      */
     bool IsReady() const { return m_bReady; }
@@ -93,6 +103,9 @@ private:
     uint32_t            m_bufferCapacity    = 0;
 
     bool                m_bReady            = false;
+
+    /* Emissive lights for debug rendering */
+    std::vector<EmissiveLightData> m_emissiveLights;
 
     /* Constants */
     static constexpr uint32_t kCircleSegments = 24;

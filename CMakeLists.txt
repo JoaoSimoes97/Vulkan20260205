@@ -15,10 +15,14 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE} (Release defines NDEBUG, so logg
 
 # Platform-specific settings
 if(WIN32)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /FS")
 else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 endif()
+
+# Pass project source directory to the app so editable resources (config, levels, models)
+# are read directly from source — no copies in build folder during development.
+add_compile_definitions(PROJECT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 # Find packages: SDL3, Vulkan (must be installed via setup / package manager; no download during build)
 set(SDL3_MIN_VERSION "3.0.0")
@@ -30,6 +34,19 @@ find_package(nlohmann_json 3.11 REQUIRED)
 
 # Math library: GLM (header-only, for graphics math like matrices, vectors, and pi constant)
 find_package(glm REQUIRED)
+# Enable GLM experimental features (required by ImGuizmo)
+add_compile_definitions(GLM_ENABLE_EXPERIMENTAL)
+
+# ImGui: Editor UI (Debug builds only)
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+    find_package(imgui CONFIG REQUIRED)
+    find_package(imguizmo CONFIG REQUIRED)
+    set(EDITOR_ENABLED TRUE)
+    message(STATUS "Editor enabled (Debug build): ImGui + ImGuizmo")
+else()
+    set(EDITOR_ENABLED FALSE)
+    message(STATUS "Editor disabled (Release build)")
+endif()
 
 # stb (header-only): must be provided by setup in deps/stb — no download during build
 set(DEPS_STB_DIR ${CMAKE_SOURCE_DIR}/deps/stb CACHE PATH "Path to stb (populated by setup)")
@@ -112,10 +129,18 @@ set(SOURCES
     src/loaders/gltf_mesh_utils.cpp
     src/loaders/procedural_mesh_factory.cpp
     src/render/render_list_builder.cpp
+    src/render/viewport_manager.cpp
     src/core/light_manager.cpp
     src/core/light_debug_renderer.cpp
     src/core/scene_new.cpp
 )
+
+# Editor sources (Debug builds only)
+if(EDITOR_ENABLED)
+    list(APPEND SOURCES
+        src/editor/editor_layer.cpp
+    )
+endif()
 
 # Header files (same layout)
 set(HEADERS
@@ -135,6 +160,8 @@ set(HEADERS
     src/loaders/procedural_mesh_factory.h
     src/scene/scene.h
     src/render/render_list_builder.h
+    src/render/viewport_config.h
+    src/render/viewport_manager.h
     src/thread/job_queue.h
     src/window/window.h
     src/scene/object.h
@@ -164,6 +191,13 @@ set(HEADERS
     src/core/transform.h
 )
 
+# Editor headers (Debug builds only)
+if(EDITOR_ENABLED)
+    list(APPEND HEADERS
+        src/editor/editor_layer.h
+    )
+endif()
+
 # Create executable
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
@@ -180,6 +214,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src/scene
     ${CMAKE_SOURCE_DIR}/src/render
     ${CMAKE_SOURCE_DIR}/src/vulkan
+    ${CMAKE_SOURCE_DIR}/src/editor
     ${DEPS_STB_DIR}
     ${Vulkan_INCLUDE_DIRS}
 )
@@ -191,6 +226,14 @@ target_link_libraries(${PROJECT_NAME}
     nlohmann_json::nlohmann_json
     glm::glm
 )
+
+# Link ImGui and ImGuizmo (Debug builds only)
+if(EDITOR_ENABLED)
+    target_link_libraries(${PROJECT_NAME}
+        imgui::imgui
+        imguizmo::imguizmo
+    )
+endif()
 if(TinyGLTF_FOUND)
     target_link_libraries(${PROJECT_NAME} TinyGLTF::tinygltf)
 else()
@@ -320,21 +363,18 @@ add_custom_target(compile_shaders ALL
     DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/frag_alt.spv ${SHADERS_OUTPUT_DIR}/frag_untextured.spv ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
 )
 
-# Ensure shaders are built before the app, and copy shaders + config + levels + models next to the exe so the app finds them regardless of cwd.
+# Ensure shaders are built before the app. Shaders are copied to exe dir (compiled artifacts).
+# Editable resources (config, levels, models) are read from PROJECT_SOURCE_DIR directly — no copies during development.
 add_dependencies(${PROJECT_NAME} compile_shaders)
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_alt.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_untextured.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:${PROJECT_NAME}>/config
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/levels $<TARGET_FILE_DIR:${PROJECT_NAME}>/levels
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/models $<TARGET_FILE_DIR:${PROJECT_NAME}>/models
-    COMMENT "Copying shaders, config, levels, and models next to executable"
+    COMMENT "Copying compiled shaders next to executable"
 )
 
 # Local install/bundle: output folder (e.g. install/Debug, install/Release)

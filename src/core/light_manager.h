@@ -10,6 +10,16 @@
 class SceneNew;
 
 /**
+ * Emissive light data for injection from emissive objects.
+ */
+struct EmissiveLightData {
+    float position[3];   // World position of emissive object
+    float radius;        // Estimated light radius based on object size
+    float color[3];      // Emissive color (linear RGB)
+    float intensity;     // Emissive strength
+};
+
+/**
  * LightManager — Tracks scene lights, culls, and uploads to GPU.
  */
 class LightManager {
@@ -28,6 +38,9 @@ public:
 
     /** Update GPU light buffer from scene lights. Call each frame before rendering. */
     void UpdateLightBuffer();
+
+    /** Inject additional lights from emissive objects (append to scene lights). */
+    void InjectEmissiveLights(const std::vector<EmissiveLightData>& emissiveLights);
 
     /** Get the light buffer for descriptor set binding. */
     VkBuffer GetLightBuffer() const { return m_lightBuffer; }

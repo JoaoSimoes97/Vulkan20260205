@@ -275,7 +275,7 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
     json j;
     try {
         in >> j;
-    } catch (const json::exception& e) {
+    } catch (const json::exception&) {
         VulkanUtils::LogErr("SceneManager::LoadLevelFromFile: invalid JSON \"{}\"", path);
         return false;
     }
@@ -396,10 +396,17 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             }
 
             Object obj;
+            obj.name = source;  // Use source as name (e.g., "procedural:sphere")
             obj.pMesh = pMesh;
             obj.pMaterial = pMaterial;
-            // Assign default white texture for PBR to work (shader expects valid textures)
-            obj.pTexture = m_pTextureManager ? m_pTextureManager->GetOrCreateDefaultTexture() : nullptr;
+            // Assign all PBR textures with proper defaults for full PBR support
+            if (m_pTextureManager) {
+                obj.pTexture = m_pTextureManager->GetOrCreateDefaultTexture();                    // White base color
+                obj.pMetallicRoughnessTexture = m_pTextureManager->GetOrCreateDefaultMRTexture(); // MR factors used as-is
+                obj.pEmissiveTexture = m_pTextureManager->GetOrCreateDefaultEmissiveTexture();    // No emission by default
+                obj.pNormalTexture = m_pTextureManager->GetOrCreateDefaultNormalTexture();        // Flat normal
+                obj.pOcclusionTexture = m_pTextureManager->GetOrCreateDefaultOcclusionTexture();  // No occlusion
+            }
             std::memcpy(obj.localTransform, instanceTransform, sizeof(instanceTransform));
             if (hasColorOverride) {
                 obj.color[0] = colorOverride[0];
@@ -605,6 +612,14 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                     obj.pNormalTexture = std::move(pNormalTexture);
                     obj.pOcclusionTexture = std::move(pOcclusionTexture);
 
+                    // Set name from mesh name or node name
+                    if (!node.name.empty())
+                        obj.name = node.name;
+                    else if (!mesh.name.empty())
+                        obj.name = mesh.name;
+                    else
+                        obj.name = gltfPath + ":" + std::to_string(meshIndex) + ":" + std::to_string(primIndex);
+
                     float combined[16];
                     MatMultiply(combined, instanceTransform, nodeWorld);
                     std::memcpy(obj.localTransform, combined, sizeof(combined));
@@ -630,12 +645,24 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                         obj.emissive[1] = static_cast<float>(gltfMat.emissiveFactor[1]);
                         obj.emissive[2] = static_cast<float>(gltfMat.emissiveFactor[2]);
                         obj.emissive[3] = 1.0f; // Strength multiplier (always 1.0 for spec compliance)
+                        
+                        // Auto-enable light emission if emissive color is non-zero
+                        float emissiveLen = obj.emissive[0] + obj.emissive[1] + obj.emissive[2];
+                        if (emissiveLen > 0.001f) {
+                            obj.emitsLight = true;
+                        }
                     }
                     if (hasEmissiveOverride) {
                         obj.emissive[0] = emissiveOverride[0];
                         obj.emissive[1] = emissiveOverride[1];
                         obj.emissive[2] = emissiveOverride[2];
                         obj.emissive[3] = emissiveOverride[3];
+                        
+                        // Auto-enable light emission if emissive override is non-zero
+                        float emissiveLen = emissiveOverride[0] + emissiveOverride[1] + emissiveOverride[2];
+                        if (emissiveLen > 0.001f) {
+                            obj.emitsLight = true;
+                        }
                     }
 
                     // Load metallic and roughness factors from glTF material
@@ -664,11 +691,47 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             visitNode(rootNode, identity);
     }
 
+    // Create SceneNew for ECS components (lights, meshes, etc.)
+    m_sceneNew = std::make_unique<SceneNew>(sceneName);
+    
+    // Create GameObjects in SceneNew for each mesh Object
+    // This allows the editor hierarchy to show all objects
+    for (size_t i = 0; i < objs.size(); ++i) {
+        Object& obj = objs[i];
+        
+        // Generate a name for the object
+        std::string goName = obj.name.empty() 
+            ? ("Object_" + std::to_string(i)) 
+            : obj.name;
+        
+        uint32_t goId = m_sceneNew->CreateGameObject(goName);
+        obj.gameObjectId = goId;
+        
+        // Decompose the object's localTransform matrix into position/rotation/scale
+        Transform* t = m_sceneNew->GetTransform(goId);
+        if (t) {
+            TransformFromMatrix(obj.localTransform, *t);
+        }
+        
+        // Add a RendererComponent to mark this as a mesh object
+        RendererComponent renderer;
+        renderer.mesh = obj.pMesh;
+        renderer.material = obj.pMaterial;
+        renderer.texture = obj.pTexture;
+        renderer.bVisible = true;
+        renderer.matProps.baseColor[0] = obj.color[0];
+        renderer.matProps.baseColor[1] = obj.color[1];
+        renderer.matProps.baseColor[2] = obj.color[2];
+        renderer.matProps.baseColor[3] = obj.color[3];
+        renderer.matProps.metallic = obj.metallicFactor;
+        renderer.matProps.roughness = obj.roughnessFactor;
+        m_sceneNew->AddRenderer(goId, renderer);
+    }
+    
     const size_t objectCount = objs.size();
     SetCurrentScene(std::move(scene));
     
-    // Create SceneNew for ECS components (lights, etc.) and load lights
-    m_sceneNew = std::make_unique<SceneNew>(sceneName);
+    // Load lights from JSON
     LoadLightsFromJson(j);
     
     VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" ({} objects, {} lights)", 
@@ -695,6 +758,34 @@ void SceneManager::RemoveObject(size_t index) {
     auto& objs = m_currentScene->GetObjects();
     if (index < objs.size())
         objs.erase(objs.begin() + static_cast<std::ptrdiff_t>(index));
+}
+
+void SceneManager::SyncTransformsToScene() {
+    if (!m_currentScene || !m_sceneNew) return;
+    
+    auto& objs = m_currentScene->GetObjects();
+    const auto& transforms = m_sceneNew->GetTransforms();
+    
+    // Sync transforms from SceneNew GameObjects back to Scene Objects
+    for (auto& obj : objs) {
+        if (obj.gameObjectId == UINT32_MAX) continue;
+        
+        // Find the GameObject
+        const GameObject* go = m_sceneNew->FindGameObject(obj.gameObjectId);
+        if (!go || go->transformIndex >= transforms.size()) continue;
+        
+        const Transform& t = transforms[go->transformIndex];
+        
+        // Only sync if transform was changed (dirty flag indicates modification)
+        // We rebuild the localTransform matrix from position/rotation/scale
+        // Use ObjectSetFromPositionRotationScale to build the matrix
+        ObjectSetFromPositionRotationScale(
+            obj.localTransform,
+            t.position[0], t.position[1], t.position[2],
+            t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3],
+            t.scale[0], t.scale[1], t.scale[2]
+        );
+    }
 }
 
 std::shared_ptr<MeshHandle> SceneManager::LoadProceduralMesh(const std::string& source) {

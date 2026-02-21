@@ -146,6 +146,74 @@ bool Window::PollEvents() {
     return false;
 }
 
+bool Window::PollEventsWithHandler(const EventHandler& handler) {
+    SDL_Event evt;
+    while (SDL_PollEvent(&evt)) {
+        // Let external handler process first (e.g., ImGui)
+        bool consumed = false;
+        if (handler) {
+            consumed = handler(evt);
+        }
+
+        // Always process quit event
+        if (evt.type == SDL_EVENT_QUIT) {
+            return true;
+        }
+
+        // Skip further processing if handler consumed the event
+        if (consumed) {
+            continue;
+        }
+
+        switch (evt.type) {
+            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
+                this->m_bFramebufferResized = true;
+                int iW = 0;
+                int iH = 0;
+                if (SDL_GetWindowSizeInPixels(this->m_pWindow, &iW, &iH) == true) {
+                    if (iW > 0) this->m_width  = static_cast<uint32_t>(iW);
+                    if (iH > 0) this->m_height = static_cast<uint32_t>(iH);
+                }
+                break;
+            }
+            case SDL_EVENT_WINDOW_MINIMIZED:
+                this->m_bWindowMinimized = true;
+                break;
+            case SDL_EVENT_WINDOW_MAXIMIZED:
+            case SDL_EVENT_WINDOW_RESTORED:
+                this->m_bWindowMinimized = false;
+                this->m_bFramebufferResized = true;
+                break;
+            case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+            case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+            case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+                this->m_bFramebufferResized = true;
+                break;
+            case SDL_EVENT_MOUSE_MOTION:
+                if (this->m_bMouseCaptured) {
+                    this->m_mouseDeltaX += evt.motion.xrel;
+                    this->m_mouseDeltaY += evt.motion.yrel;
+                }
+                break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                // Right-click to toggle mouse capture (only if not captured by UI)
+                if (evt.button.button == SDL_BUTTON_RIGHT) {
+                    SetMouseCapture(!m_bMouseCaptured);
+                }
+                break;
+            case SDL_EVENT_KEY_DOWN:
+                // Escape to release mouse capture
+                if (evt.key.key == SDLK_ESCAPE && m_bMouseCaptured) {
+                    SetMouseCapture(false);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return false;
+}
+
 void Window::GetMouseDelta(float& deltaX, float& deltaY) {
     deltaX = m_mouseDeltaX;
     deltaY = m_mouseDeltaY;

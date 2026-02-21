@@ -209,6 +209,60 @@ std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultTexture() {
     return pHandle;
 }
 
+std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultNormalTexture() {
+    const char* sKey = "__default_normal";
+    auto it = m_cache.find(sKey);
+    if (it != m_cache.end())
+        return it->second;
+    // White = shader detects "no normal map" and uses vertex normals
+    // The shader checks for (1,1,1) to skip normal mapping
+    unsigned char normalPixel[4] = { 255, 255, 255, 255 };
+    std::shared_ptr<TextureHandle> pHandle = UploadTexture(1, 1, 4, normalPixel);
+    if (pHandle != nullptr)
+        m_cache[sKey] = pHandle;
+    return pHandle;
+}
+
+std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultMRTexture() {
+    const char* sKey = "__default_mr";
+    auto it = m_cache.find(sKey);
+    if (it != m_cache.end())
+        return it->second;
+    // White = metallic and roughness factors used as-is (G=roughness=1, B=metallic=1)
+    unsigned char mrPixel[4] = { 255, 255, 255, 255 };
+    std::shared_ptr<TextureHandle> pHandle = UploadTexture(1, 1, 4, mrPixel);
+    if (pHandle != nullptr)
+        m_cache[sKey] = pHandle;
+    return pHandle;
+}
+
+std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultEmissiveTexture() {
+    const char* sKey = "__default_emissive";
+    auto it = m_cache.find(sKey);
+    if (it != m_cache.end())
+        return it->second;
+    // White = emissive factors used as-is (shader multiplies emissiveFactor * emissiveTexture)
+    // Per glTF spec: if no emissive texture, emissiveFactor is used directly
+    unsigned char emissivePixel[4] = { 255, 255, 255, 255 };
+    std::shared_ptr<TextureHandle> pHandle = UploadTexture(1, 1, 4, emissivePixel);
+    if (pHandle != nullptr)
+        m_cache[sKey] = pHandle;
+    return pHandle;
+}
+
+std::shared_ptr<TextureHandle> TextureManager::GetOrCreateDefaultOcclusionTexture() {
+    const char* sKey = "__default_occlusion";
+    auto it = m_cache.find(sKey);
+    if (it != m_cache.end())
+        return it->second;
+    // White = no occlusion (fully lit)
+    unsigned char occlusionPixel[4] = { 255, 255, 255, 255 };
+    std::shared_ptr<TextureHandle> pHandle = UploadTexture(1, 1, 4, occlusionPixel);
+    if (pHandle != nullptr)
+        m_cache[sKey] = pHandle;
+    return pHandle;
+}
+
 std::shared_ptr<TextureHandle> TextureManager::GetOrCreateFromMemory(const std::string& cacheKey, int width, int height, int channels, const unsigned char* pPixels) {
     if (cacheKey.empty() || pPixels == nullptr || width <= 0 || height <= 0 || channels <= 0)
         return nullptr;

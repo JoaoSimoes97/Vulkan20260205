@@ -5,7 +5,12 @@
   "dependencies": [
     "sdl3",
     "nlohmann-json",
-    "glm"
+    "glm",
+    {
+      "name": "imgui",
+      "features": ["docking-experimental", "vulkan-binding", "sdl3-binding"]
+    },
+    "imguizmo"
   ],
   "overrides": []
 }

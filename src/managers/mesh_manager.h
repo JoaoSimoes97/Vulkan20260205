@@ -10,7 +10,7 @@
 #include <cmath>
 #include <cfloat>
 
-struct JobQueue;
+class JobQueue;
 
 /**
  * Mesh-local bounding box (computed from vertices at mesh creation).

@@ -35,6 +35,9 @@ struct GameObject {
     /** Light component index (INVALID_COMPONENT_INDEX if none). */
     uint32_t lightIndex = INVALID_COMPONENT_INDEX;
 
+    /** Camera component index (INVALID_COMPONENT_INDEX if none). */
+    uint32_t cameraIndex = INVALID_COMPONENT_INDEX;
+
     /** Physics component index (INVALID_COMPONENT_INDEX if none). Future. */
     uint32_t physicsIndex = INVALID_COMPONENT_INDEX;
 
@@ -46,6 +49,9 @@ struct GameObject {
 
     /** Check if this GameObject has a light component. */
     bool HasLight() const { return lightIndex != INVALID_COMPONENT_INDEX; }
+
+    /** Check if this GameObject has a camera component. */
+    bool HasCamera() const { return cameraIndex != INVALID_COMPONENT_INDEX; }
 
     /** Check if this GameObject has a physics component. Future. */
     bool HasPhysics() const { return physicsIndex != INVALID_COMPONENT_INDEX; }

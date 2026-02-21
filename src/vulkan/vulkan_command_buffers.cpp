@@ -64,6 +64,7 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
                                   VkRect2D stRenderArea_ic, VkViewport stViewport_ic, VkRect2D stScissor_ic,
                                   const std::vector<DrawCall>& vecDrawCalls_ic,
                                   const VkClearValue* pClearValues_ic, uint32_t lClearValueCount_ic,
+                                  std::function<void(VkCommandBuffer)> preSceneCallback,
                                   std::function<void(VkCommandBuffer)> postSceneCallback) {
     if ((lIndex_ic >= this->m_commandBuffers.size()) || (pRenderPass_ic == VK_NULL_HANDLE) || (pFramebuffer_ic == VK_NULL_HANDLE)) {
         VulkanUtils::LogErr("VulkanCommandBuffers::Record: invalid index or handles");
@@ -98,6 +99,11 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
     if (result != VK_SUCCESS) {
         VulkanUtils::LogErr("vkBeginCommandBuffer failed: {}", static_cast<int>(result));
         throw std::runtime_error("VulkanCommandBuffers::Record: begin failed");
+    }
+
+    // Pre-scene callback (for offscreen/PIP viewport rendering)
+    if (preSceneCallback) {
+        preSceneCallback(pCmd);
     }
 
     VkRenderPassBeginInfo stRpBegin = {

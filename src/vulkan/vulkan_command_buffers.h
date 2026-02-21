@@ -40,11 +40,13 @@ public:
     void Destroy();
 
     /** Record buffer: begin render pass (renderArea, clearValues), set viewport/scissor, then for each DrawCall: bind pipeline, push constants (if any), draw.
+     *  @param preSceneCallback Optional callback invoked after command buffer begin but before main render pass (for offscreen rendering).
      *  @param postSceneCallback Optional callback invoked inside render pass after main draws, for debug rendering. */
     void Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_ic, VkFramebuffer pFramebuffer_ic,
                 VkRect2D stRenderArea_ic, VkViewport stViewport_ic, VkRect2D stScissor_ic,
                 const std::vector<DrawCall>& vecDrawCalls_ic,
                 const VkClearValue* pClearValues_ic, uint32_t lClearValueCount_ic,
+                std::function<void(VkCommandBuffer)> preSceneCallback = nullptr,
                 std::function<void(VkCommandBuffer)> postSceneCallback = nullptr);
 
     VkCommandBuffer Get(uint32_t lIndex_ic) const;

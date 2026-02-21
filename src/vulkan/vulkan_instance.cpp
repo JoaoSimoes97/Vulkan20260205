@@ -33,13 +33,15 @@ void VulkanInstance::Create(const char* const* pExtensionNames_ic, uint32_t lExt
     }
     CheckExtensionsAvailable(pExtensionNames_ic, lExtensionCount_ic);
 
-    if ((VulkanUtils::ENABLE_VALIDATION_LAYERS == true) && (VulkanUtils::CheckValidationLayerSupport() == false)) {
-        VulkanUtils::LogErr("Validation layers requested, but not available");
-        throw std::runtime_error("Validation layers requested, but not available");
+    if constexpr (VulkanUtils::ENABLE_VALIDATION_LAYERS) {
+        if (!VulkanUtils::CheckValidationLayerSupport()) {
+            VulkanUtils::LogErr("Validation layers requested, but not available");
+            throw std::runtime_error("Validation layers requested, but not available");
+        }
     }
 
     VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {};
-    if (VulkanUtils::ENABLE_VALIDATION_LAYERS == true) {
+    if constexpr (VulkanUtils::ENABLE_VALIDATION_LAYERS) {
         VulkanUtils::PopulateDebugMessengerCreateInfo(debugCreateInfo);
     }
 
@@ -70,7 +72,7 @@ void VulkanInstance::Create(const char* const* pExtensionNames_ic, uint32_t lExt
         throw std::runtime_error("Failed to create Vulkan instance");
     }
 
-    if (VulkanUtils::ENABLE_VALIDATION_LAYERS == true) {
+    if constexpr (VulkanUtils::ENABLE_VALIDATION_LAYERS) {
         VkDebugUtilsMessengerCreateInfoEXT stMessengerCreateInfo = {};
         VulkanUtils::PopulateDebugMessengerCreateInfo(stMessengerCreateInfo);
         result = VulkanUtils::CreateDebugUtilsMessengerEXT(this->m_instance, &stMessengerCreateInfo, nullptr, &this->m_debugMessenger);
@@ -83,9 +85,11 @@ void VulkanInstance::Create(const char* const* pExtensionNames_ic, uint32_t lExt
 }
 
 void VulkanInstance::Destroy() {
-    if ((VulkanUtils::ENABLE_VALIDATION_LAYERS == true) && (this->m_debugMessenger != VK_NULL_HANDLE)) {
-        VulkanUtils::DestroyDebugUtilsMessengerEXT(this->m_instance, this->m_debugMessenger, nullptr);
-        this->m_debugMessenger = VK_NULL_HANDLE;
+    if constexpr (VulkanUtils::ENABLE_VALIDATION_LAYERS) {
+        if (this->m_debugMessenger != VK_NULL_HANDLE) {
+            VulkanUtils::DestroyDebugUtilsMessengerEXT(this->m_instance, this->m_debugMessenger, nullptr);
+            this->m_debugMessenger = VK_NULL_HANDLE;
+        }
     }
     if (this->m_instance != VK_NULL_HANDLE) {
         vkDestroyInstance(this->m_instance, nullptr);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
@@ -12,6 +13,9 @@
  */
 class Window {
 public:
+    /** Event handler callback type. Return true to consume event (don't process further). */
+    using EventHandler = std::function<bool(const SDL_Event&)>;
+
     Window(uint32_t lWidth_ic, uint32_t lHeight_ic, const char* pTitle_ic = "Vulkan App");
     ~Window();
 
@@ -21,6 +25,9 @@ public:
 
     /* Process events; returns true if quit requested. */
     bool PollEvents();
+
+    /** Process events with optional external handler (e.g., for ImGui). Handler is called first; if it returns true, window skips processing that event. */
+    bool PollEventsWithHandler(const EventHandler& handler);
 
     void SetSize(uint32_t lWidth_ic, uint32_t lHeight_ic);
     void SetFullscreen(bool bFullscreen_ic);

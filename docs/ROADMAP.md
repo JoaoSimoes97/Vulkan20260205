@@ -52,7 +52,7 @@
 
 ---
 
-## Phase 3: Editor & Debug Tools 🔄
+## Phase 3: Editor & Debug Tools ✅
 
 **Goal:** Visual debugging and runtime editing capabilities.
 
@@ -60,13 +60,15 @@
 |---------|--------|-------|
 | Light Debug Renderer | ✅ | Wireframe spheres/cones/arrows for lights |
 | Config System | ✅ | JSON config with auto-creation |
-| ImGui Integration | 📋 | Editor overlays |
-| Selection System | 📋 | Ray casting + click-to-select |
-| Scene Hierarchy Panel | 📋 | GameObject tree |
-| Inspector Panel | 📋 | Component editing |
-| Gizmos (Transform) | 📋 | Move/Rotate/Scale handles |
+| ImGui Integration | ✅ | Editor overlays |
+| Selection System | ✅ | Click-to-select + hierarchy selection |
+| Scene Hierarchy Panel | ✅ | GameObject tree |
+| Inspector Panel | ✅ | Transform, Light, Renderer components |
+| Gizmos (Transform) | ✅ | Move/Rotate/Scale handles via ImGuizmo |
+| Multi-Viewport | ✅ | Docked viewports with camera-per-viewport |
+| CameraComponent | ✅ | Scene cameras with perspective/ortho |
+| Mesh/Material Inspector | ✅ | Vertex count, AABB, PBR properties |
 | Undo/Redo System | 📋 | Command pattern |
-| Multi-Viewport | 📋 | Game + Scene views |
 | Play/Pause/Stop | 📋 | Runtime control |
 
 ---
@@ -123,6 +125,9 @@
 |-------|----------|--------|
 | PDB lock during parallel builds | Low | Workaround: single-thread build |
 | Dual scene system (Scene + SceneNew) | Low | Both working; full migration when ECS complete |
+| Animation import not implemented | Low | Logged when glTF has animations |
+| Skinning import not implemented | Low | Logged when glTF has skins |
+| Cylinder/Cone mesh caps missing | Low | Wireframe only for now |
 
 ---
 

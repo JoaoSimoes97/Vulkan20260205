@@ -108,18 +108,26 @@ namespace VulkanUtils {
     };
 
 #ifdef NDEBUG
-    const bool ENABLE_VALIDATION_LAYERS = static_cast<bool>(false);
+    constexpr bool ENABLE_VALIDATION_LAYERS = false;
 #else
-    const bool ENABLE_VALIDATION_LAYERS = static_cast<bool>(true);
+    constexpr bool ENABLE_VALIDATION_LAYERS = true;
 #endif
 
     /* Returns the directory containing the executable. Empty on failure. */
     std::string GetExecutableDirectory();
 
+    /* Returns the project source directory (from PROJECT_SOURCE_DIR compile definition). Empty if not defined. */
+    std::string GetProjectSourceDirectory();
+
     /* Base directory for shipped resources: exe dir if it contains shaders/, else exe parent (install/bin layout). Use for all paths when shipping. */
     std::string GetResourceBaseDir();
 
-    /* Path for a resource relative to the executable: base/sPath. Use for shaders, config, etc. so the app works when shipped (exe + shaders/ + config/ in one folder). */
+    /* 
+     * Path for a resource relative to the project.
+     * For editable resources (config/, levels/, models/): checks PROJECT_SOURCE_DIR first (dev workflow),
+     * falls back to exe-relative (shipped/install scenarios).
+     * For compiled artifacts (shaders/): always exe-relative.
+     */
     std::string GetResourcePath(const std::string& sPath);
 
     /* Resolve path for reading: same as GetResourcePath (exe-relative); kept for compatibility. */

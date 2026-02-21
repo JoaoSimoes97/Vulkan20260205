@@ -57,6 +57,12 @@ enum class RenderMode {
     Wireframe,  // Force wireframe rendering
 };
 
+// C4324: structure was padded due to alignment specifier - intentional for GPU data alignment
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4324)
+#endif
+
 struct Object {
     /** Material, mesh, and texture refs; draw list resolves these to VkPipeline, buffers, and descriptor sets. */
     std::shared_ptr<MaterialHandle> pMaterial;
@@ -76,8 +82,14 @@ struct Object {
     };
     /** Per-object color (RGBA). From glTF baseColorFactor; passed to fragment shader via push constants. */
     float                    color[4]      = { 1.f, 1.f, 1.f, 1.f };
-    /** Emissive color (RGB) + strength (A). For self-illuminated materials (future lighting). */
+    /** Emissive color (RGB) + strength (A). For self-illuminated materials. */
     float                    emissive[4]   = { 0.f, 0.f, 0.f, 1.f };
+    /** Whether this object emits light into the scene (creates a point light). */
+    bool                     emitsLight    = false;
+    /** Light radius for emissive objects (how far the light reaches). */
+    float                    emissiveLightRadius = 15.f;
+    /** Light intensity multiplier for emissive objects. */
+    float                    emissiveLightIntensity = 5.f;
     /** Metallic factor (0-1). From glTF pbrMetallicRoughness.metallicFactor. */
     float                    metallicFactor  = 1.f;
     /** Roughness factor (0-1). From glTF pbrMetallicRoughness.roughnessFactor. */
@@ -95,7 +107,15 @@ struct Object {
     /** Arbitrary data pushed to the GPU (e.g. mat4 + color). Filled each frame from projection * localTransform + color. */
     std::vector<uint8_t>     pushData;
     uint32_t                 pushDataSize  = 0u;
+    /** Optional name for editor display. */
+    std::string              name;
+    /** Link to corresponding GameObject in SceneNew. UINT32_MAX = no link. */
+    uint32_t                 gameObjectId  = UINT32_MAX;
 };
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 /** Identity matrix in column-major order (16 floats). */
 inline void ObjectSetIdentity(float* out16) {

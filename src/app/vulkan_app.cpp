@@ -86,8 +86,9 @@ void VulkanApp::InitVulkan() {
         throw std::runtime_error("SDL_Vulkan_GetInstanceExtensions failed");
     }
     std::vector<const char*> vecExtensions(extNames, extNames + extCount);
-    if (VulkanUtils::ENABLE_VALIDATION_LAYERS == true)
+    if constexpr (VulkanUtils::ENABLE_VALIDATION_LAYERS) {
         vecExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
 
     this->m_instance.Create(vecExtensions.data(), static_cast<uint32_t>(vecExtensions.size()));
     this->m_pWindow->CreateSurface(this->m_instance.Get());
@@ -126,6 +127,11 @@ void VulkanApp::InitVulkan() {
     std::string sFragPath   = VulkanUtils::GetResourcePath(SHADER_FRAG_PATH);
     std::string sFragUntexPath = VulkanUtils::GetResourcePath(SHADER_FRAG_UNTEX_PATH);
     std::string sFragAltPath = VulkanUtils::GetResourcePath(SHADER_FRAG_ALT_PATH);
+    
+    // Warn about outdated shaders - only frag.frag (textured PBR) is fully up-to-date
+    VulkanUtils::LogWarn("Shader frag_untextured.spv is OUTDATED: uses old GeometrySmith instead of V_GGX; prefer textured pipeline with default textures");
+    VulkanUtils::LogWarn("Shader frag_alt.spv is OUTDATED: debug grayscale shader only, not PBR compliant");
+    
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN_TEX, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE_TEX, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MASK_TEX, &this->m_shaderManager, sVertPath, sFragPath);
@@ -385,6 +391,42 @@ void VulkanApp::InitVulkan() {
             VulkanUtils::LogErr("Failed to create light debug renderer (continuing without debug visualization)");
         }
     }
+
+#ifndef NDEBUG
+    /* Initialize editor layer (ImGui + ImGuizmo). */
+    this->m_editorLayer.Init(
+        this->m_pWindow->GetSDLWindow(),
+        this->m_instance.Get(),
+        this->m_device.GetPhysicalDevice(),
+        this->m_device.GetDevice(),
+        this->m_device.GetQueueFamilyIndices().graphicsFamily,
+        this->m_device.GetGraphicsQueue(),
+        this->m_renderPass.Get(),
+        this->m_swapchain.GetImageCount()
+    );
+    /* Set level path for editor save functionality. */
+    this->m_editorLayer.SetLevelPath(VulkanUtils::GetResourcePath(this->m_config.sLevelPath));
+#endif
+
+    /* Initialize multi-viewport manager. */
+    VkExtent2D swapExtent = this->m_swapchain.GetExtent();
+    // Get formats matching the main render pass for viewport render pass compatibility
+    VkFormat viewportColorFormat = this->m_swapchain.GetImageFormat();
+    const VkFormat pDepthCandidatesVp[] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
+    VkFormat viewportDepthFormat = VulkanDepthImage::FindSupportedFormat(
+        this->m_device.GetPhysicalDevice(), pDepthCandidatesVp, 
+        static_cast<uint32_t>(sizeof(pDepthCandidatesVp) / sizeof(pDepthCandidatesVp[0])));
+    
+    this->m_viewportManager.Create(
+        this->m_device.GetDevice(),
+        this->m_device.GetPhysicalDevice(),
+        this->m_renderPass.Get(),
+        VK_NULL_HANDLE,  // ImGui descriptor pool not needed for now
+        viewportColorFormat,
+        viewportDepthFormat,
+        swapExtent.width,
+        swapExtent.height
+    );
 
 }
 
@@ -908,22 +950,45 @@ void VulkanApp::MainLoop() {
                 [this]() { this->m_resourceCleanupManager.TrimAllCaches(); })
         );
 
+#ifndef NDEBUG
+        // Process events with editor handler (ImGui gets first pass)
+        bQuit = this->m_pWindow->PollEventsWithHandler([this](const SDL_Event& evt) -> bool {
+            return this->m_editorLayer.ProcessEvent(&evt);
+        });
+        
+        // Begin editor frame
+        this->m_editorLayer.BeginFrame();
+#else
         bQuit = this->m_pWindow->PollEvents();
+#endif
         if (bQuit == true)
             break;
 
+#ifndef NDEBUG
+        // Skip camera update if editor wants input
+        const bool bEditorWantsInput = this->m_editorLayer.WantCaptureMouse() || this->m_editorLayer.WantCaptureKeyboard();
+#else
+        const bool bEditorWantsInput = false;
+#endif
+
         const float fMoveSpeed = (this->m_config.fPanSpeed > 0.f) ? this->m_config.fPanSpeed : kDefaultPanSpeed;
-        CameraController_Update(this->m_camera, SDL_GetKeyboardState(nullptr), fMoveSpeed, this->m_avgFrameTimeSec);
+        if (!bEditorWantsInput) {
+            CameraController_Update(this->m_camera, SDL_GetKeyboardState(nullptr), fMoveSpeed, this->m_avgFrameTimeSec);
+        }
         
         // Mouse look (right-click to capture mouse, Escape to release)
         float mouseDeltaX = 0.f, mouseDeltaY = 0.f;
         this->m_pWindow->GetMouseDelta(mouseDeltaX, mouseDeltaY);
-        if (mouseDeltaX != 0.f || mouseDeltaY != 0.f) {
+        if ((mouseDeltaX != 0.f || mouseDeltaY != 0.f) && !bEditorWantsInput) {
             CameraController_MouseLook(this->m_camera, mouseDeltaX, mouseDeltaY);
         }
 
         if (this->m_pWindow->GetWindowMinimized() == true) {
             VulkanUtils::LogTrace("Window minimized, skipping draw");
+#ifndef NDEBUG
+            // EndFrame must match BeginFrame to keep ImGui state consistent
+            this->m_editorLayer.EndFrame();
+#endif
             continue;
         }
 
@@ -959,6 +1024,15 @@ void VulkanApp::MainLoop() {
                 -fH, fH,
                 this->m_config.fOrthoNear, this->m_config.fOrthoFar);
         }
+        
+        /* Store projection matrix in camera for editor gizmos. */
+        this->m_camera.SetProjectionMatrix(glm::mat4(
+            fProjMat4[0], fProjMat4[1], fProjMat4[2], fProjMat4[3],
+            fProjMat4[4], fProjMat4[5], fProjMat4[6], fProjMat4[7],
+            fProjMat4[8], fProjMat4[9], fProjMat4[10], fProjMat4[11],
+            fProjMat4[12], fProjMat4[13], fProjMat4[14], fProjMat4[15]
+        ));
+        
         alignas(16) float fViewMat4[16];
         this->m_camera.GetViewMatrix(fViewMat4);
         alignas(16) float fViewProj[16];
@@ -1044,8 +1118,75 @@ void VulkanApp::MainLoop() {
                 
                 // Upload light data to GPU
                 this->m_lightManager.UpdateLightBuffer();
+                
+                // Inject emissive lights from scene objects
+                // Objects with emitsLight=true create point lights at their center
+                std::vector<EmissiveLightData> emissiveLights;
+                
+                for (const Object& obj : pScene->GetObjects()) {
+                    // Only objects with emitsLight enabled create lights
+                    if (!obj.emitsLight)
+                        continue;
+                    
+                    // Calculate emissive intensity: length(RGB) * strength * lightIntensity
+                    float emissiveIntensity = std::sqrt(
+                        obj.emissive[0] * obj.emissive[0] +
+                        obj.emissive[1] * obj.emissive[1] +
+                        obj.emissive[2] * obj.emissive[2]
+                    ) * obj.emissive[3] * obj.emissiveLightIntensity;
+                    
+                    if (emissiveIntensity < 0.001f)
+                        continue;
+                    
+                    // Compute world position from transform (same as ComputeWorldBoundingSphere)
+                    const float* m = obj.localTransform;
+                    float cx = m[12], cy = m[13], cz = m[14]; // Fallback: just translation
+                    
+                    if (obj.pMesh != nullptr) {
+                        const MeshAABB& aabb = obj.pMesh->GetAABB();
+                        if (aabb.IsValid()) {
+                            float localCx, localCy, localCz;
+                            aabb.GetCenter(localCx, localCy, localCz);
+                            // Transform center to world space
+                            cx = m[0]*localCx + m[4]*localCy + m[8]*localCz + m[12];
+                            cy = m[1]*localCx + m[5]*localCy + m[9]*localCz + m[13];
+                            cz = m[2]*localCx + m[6]*localCy + m[10]*localCz + m[14];
+                        }
+                    }
+                    
+                    EmissiveLightData light;
+                    light.position[0] = cx;
+                    light.position[1] = cy;
+                    light.position[2] = cz;
+                    
+                    // Use per-object configurable radius
+                    light.radius = obj.emissiveLightRadius;
+                    
+                    // Emissive color in linear space
+                    light.color[0] = obj.emissive[0];
+                    light.color[1] = obj.emissive[1];
+                    light.color[2] = obj.emissive[2];
+                    
+                    // Intensity from emissive strength * light intensity multiplier
+                    light.intensity = obj.emissive[3] * obj.emissiveLightIntensity;
+                    
+                    emissiveLights.push_back(light);
+                }
+                
+                if (!emissiveLights.empty()) {
+                    this->m_lightManager.InjectEmissiveLights(emissiveLights);
+                    // Pass to debug renderer for visualization
+                    this->m_lightDebugRenderer.SetEmissiveLights(emissiveLights);
+                } else {
+                    // Clear any previous emissive lights from debug renderer
+                    this->m_lightDebugRenderer.SetEmissiveLights({});
+                }
             }
         }
+        
+        /* Sync SceneNew transforms to legacy Scene Objects for rendering.
+           This ensures editor changes to mesh transforms are reflected in the render. */
+        this->m_sceneManager.SyncTransformsToScene();
 
         /* Ensure main descriptor set is written (default texture) before drawing main/wire; idempotent. */
         EnsureMainDescriptorSetWritten();
@@ -1064,6 +1205,14 @@ void VulkanApp::MainLoop() {
                                   this->m_device.GetDevice(), this->m_renderPass.Get(), this->m_renderPass.HasDepthAttachment(),
                                   &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
                                   fViewProj, &this->m_pipelineDescriptorSets, getTextureDescriptorSet);
+
+#ifndef NDEBUG
+        /* Draw editor panels and gizmos, then end ImGui frame. */
+        SceneNew* pSceneNewForEditor = this->m_sceneManager.GetSceneNew();
+        Scene* pLegacySceneForEditor = this->m_sceneManager.GetCurrentScene();
+        this->m_editorLayer.DrawEditor(pSceneNewForEditor, &this->m_camera, this->m_config, &this->m_viewportManager, pLegacySceneForEditor);
+        this->m_editorLayer.EndFrame();
+#endif
 
         /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
         if (!DrawFrame(this->m_drawCalls, fViewProj))
@@ -1121,6 +1270,11 @@ void VulkanApp::Cleanup() {
     VkResult r = vkDeviceWaitIdle(this->m_device.GetDevice());
     if (r != VK_SUCCESS)
         VulkanUtils::LogErr("vkDeviceWaitIdle before cleanup failed: {}", static_cast<int>(r));
+
+#ifndef NDEBUG
+    this->m_editorLayer.Shutdown();
+#endif
+
     this->m_sync.Destroy();
     this->m_commandBuffers.Destroy();
     this->m_framebuffers.Destroy();
@@ -1165,6 +1319,9 @@ void VulkanApp::Cleanup() {
     
     /* Clean up light debug renderer. */
     this->m_lightDebugRenderer.Destroy();
+    
+    /* Clean up viewport manager. */
+    this->m_viewportManager.Destroy();
     
     this->m_descriptorPoolManager.Destroy();
     this->m_descriptorSetLayoutManager.Destroy();
@@ -1250,19 +1407,75 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
     vecClearValues[1].depthStencil = { .depth = static_cast<float>(1.0f), .stencil = static_cast<uint32_t>(0) };
     const uint32_t lClearValueCount = (this->m_renderPass.HasDepthAttachment() == true) ? static_cast<uint32_t>(2u) : static_cast<uint32_t>(1u);
 
-    /* Build post-scene callback for debug rendering (inside render pass, after scene objects). */
+    /* Build post-scene callback for ImGui rendering only (inside swapchain render pass). */
     std::function<void(VkCommandBuffer)> postSceneCallback = nullptr;
-    if (this->m_config.bShowLightDebug && this->m_lightDebugRenderer.IsReady() && pViewProjMat16_ic != nullptr) {
-        SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
-        postSceneCallback = [this, pSceneNew, pViewProjMat16_ic](VkCommandBuffer cmd) {
-            this->m_lightDebugRenderer.Draw(cmd, pSceneNew, pViewProjMat16_ic);
-        };
-    }
+#ifndef NDEBUG
+    postSceneCallback = [this](VkCommandBuffer cmd) {
+        // Render ImGui draw data (displays viewport textures)
+        this->m_editorLayer.RenderDrawData(cmd);
+    };
+#endif
+
+    // Pre-scene callback for viewport rendering (all viewports render to offscreen targets)
+    // This includes scene objects AND light debug
+    std::function<void(VkCommandBuffer)> preSceneCallback = nullptr;
+    const bool bRenderLightDebug = this->m_config.bShowLightDebug && this->m_lightDebugRenderer.IsReady() && pViewProjMat16_ic != nullptr;
+    SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
+    
+    preSceneCallback = [this, &vecDrawCalls_ic, bRenderLightDebug, pSceneNew, pViewProjMat16_ic](VkCommandBuffer cmd) {
+        auto& vps = this->m_viewportManager.GetViewports();
+        for (auto& vp : vps) {
+            if (!vp.config.bVisible) {
+                continue;
+            }
+            if (!vp.renderTarget.IsValid()) {
+                continue;
+            }
+            
+            // Begin viewport render pass
+            this->m_viewportManager.BeginViewportRender(vp.config.id, cmd);
+            
+            // Render scene draw calls to this viewport
+            for (const auto& dc : vecDrawCalls_ic) {
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipeline);
+                if (!dc.descriptorSets.empty()) {
+                    if (!dc.dynamicOffsets.empty()) {
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
+                            0, static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
+                            static_cast<uint32_t>(dc.dynamicOffsets.size()), dc.dynamicOffsets.data());
+                    } else {
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
+                            0, static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
+                            0, nullptr);
+                    }
+                }
+                if (dc.pushConstantSize > 0 && dc.pPushConstants != nullptr) {
+                    vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                        0, dc.pushConstantSize, dc.pPushConstants);
+                }
+                VkDeviceSize offset = dc.vertexBufferOffset;
+                vkCmdBindVertexBuffers(cmd, 0, 1, &dc.vertexBuffer, &offset);
+                vkCmdDraw(cmd, dc.vertexCount, dc.instanceCount, dc.firstVertex, dc.firstInstance);
+            }
+            
+            // Render light debug visualizations (inside the viewport render pass)
+            if (bRenderLightDebug && pSceneNew) {
+                this->m_lightDebugRenderer.Draw(cmd, pSceneNew, pViewProjMat16_ic);
+            }
+            
+            // End viewport render pass
+            this->m_viewportManager.EndViewportRender(vp.config.id, cmd);
+        }
+    };
+    
+    // Don't render scene draw calls in main render pass - they're rendered to offscreen viewports
+    // Main render pass only handles ImGui which displays the viewport textures
+    std::vector<DrawCall> emptyDrawCalls;
 
     this->m_commandBuffers.Record(lImageIndex, this->m_renderPass.Get(),
                             this->m_framebuffers.Get()[lImageIndex],
-                            stRenderArea, stViewport, stScissor, vecDrawCalls_ic,
-                            vecClearValues.data(), lClearValueCount, postSceneCallback);
+                            stRenderArea, stViewport, stScissor, emptyDrawCalls,
+                            vecClearValues.data(), lClearValueCount, preSceneCallback, postSceneCallback);
 
     VkCommandBuffer pCmd = this->m_commandBuffers.Get(lImageIndex);
     VkPipelineStageFlags uWaitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

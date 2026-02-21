@@ -15,6 +15,7 @@
 #include "managers/scene_manager.h"
 #include "managers/texture_manager.h"
 #include "render/render_list_builder.h"
+#include "render/viewport_manager.h"
 #include "thread/job_queue.h"
 #include "thread/resource_manager_thread.h"
 #include "vulkan_config.h"
@@ -33,6 +34,10 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#ifndef NDEBUG
+#include "editor/editor_layer.h"
+#endif
 
 class VulkanShaderManager;
 
@@ -158,6 +163,14 @@ private:
     
     /** Light debug renderer for visualizing lights in debug mode. */
     LightDebugRenderer m_lightDebugRenderer;
+
+    /** Multi-viewport manager (render targets, cameras). */
+    ViewportManager m_viewportManager;
+
+#ifndef NDEBUG
+    /** Editor layer for ImGui-based visual editing (Debug builds only). */
+    EditorLayer m_editorLayer;
+#endif
 
     Camera m_camera;
     float m_avgFrameTimeSec = 1.f / 60.f;

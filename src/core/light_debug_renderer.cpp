@@ -515,6 +515,17 @@ void LightDebugRenderer::Draw(VkCommandBuffer cmd, const SceneNew* pScene, const
                 break;
         }
     }
+    
+    // Draw emissive lights as point lights with orange tint to distinguish
+    for (const EmissiveLightData& emissive : m_emissiveLights) {
+        // Use emissive color with slight orange tint for distinction
+        float emissiveDebugColor[3] = {
+            emissive.color[0] * 0.8f + 0.2f, // Add some yellow/orange
+            emissive.color[1] * 0.8f + 0.1f,
+            emissive.color[2] * 0.5f         // Reduce blue for warmth
+        };
+        GeneratePointLightGeometry(vertices, emissive.position, emissive.radius, emissiveDebugColor);
+    }
 
     if (vertices.empty()) return;
     if (!UpdateVertexBuffer(vertices)) return;

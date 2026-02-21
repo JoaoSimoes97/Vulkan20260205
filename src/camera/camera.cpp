@@ -106,3 +106,14 @@ void Camera::GetViewMatrix(float* pOut16_out) const {
     pOut16_out[14] = -(-fx * px + -fy * py + -fz * pz);
     pOut16_out[15] = 1.f;
 }
+
+glm::mat4 Camera::GetViewMatrix() const {
+    float viewMat[16];
+    GetViewMatrix(viewMat);
+    return glm::mat4(
+        viewMat[0], viewMat[1], viewMat[2], viewMat[3],
+        viewMat[4], viewMat[5], viewMat[6], viewMat[7],
+        viewMat[8], viewMat[9], viewMat[10], viewMat[11],
+        viewMat[12], viewMat[13], viewMat[14], viewMat[15]
+    );
+}

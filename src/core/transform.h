@@ -126,3 +126,76 @@ inline void TransformGetRight(const Transform& t, float& rx, float& ry, float& r
     rz = 2.f * (qx * qz - qy * qw);
 }
 
+/**
+ * Decompose a column-major 4x4 TRS matrix into position, rotation (quaternion), scale.
+ * Assumes M = T * R * S (translation * rotation * scale).
+ * @param m Column-major 4x4 matrix.
+ * @param t Output transform with position, rotation, scale.
+ */
+inline void TransformFromMatrix(const float* m, Transform& t) {
+    // Position is in the last column
+    t.position[0] = m[12];
+    t.position[1] = m[13];
+    t.position[2] = m[14];
+
+    // Scale is the length of each column (columns 0, 1, 2)
+    float sx = std::sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
+    float sy = std::sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
+    float sz = std::sqrt(m[8]*m[8] + m[9]*m[9] + m[10]*m[10]);
+    t.scale[0] = sx;
+    t.scale[1] = sy;
+    t.scale[2] = sz;
+
+    // Extract rotation matrix by dividing out scale
+    float r00 = m[0] / sx, r01 = m[4] / sy, r02 = m[8] / sz;
+    float r10 = m[1] / sx, r11 = m[5] / sy, r12 = m[9] / sz;
+    float r20 = m[2] / sx, r21 = m[6] / sy, r22 = m[10] / sz;
+
+    // Convert rotation matrix to quaternion
+    // Using Shepperd's method for numerical stability
+    float trace = r00 + r11 + r22;
+    float qx, qy, qz, qw;
+
+    if (trace > 0.f) {
+        float s = 0.5f / std::sqrt(trace + 1.f);
+        qw = 0.25f / s;
+        qx = (r21 - r12) * s;
+        qy = (r02 - r20) * s;
+        qz = (r10 - r01) * s;
+    } else if (r00 > r11 && r00 > r22) {
+        float s = 2.f * std::sqrt(1.f + r00 - r11 - r22);
+        qw = (r21 - r12) / s;
+        qx = 0.25f * s;
+        qy = (r01 + r10) / s;
+        qz = (r02 + r20) / s;
+    } else if (r11 > r22) {
+        float s = 2.f * std::sqrt(1.f + r11 - r00 - r22);
+        qw = (r02 - r20) / s;
+        qx = (r01 + r10) / s;
+        qy = 0.25f * s;
+        qz = (r12 + r21) / s;
+    } else {
+        float s = 2.f * std::sqrt(1.f + r22 - r00 - r11);
+        qw = (r10 - r01) / s;
+        qx = (r02 + r20) / s;
+        qy = (r12 + r21) / s;
+        qz = 0.25f * s;
+    }
+
+    // Normalize quaternion
+    float len = std::sqrt(qx*qx + qy*qy + qz*qz + qw*qw);
+    if (len > 0.0001f) {
+        t.rotation[0] = qx / len;
+        t.rotation[1] = qy / len;
+        t.rotation[2] = qz / len;
+        t.rotation[3] = qw / len;
+    } else {
+        t.rotation[0] = 0.f;
+        t.rotation[1] = 0.f;
+        t.rotation[2] = 0.f;
+        t.rotation[3] = 1.f;
+    }
+
+    t.bDirty = true;
+}
+

@@ -9,7 +9,7 @@
 #include <map>
 
 namespace tinygltf {
-struct Model;
+class Model;
 struct Primitive;
 }
 
@@ -59,6 +59,12 @@ public:
 
     /** Remove object at index. No-op if index out of range. */
     void RemoveObject(size_t index);
+
+    /**
+     * Sync transforms from SceneNew GameObjects back to Scene Objects.
+     * Call each frame before rendering to ensure editor changes to mesh transforms are reflected.
+     */
+    void SyncTransformsToScene();
 
 private:
     /** Helper: check if source is procedural (starts with "procedural:"), extract type, return mesh. */

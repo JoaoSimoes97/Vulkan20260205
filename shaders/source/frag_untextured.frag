@@ -62,8 +62,38 @@ const float PI = 3.14159265359;
 const float MIN_ROUGHNESS = 0.04;
 const uint MAX_LIGHTS = 256u;
 
+/* ---- Color Space Conversion ---- */
+// sRGB to Linear (accurate piecewise, matches Khronos reference)
+vec3 sRGBToLinear(vec3 srgb) {
+    return mix(
+        srgb / 12.92,
+        pow((srgb + 0.055) / 1.055, vec3(2.4)),
+        step(vec3(0.04045), srgb)
+    );
+}
+
+// Linear to sRGB (accurate piecewise)
+vec3 linearToSRGB(vec3 linear) {
+    return mix(
+        linear * 12.92,
+        1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055,
+        step(vec3(0.0031308), linear)
+    );
+}
+
+// ACES Filmic Tone Mapping (better highlight roll-off than Reinhard)
+vec3 toneMapACES(vec3 color) {
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
+}
+
 /* ---- PBR Functions ---- */
 
+// Normal Distribution Function (GGX/Trowbridge-Reitz)
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
     float a = roughness * roughness;
     float a2 = a * a;
@@ -74,27 +104,47 @@ float DistributionGGX(vec3 N, vec3 H, float roughness) {
     return a2 / max(denom, 0.0001);
 }
 
-float GeometrySchlickGGX(float NdotV, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
-    return NdotV / (NdotV * (1.0 - k) + k);
-}
-
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
+// Smith Joint GGX Visibility (Khronos reference, replaces GeometrySmith)
+// Note: Vis = G / (4 * NdotL * NdotV)
+float V_GGX(float NdotL, float NdotV, float alphaRoughness) {
+    float alphaRoughnessSq = alphaRoughness * alphaRoughness;
+    
+    float GGXV = NdotL * sqrt(NdotV * NdotV * (1.0 - alphaRoughnessSq) + alphaRoughnessSq);
+    float GGXL = NdotV * sqrt(NdotL * NdotL * (1.0 - alphaRoughnessSq) + alphaRoughnessSq);
+    
+    float GGX = GGXV + GGXL;
+    return GGX > 0.0 ? 0.5 / GGX : 0.0;
 }
 
 vec3 FresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+// Fresnel-Schlick with roughness (for IBL/environment reflections)
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// Minimum distance to prevent numerical instability when light source is at surface
+const float MIN_LIGHT_DISTANCE = 0.01;
+
 float CalcAttenuation(float distance, float range, float falloff) {
-    float d = distance / range;
-    float attenuation = 1.0 / (1.0 + pow(d, falloff));
-    float falloffSmooth = clamp(1.0 - pow(d, 4.0), 0.0, 1.0);
-    return attenuation * falloffSmooth * falloffSmooth;
+    // Clamp distance to minimum to prevent division by near-zero
+    float clampedDistance = max(distance, MIN_LIGHT_DISTANCE);
+    
+    // Inverse-square falloff (physically based)
+    float distanceSquared = clampedDistance * clampedDistance;
+    float rangeAttenuation = 1.0 / distanceSquared;
+    
+    // Smooth window function to avoid hard cutoff at range
+    if (range > 0.0) {
+        float d_over_r = clampedDistance / range;
+        float d_over_r_4 = d_over_r * d_over_r * d_over_r * d_over_r;
+        float smoothWindow = clamp(1.0 - d_over_r_4, 0.0, 1.0);
+        rangeAttenuation *= smoothWindow * smoothWindow;
+    }
+    
+    return rangeAttenuation;
 }
 
 float CalcSpotAttenuation(vec3 L, vec3 spotDir, float innerCone, float outerCone) {
@@ -107,20 +157,22 @@ void main() {
     // Get per-object data
     ObjectData objData = objectData.objects[inObjectIndex];
     
-    // Material properties (no texture - use baseColor directly)
-    vec3 albedo = pc.color.rgb * objData.baseColor.rgb;
+    // Material properties (no texture - use baseColor directly, apply sRGB to linear)
+    vec3 albedo = sRGBToLinear(pc.color.rgb * objData.baseColor.rgb);
     float metallic = clamp(objData.matProps.x, 0.0, 1.0);
     float roughness = clamp(objData.matProps.y, MIN_ROUGHNESS, 1.0);
-    vec3 emissive = objData.emissive.rgb * objData.emissive.a;
+    float alphaRoughness = roughness * roughness;
+    vec3 emissive = sRGBToLinear(objData.emissive.rgb) * objData.emissive.a;
     
-    // Normal and view direction
+    // Normal and view direction (use pc.camPos from push constants)
     vec3 N = normalize(inNormal);
-    vec3 camPos = vec3(0.0, 2.0, 8.0);
-    vec3 V = normalize(camPos - inWorldPos);
+    vec3 V = normalize(pc.camPos.xyz - inWorldPos);
     
     // Base reflectance (F0)
     vec3 F0 = vec3(0.04);
     F0 = mix(F0, albedo, metallic);
+    
+    float NdotV = max(dot(N, V), 0.0);
     
     // Accumulate lighting
     vec3 Lo = vec3(0.0);
@@ -142,32 +194,43 @@ void main() {
         } else if (lightType < 1.5) {
             vec3 lightVec = light.position.xyz - inWorldPos;
             float distance = length(lightVec);
-            L = normalize(lightVec);
+            
+            // Skip this light if too close (avoids NaN from normalizing near-zero vector)
+            if (distance < MIN_LIGHT_DISTANCE) {
+                continue;
+            }
+            
+            L = lightVec / distance;
             attenuation = CalcAttenuation(distance, light.position.w, light.params.z);
         } else {
             vec3 lightVec = light.position.xyz - inWorldPos;
             float distance = length(lightVec);
-            L = normalize(lightVec);
+            
+            // Skip this light if too close (avoids NaN from normalizing near-zero vector)
+            if (distance < MIN_LIGHT_DISTANCE) {
+                continue;
+            }
+            
+            L = lightVec / distance;
             attenuation = CalcAttenuation(distance, light.position.w, light.params.z);
             attenuation *= CalcSpotAttenuation(L, light.direction.xyz, light.params.x, light.params.y);
         }
         
+        float NdotL = max(dot(N, L), 0.0);
         vec3 H = normalize(V + L);
         vec3 radiance = light.color.rgb * light.color.a * attenuation;
         
+        // Cook-Torrance BRDF (using V_GGX for physically correct visibility term)
         float NDF = DistributionGGX(N, H, roughness);
-        float G = GeometrySmith(N, V, L, roughness);
+        float Vis = V_GGX(NdotL, NdotV, alphaRoughness);
         vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
         
-        vec3 numerator = NDF * G * F;
-        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
-        vec3 specular = numerator / denominator;
+        vec3 specular = NDF * Vis * F;
         
         vec3 kS = F;
         vec3 kD = vec3(1.0) - kS;
         kD *= 1.0 - metallic;
         
-        float NdotL = max(dot(N, L), 0.0);
         Lo += (kD * albedo / PI + specular) * radiance * NdotL;
     }
     
@@ -175,11 +238,18 @@ void main() {
     if (numLights == 0u) {
         vec3 L = normalize(vec3(0.5, 1.0, 0.3));
         vec3 H = normalize(V + L);
-        float NdotL = max(dot(N, L), 0.0);
-        vec3 diffuse = albedo * NdotL;
-        float spec = pow(max(dot(N, H), 0.0), mix(8.0, 128.0, 1.0 - roughness));
-        vec3 specular = vec3(spec) * mix(vec3(0.04), albedo, metallic);
-        Lo = diffuse * 0.8 + specular * 0.3;
+        float NdotL_def = max(dot(N, L), 0.0);
+        
+        // Use same Cook-Torrance as main loop for consistency
+        float NDF = DistributionGGX(N, H, roughness);
+        float Vis = V_GGX(NdotL_def, NdotV, alphaRoughness);
+        vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+        
+        vec3 specular = NDF * Vis * F;
+        vec3 kS = F;
+        vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+        
+        Lo = (kD * albedo / PI + specular) * vec3(1.0) * NdotL_def;
     }
     
     // Procedural sky environment for reflections (same as frag.frag)
@@ -189,8 +259,8 @@ void main() {
     vec3 groundColor = vec3(0.25, 0.22, 0.18);
     vec3 envColor = R.y > 0.0 ? skyColor : groundColor;
     
-    // Fresnel for environment reflection
-    vec3 F_env = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - max(dot(N, V), 0.0), 0.0, 1.0), 5.0);
+    // Fresnel for environment reflection (using roughness-aware version)
+    vec3 F_env = FresnelSchlickRoughness(NdotV, F0, roughness);
     
     // Metals get stronger environment reflection
     float envStrength = mix(0.3, 1.5, metallic) * (1.0 - roughness * 0.7);
@@ -202,9 +272,9 @@ void main() {
     vec3 ambient = ambientDiffuse + envReflection;
     vec3 color = ambient + Lo + emissive;
     
-    // Tone mapping + gamma
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
+    // ACES tone mapping + sRGB output
+    color = toneMapACES(color);
+    color = linearToSRGB(color);
     
     outColor = vec4(color, pc.color.a * objData.baseColor.a);
 }

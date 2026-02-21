@@ -8,6 +8,9 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <limits.h>
 #elif defined(__linux__)
 #include <unistd.h>
 #include <limits.h>
@@ -23,6 +26,14 @@ std::string GetExecutableDirectory() {
     if (lLen == static_cast<DWORD>(0))
         return std::string();
     std::filesystem::path p(vecBuf);
+    std::filesystem::path dir = p.parent_path();
+    sPath = dir.string();
+#elif defined(__APPLE__)
+    char vecBuf[PATH_MAX];
+    uint32_t lSize = sizeof(vecBuf);
+    if (_NSGetExecutablePath(vecBuf, &lSize) != 0)
+        return std::string();
+    std::filesystem::path p = std::filesystem::canonical(vecBuf);
     std::filesystem::path dir = p.parent_path();
     sPath = dir.string();
 #elif defined(__linux__)
@@ -41,6 +52,22 @@ std::string GetExecutableDirectory() {
     return sPath;
 }
 
+std::string GetProjectSourceDirectory() {
+#if defined(PROJECT_SOURCE_DIR)
+    return PROJECT_SOURCE_DIR;
+#else
+    return std::string();
+#endif
+}
+
+/* Check if a path is for editable resources (config, levels, models) vs compiled artifacts (shaders). */
+static bool IsEditableResourcePath(const std::string& sPath) {
+    if (sPath.rfind("config/", 0) == 0 || sPath.rfind("config\\", 0) == 0) return true;
+    if (sPath.rfind("levels/", 0) == 0 || sPath.rfind("levels\\", 0) == 0) return true;
+    if (sPath.rfind("models/", 0) == 0 || sPath.rfind("models\\", 0) == 0) return true;
+    return false;
+}
+
 std::string GetResourceBaseDir() {
     std::string sExeDir = GetExecutableDirectory();
     if (sExeDir.empty() == true)
@@ -56,6 +83,19 @@ std::string GetResourceBaseDir() {
 }
 
 std::string GetResourcePath(const std::string& sPath) {
+    // For editable resources (config, levels, models): prefer PROJECT_SOURCE_DIR.
+    // This allows editing files in ONE place (project root) during development.
+    // Shaders stay exe-relative (they're compiled artifacts).
+    // Falls back to exe-relative for distribution/install scenarios.
+    if (IsEditableResourcePath(sPath)) {
+        std::string sSrcDir = GetProjectSourceDirectory();
+        if (!sSrcDir.empty()) {
+            std::filesystem::path srcPath = std::filesystem::path(sSrcDir) / sPath;
+            if (std::filesystem::exists(srcPath))
+                return srcPath.lexically_normal().string();
+        }
+    }
+    // Fallback: exe-relative (shaders, or install/distribution scenario)
     std::string sBase = GetResourceBaseDir();
     if (sBase.empty() == true)
         return sPath;

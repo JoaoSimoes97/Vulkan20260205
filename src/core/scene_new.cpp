@@ -131,6 +131,38 @@ void SceneNew::RemoveLight(uint32_t gameObjectId) {
     go->lightIndex = INVALID_COMPONENT_INDEX;
 }
 
+uint32_t SceneNew::AddCamera(uint32_t gameObjectId, const CameraComponent& camera) {
+    GameObject* go = FindGameObject(gameObjectId);
+    if (go == nullptr)
+        return INVALID_COMPONENT_INDEX;
+    
+    if (go->HasCamera()) {
+        // Replace existing
+        m_cameras[go->cameraIndex] = camera;
+        m_cameras[go->cameraIndex].gameObjectIndex = static_cast<uint32_t>(m_idToIndex[gameObjectId]);
+        return go->cameraIndex;
+    }
+    
+    uint32_t idx = static_cast<uint32_t>(m_cameras.size());
+    go->cameraIndex = idx;
+    
+    CameraComponent c = camera;
+    c.gameObjectIndex = static_cast<uint32_t>(m_idToIndex[gameObjectId]);
+    m_cameras.push_back(std::move(c));
+    
+    return idx;
+}
+
+void SceneNew::RemoveCamera(uint32_t gameObjectId) {
+    GameObject* go = FindGameObject(gameObjectId);
+    if (go == nullptr || !go->HasCamera())
+        return;
+    
+    // Mark as not main (effectively inactive for this purpose)
+    m_cameras[go->cameraIndex].bIsMain = false;
+    go->cameraIndex = INVALID_COMPONENT_INDEX;
+}
+
 Transform* SceneNew::GetTransform(uint32_t gameObjectId) {
     GameObject* go = FindGameObject(gameObjectId);
     if (go == nullptr)
@@ -157,6 +189,7 @@ void SceneNew::Clear() {
     m_transforms.clear();
     m_renderers.clear();
     m_lights.clear();
+    m_cameras.clear();
     m_nextId = 1;
 }
 
