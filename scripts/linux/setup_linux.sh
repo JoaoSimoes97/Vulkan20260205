@@ -17,39 +17,54 @@ echo "This installs: Vulkan (headers, loader, validation), SDL3 (window/input), 
 echo "Then populates deps/ with stb, TinyGLTF, imgui, and imguizmo."
 echo ""
 
+# ============================================================================
+# Dependency versions - MUST match vcpkg versions for cross-platform compatibility
+# Check vcpkg_installed/vcpkg/info/ for current Windows versions
+# ============================================================================
+IMGUI_TAG="v1.91.9-docking"          # vcpkg: imgui_1.91.9 (docking branch)
+IMGUIZMO_COMMIT="ba662b119d64f9ab700bb2cd7b2781f9044f5565"  # vcpkg: imguizmo_2024-05-29
+TINYGLTF_TAG="v2.9.7"                # vcpkg doesn't use this, but pinned for consistency
+# ============================================================================
+
 # Populate deps/ so CMake never downloads during build
 populate_deps() {
     local deps_dir="$ROOT_DIR/deps"
     mkdir -p "$deps_dir"
     if ! command -v git &>/dev/null; then
-        echo "Warning: git not found; skipping deps/ (stb, TinyGLTF). Install git and re-run setup, or clone deps manually — see deps/README.md"
+        echo "Warning: git not found; skipping deps/. Install git and re-run setup, or clone deps manually — see deps/README.md"
         return 0
     fi
+    
+    # stb (header-only image loading)
     if [ ! -f "$deps_dir/stb/stb_image.h" ]; then
         echo "Cloning stb into deps/stb..."
         git clone --depth 1 https://github.com/nothings/stb.git "$deps_dir/stb"
     else
         echo "deps/stb already present, skipping."
     fi
+    
+    # TinyGLTF (glTF loader)
     if [ ! -f "$deps_dir/tinygltf/tiny_gltf.h" ]; then
-        echo "Cloning TinyGLTF into deps/tinygltf..."
-        git clone --depth 1 --branch v2.9.7 https://github.com/syoyo/tinygltf.git "$deps_dir/tinygltf"
+        echo "Cloning TinyGLTF ($TINYGLTF_TAG) into deps/tinygltf..."
+        git clone --depth 1 --branch "$TINYGLTF_TAG" https://github.com/syoyo/tinygltf.git "$deps_dir/tinygltf"
     else
         echo "deps/tinygltf already present, skipping."
     fi
     
-    # imgui (docking branch for editor features)
+    # imgui (docking branch, pinned version for vcpkg compatibility)
     if [ ! -f "$deps_dir/imgui/imgui.h" ]; then
-        echo "Cloning imgui (docking branch) into deps/imgui..."
-        git clone --depth 1 --branch docking https://github.com/ocornut/imgui.git "$deps_dir/imgui"
+        echo "Cloning imgui ($IMGUI_TAG) into deps/imgui..."
+        git clone --branch docking https://github.com/ocornut/imgui.git "$deps_dir/imgui"
+        (cd "$deps_dir/imgui" && git checkout "$IMGUI_TAG" 2>/dev/null || echo "Tag $IMGUI_TAG not found, using latest docking branch")
     else
         echo "deps/imgui already present, skipping."
     fi
     
-    # imguizmo (transform gizmos)
+    # ImGuizmo (transform gizmos, pinned commit for vcpkg compatibility)
     if [ ! -f "$deps_dir/imguizmo/ImGuizmo.h" ]; then
-        echo "Cloning ImGuizmo into deps/imguizmo..."
-        git clone --depth 1 https://github.com/CedricGuillemet/ImGuizmo.git "$deps_dir/imguizmo"
+        echo "Cloning ImGuizmo (commit $IMGUIZMO_COMMIT) into deps/imguizmo..."
+        git clone https://github.com/CedricGuillemet/ImGuizmo.git "$deps_dir/imguizmo"
+        (cd "$deps_dir/imguizmo" && git checkout "$IMGUIZMO_COMMIT" 2>/dev/null || echo "Commit $IMGUIZMO_COMMIT not found, using latest")
     else
         echo "deps/imguizmo already present, skipping."
     fi

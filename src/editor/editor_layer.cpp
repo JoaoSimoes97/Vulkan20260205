@@ -80,6 +80,7 @@ void EditorLayer::Init(
 
     // Initialize Vulkan backend
     ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.ApiVersion = VK_API_VERSION_1_0;  // Required in newer ImGui versions
     initInfo.Instance = instance;
     initInfo.PhysicalDevice = physicalDevice;
     initInfo.Device = device;
@@ -101,7 +102,9 @@ void EditorLayer::Init(
 
     ImGui_ImplVulkan_Init(&initInfo);
 
-    // Build font atlas
+    // Note: ImGui_ImplVulkan_CreateFontsTexture() is now automatically called
+    // by ImGui_ImplVulkan_NewFrame() on first use (since imgui 1.91+).
+    // Calling it explicitly here is still supported for compatibility.
     ImGui_ImplVulkan_CreateFontsTexture();
 
     m_bInitialized = true;
