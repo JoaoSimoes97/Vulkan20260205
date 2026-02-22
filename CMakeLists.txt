@@ -39,9 +39,50 @@ add_compile_definitions(GLM_ENABLE_EXPERIMENTAL)
 
 # ImGui: Editor UI (Debug builds only)
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
-    find_package(imgui CONFIG REQUIRED)
-    find_package(imguizmo CONFIG REQUIRED)
     set(EDITOR_ENABLED TRUE)
+    
+    if(WIN32)
+        # Windows: use vcpkg
+        find_package(imgui CONFIG REQUIRED)
+        find_package(imguizmo CONFIG REQUIRED)
+        set(IMGUI_FROM_DEPS FALSE)
+    else()
+        # Linux/macOS: use deps/ folder
+        set(DEPS_IMGUI_DIR ${CMAKE_SOURCE_DIR}/deps/imgui CACHE PATH "Path to imgui (populated by setup)")
+        set(DEPS_IMGUIZMO_DIR ${CMAKE_SOURCE_DIR}/deps/imguizmo CACHE PATH "Path to imguizmo (populated by setup)")
+        
+        if(NOT EXISTS "${DEPS_IMGUI_DIR}/imgui.h")
+            message(FATAL_ERROR "imgui not found at ${DEPS_IMGUI_DIR}. Run the project setup script first (e.g. ./setup.sh).")
+        endif()
+        if(NOT EXISTS "${DEPS_IMGUIZMO_DIR}/ImGuizmo.h")
+            message(FATAL_ERROR "ImGuizmo not found at ${DEPS_IMGUIZMO_DIR}. Run the project setup script first (e.g. ./setup.sh).")
+        endif()
+        
+        # Build imgui as a library
+        set(IMGUI_SOURCES
+            ${DEPS_IMGUI_DIR}/imgui.cpp
+            ${DEPS_IMGUI_DIR}/imgui_draw.cpp
+            ${DEPS_IMGUI_DIR}/imgui_tables.cpp
+            ${DEPS_IMGUI_DIR}/imgui_widgets.cpp
+            ${DEPS_IMGUI_DIR}/imgui_demo.cpp
+            ${DEPS_IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
+            ${DEPS_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
+        )
+        add_library(imgui_deps STATIC ${IMGUI_SOURCES})
+        target_include_directories(imgui_deps PUBLIC ${DEPS_IMGUI_DIR} ${DEPS_IMGUI_DIR}/backends)
+        target_link_libraries(imgui_deps PUBLIC SDL3::SDL3 ${Vulkan_LIBRARIES})
+        target_include_directories(imgui_deps PUBLIC ${Vulkan_INCLUDE_DIRS})
+        
+        # Build imguizmo as a library
+        add_library(imguizmo_deps STATIC ${DEPS_IMGUIZMO_DIR}/ImGuizmo.cpp)
+        target_include_directories(imguizmo_deps PUBLIC ${DEPS_IMGUIZMO_DIR})
+        target_link_libraries(imguizmo_deps PUBLIC imgui_deps)
+        
+        set(IMGUI_FROM_DEPS TRUE)
+        message(STATUS "Using imgui from deps: ${DEPS_IMGUI_DIR}")
+        message(STATUS "Using ImGuizmo from deps: ${DEPS_IMGUIZMO_DIR}")
+    endif()
+    
     message(STATUS "Editor enabled (Debug build): ImGui + ImGuizmo")
 else()
     set(EDITOR_ENABLED FALSE)
@@ -229,10 +270,17 @@ target_link_libraries(${PROJECT_NAME}
 
 # Link ImGui and ImGuizmo (Debug builds only)
 if(EDITOR_ENABLED)
-    target_link_libraries(${PROJECT_NAME}
-        imgui::imgui
-        imguizmo::imguizmo
-    )
+    if(IMGUI_FROM_DEPS)
+        target_link_libraries(${PROJECT_NAME}
+            imgui_deps
+            imguizmo_deps
+        )
+    else()
+        target_link_libraries(${PROJECT_NAME}
+            imgui::imgui
+            imguizmo::imguizmo
+        )
+    endif()
 endif()
 if(TinyGLTF_FOUND)
     target_link_libraries(${PROJECT_NAME} TinyGLTF::tinygltf)

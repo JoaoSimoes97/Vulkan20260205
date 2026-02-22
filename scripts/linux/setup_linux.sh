@@ -14,11 +14,8 @@ echo "Vulkan App - Linux Setup"
 echo "=========================================="
 echo ""
 echo "This installs: Vulkan (headers, loader, validation), SDL3 (window/input), nlohmann-json (config), CMake, build tools."
-echo "Then populates deps/ with stb and TinyGLTF, and uses vcpkg for imgui/imguizmo."
+echo "Then populates deps/ with stb, TinyGLTF, imgui, and imguizmo."
 echo ""
-
-# vcpkg location
-VCPKG_ROOT="${VCPKG_ROOT:-$HOME/vcpkg}"
 
 # Populate deps/ so CMake never downloads during build
 populate_deps() {
@@ -40,46 +37,22 @@ populate_deps() {
     else
         echo "deps/tinygltf already present, skipping."
     fi
-}
-
-# Setup vcpkg and bootstrap it (manifest mode will install packages during CMake configure)
-setup_vcpkg() {
-    echo ""
-    echo "Setting up vcpkg for imgui and imguizmo..."
     
-    if ! command -v git &>/dev/null; then
-        echo "Error: git is required for vcpkg. Please install git and run setup again."
-        return 1
-    fi
-    
-    # Clone vcpkg if not present
-    if [ ! -d "$VCPKG_ROOT" ]; then
-        echo "Cloning vcpkg to $VCPKG_ROOT..."
-        git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+    # imgui (docking branch for editor features)
+    if [ ! -f "$deps_dir/imgui/imgui.h" ]; then
+        echo "Cloning imgui (docking branch) into deps/imgui..."
+        git clone --depth 1 --branch docking https://github.com/ocornut/imgui.git "$deps_dir/imgui"
     else
-        echo "vcpkg already present at $VCPKG_ROOT"
-        # Update vcpkg to latest
-        echo "Updating vcpkg..."
-        cd "$VCPKG_ROOT" && git pull && cd "$ROOT_DIR"
+        echo "deps/imgui already present, skipping."
     fi
     
-    # Bootstrap vcpkg if needed
-    if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
-        echo "Bootstrapping vcpkg..."
-        "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+    # imguizmo (transform gizmos)
+    if [ ! -f "$deps_dir/imguizmo/ImGuizmo.h" ]; then
+        echo "Cloning ImGuizmo into deps/imguizmo..."
+        git clone --depth 1 https://github.com/CedricGuillemet/ImGuizmo.git "$deps_dir/imguizmo"
+    else
+        echo "deps/imguizmo already present, skipping."
     fi
-    
-    echo ""
-    echo "vcpkg bootstrapped successfully at $VCPKG_ROOT"
-    echo "Dependencies (imgui, imguizmo) will be installed automatically during CMake configure."
-    echo ""
-    
-    # Export VCPKG_ROOT for current session
-    export VCPKG_ROOT="$VCPKG_ROOT"
-    echo "Set VCPKG_ROOT=$VCPKG_ROOT"
-    echo "Add this to your shell profile (~/.bashrc or ~/.zshrc) for persistence:"
-    echo "  export VCPKG_ROOT=$VCPKG_ROOT"
-    echo ""
 }
 
 # Detect Linux distribution
@@ -109,12 +82,7 @@ install_arch() {
         cmake \
         make \
         gcc \
-        base-devel \
-        curl \
-        zip \
-        unzip \
-        tar \
-        pkg-config
+        base-devel
 }
 
 # Function to install packages on Debian/Ubuntu-based systems
@@ -130,12 +98,7 @@ install_debian() {
         libglm-dev \
         cmake \
         build-essential \
-        g++ \
-        curl \
-        zip \
-        unzip \
-        tar \
-        pkg-config
+        g++
 }
 
 # Function to install packages on Fedora/RHEL-based systems
@@ -150,12 +113,7 @@ install_fedora() {
         glm-devel \
         cmake \
         gcc-c++ \
-        make \
-        curl \
-        zip \
-        unzip \
-        tar \
-        pkgconf-pkg-config
+        make
 }
 
 # Function to install packages on openSUSE
@@ -170,12 +128,7 @@ install_opensuse() {
         glm-devel \
         cmake \
         gcc-c++ \
-        make \
-        curl \
-        zip \
-        unzip \
-        tar \
-        pkg-config
+        make
 }
 
 # Install based on distribution
@@ -214,12 +167,8 @@ case "$DISTRO" in
 esac
 
 echo ""
-echo "Populating deps/ (stb, TinyGLTF)..."
+echo "Populating deps/ (stb, TinyGLTF, imgui, imguizmo)..."
 populate_deps
-
-echo ""
-echo "Setting up vcpkg (imgui, imguizmo)..."
-setup_vcpkg
 
 echo ""
 echo "=========================================="
@@ -230,12 +179,7 @@ echo "Next steps - build the project:"
 echo ""
 echo "  scripts/linux/build.sh --debug"
 echo ""
-echo "The build script will automatically:"
-echo "  - Use the vcpkg toolchain from $VCPKG_ROOT"
-echo "  - Install imgui/imguizmo on first configure"
-echo "  - Build and install the application"
-echo ""
-echo "If you use a different shell session, set VCPKG_ROOT first:"
-echo "  export VCPKG_ROOT=$VCPKG_ROOT"
+echo "Run the application:"
+echo "  ./install/Debug/bin/VulkanApp"
 echo ""
 
