@@ -62,21 +62,34 @@ void EditorLayer::Init(
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     
-    // Enable docking and multi-viewport
+    // Enable docking (works on all platforms)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     
     // Style
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
+
+    // Initialize SDL3 backend FIRST - this sets up BackendFlags based on video driver
+    // (windows/cocoa/x11 support viewports, wayland does not yet)
+    ImGui_ImplSDL3_InitForVulkan(pWindow);
+    
+    // Multi-viewport: only enable if the platform backend supports it
+    // SDL3 sets ImGuiBackendFlags_PlatformHasViewports based on video driver
+    // (supported: windows, cocoa, x11; not supported: wayland)
+    if (io.BackendFlags & ImGuiBackendFlags_PlatformHasViewports) {
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+        VulkanUtils::LogInfo("Multi-viewport enabled (video driver supports it)");
+    } else {
+        VulkanUtils::LogInfo("Multi-viewport disabled (video driver: {} does not support global mouse state)",
+            SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "unknown");
+    }
+    
+    // Update style for viewports if enabled
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
         style.WindowRounding = 0.0f;
         // Keep window backgrounds slightly transparent for non-dockspace windows
         style.Colors[ImGuiCol_WindowBg].w = 0.95f;
     }
-
-    // Initialize SDL3 backend
-    ImGui_ImplSDL3_InitForVulkan(pWindow);
 
     // Initialize Vulkan backend
     ImGui_ImplVulkan_InitInfo initInfo{};
@@ -108,7 +121,8 @@ void EditorLayer::Init(
     ImGui_ImplVulkan_CreateFontsTexture();
 
     m_bInitialized = true;
-    VulkanUtils::LogInfo("EditorLayer initialized with docking and multi-viewport support");
+    VulkanUtils::LogInfo("EditorLayer initialized (docking: enabled, viewports: {})",
+        (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) ? "enabled" : "disabled");
 }
 
 void EditorLayer::Shutdown() {
