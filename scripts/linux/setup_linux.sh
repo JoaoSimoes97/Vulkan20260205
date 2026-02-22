@@ -42,7 +42,7 @@ populate_deps() {
     fi
 }
 
-# Setup vcpkg and install imgui/imguizmo dependencies
+# Setup vcpkg and bootstrap it (manifest mode will install packages during CMake configure)
 setup_vcpkg() {
     echo ""
     echo "Setting up vcpkg for imgui and imguizmo..."
@@ -58,6 +58,9 @@ setup_vcpkg() {
         git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
     else
         echo "vcpkg already present at $VCPKG_ROOT"
+        # Update vcpkg to latest
+        echo "Updating vcpkg..."
+        cd "$VCPKG_ROOT" && git pull && cd "$ROOT_DIR"
     fi
     
     # Bootstrap vcpkg if needed
@@ -66,16 +69,16 @@ setup_vcpkg() {
         "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
     fi
     
-    # Install dependencies from vcpkg.json using manifest mode
-    echo "Installing vcpkg dependencies (imgui, imguizmo)..."
-    cd "$ROOT_DIR"
-    "$VCPKG_ROOT/vcpkg" install --triplet x64-linux
+    echo ""
+    echo "vcpkg bootstrapped successfully at $VCPKG_ROOT"
+    echo "Dependencies (imgui, imguizmo) will be installed automatically during CMake configure."
+    echo ""
     
-    echo ""
-    echo "vcpkg dependencies installed successfully!"
-    echo ""
-    echo "NOTE: When building, use the vcpkg toolchain file:"
-    echo "  cmake -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+    # Export VCPKG_ROOT for current session
+    export VCPKG_ROOT="$VCPKG_ROOT"
+    echo "Set VCPKG_ROOT=$VCPKG_ROOT"
+    echo "Add this to your shell profile (~/.bashrc or ~/.zshrc) for persistence:"
+    echo "  export VCPKG_ROOT=$VCPKG_ROOT"
     echo ""
 }
 
@@ -106,7 +109,12 @@ install_arch() {
         cmake \
         make \
         gcc \
-        base-devel
+        base-devel \
+        curl \
+        zip \
+        unzip \
+        tar \
+        pkg-config
 }
 
 # Function to install packages on Debian/Ubuntu-based systems
@@ -122,7 +130,12 @@ install_debian() {
         libglm-dev \
         cmake \
         build-essential \
-        g++
+        g++ \
+        curl \
+        zip \
+        unzip \
+        tar \
+        pkg-config
 }
 
 # Function to install packages on Fedora/RHEL-based systems
@@ -137,7 +150,12 @@ install_fedora() {
         glm-devel \
         cmake \
         gcc-c++ \
-        make
+        make \
+        curl \
+        zip \
+        unzip \
+        tar \
+        pkgconf-pkg-config
 }
 
 # Function to install packages on openSUSE
@@ -152,7 +170,12 @@ install_opensuse() {
         glm-devel \
         cmake \
         gcc-c++ \
-        make
+        make \
+        curl \
+        zip \
+        unzip \
+        tar \
+        pkg-config
 }
 
 # Install based on distribution
@@ -200,15 +223,19 @@ setup_vcpkg
 
 echo ""
 echo "=========================================="
-echo "Dependencies installed successfully!"
+echo "Setup completed successfully!"
 echo "=========================================="
 echo ""
-echo "Next steps:"
-echo "1. Configure project with vcpkg toolchain:"
-echo "   cmake -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-echo "2. Build project: cmake --build build"
-echo "3. Run: ./install/bin/VulkanApp"
+echo "Next steps - build the project:"
 echo ""
-echo "Or use the build script: scripts/linux/build.sh"
+echo "  scripts/linux/build.sh --debug"
+echo ""
+echo "The build script will automatically:"
+echo "  - Use the vcpkg toolchain from $VCPKG_ROOT"
+echo "  - Install imgui/imguizmo on first configure"
+echo "  - Build and install the application"
+echo ""
+echo "If you use a different shell session, set VCPKG_ROOT first:"
+echo "  export VCPKG_ROOT=$VCPKG_ROOT"
 echo ""
 
