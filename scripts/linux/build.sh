@@ -60,9 +60,20 @@ mkdir -p "$BUILD_DIR"
 
 cd "$BUILD_DIR"
 
+# Determine vcpkg toolchain file
+VCPKG_ROOT="${VCPKG_ROOT:-$HOME/vcpkg}"
+VCPKG_TOOLCHAIN=""
+if [ -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" ]; then
+    VCPKG_TOOLCHAIN="-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+    echo "Using vcpkg toolchain: $VCPKG_ROOT"
+else
+    echo "Warning: vcpkg not found at $VCPKG_ROOT. imgui/imguizmo may not be available."
+    echo "Run scripts/linux/setup_linux.sh to install vcpkg dependencies."
+fi
+
 # Configure with CMake (project root is two levels up: build/Debug -> .. -> build, ../.. -> project root)
 echo "Configuring with CMake (${BUILD_TYPE})..."
-cmake ../.. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DINSTALL_OUTPUT_DIR="${INSTALL_DIR}"
+cmake ../.. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DINSTALL_OUTPUT_DIR="${INSTALL_DIR}" $VCPKG_TOOLCHAIN
 
 # Build
 echo ""

@@ -14,8 +14,11 @@ echo "Vulkan App - Linux Setup"
 echo "=========================================="
 echo ""
 echo "This installs: Vulkan (headers, loader, validation), SDL3 (window/input), nlohmann-json (config), CMake, build tools."
-echo "Then populates deps/ with stb and TinyGLTF (no download during build)."
+echo "Then populates deps/ with stb and TinyGLTF, and uses vcpkg for imgui/imguizmo."
 echo ""
+
+# vcpkg location
+VCPKG_ROOT="${VCPKG_ROOT:-$HOME/vcpkg}"
 
 # Populate deps/ so CMake never downloads during build
 populate_deps() {
@@ -37,6 +40,43 @@ populate_deps() {
     else
         echo "deps/tinygltf already present, skipping."
     fi
+}
+
+# Setup vcpkg and install imgui/imguizmo dependencies
+setup_vcpkg() {
+    echo ""
+    echo "Setting up vcpkg for imgui and imguizmo..."
+    
+    if ! command -v git &>/dev/null; then
+        echo "Error: git is required for vcpkg. Please install git and run setup again."
+        return 1
+    fi
+    
+    # Clone vcpkg if not present
+    if [ ! -d "$VCPKG_ROOT" ]; then
+        echo "Cloning vcpkg to $VCPKG_ROOT..."
+        git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+    else
+        echo "vcpkg already present at $VCPKG_ROOT"
+    fi
+    
+    # Bootstrap vcpkg if needed
+    if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
+        echo "Bootstrapping vcpkg..."
+        "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+    fi
+    
+    # Install dependencies from vcpkg.json using manifest mode
+    echo "Installing vcpkg dependencies (imgui, imguizmo)..."
+    cd "$ROOT_DIR"
+    "$VCPKG_ROOT/vcpkg" install --triplet x64-linux
+    
+    echo ""
+    echo "vcpkg dependencies installed successfully!"
+    echo ""
+    echo "NOTE: When building, use the vcpkg toolchain file:"
+    echo "  cmake -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+    echo ""
 }
 
 # Detect Linux distribution
@@ -155,12 +195,20 @@ echo "Populating deps/ (stb, TinyGLTF)..."
 populate_deps
 
 echo ""
+echo "Setting up vcpkg (imgui, imguizmo)..."
+setup_vcpkg
+
+echo ""
 echo "=========================================="
 echo "Dependencies installed successfully!"
 echo "=========================================="
 echo ""
 echo "Next steps:"
-echo "1. Build project: scripts/linux/build.sh"
-echo "2. Run: ./install/bin/VulkanApp"
+echo "1. Configure project with vcpkg toolchain:"
+echo "   cmake -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+echo "2. Build project: cmake --build build"
+echo "3. Run: ./install/bin/VulkanApp"
+echo ""
+echo "Or use the build script: scripts/linux/build.sh"
 echo ""
 
