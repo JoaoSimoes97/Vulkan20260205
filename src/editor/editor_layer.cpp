@@ -911,6 +911,7 @@ void EditorLayer::DrawViewportsPanel(ViewportManager* pViewportManager, SceneNew
             // Render mode dropdown
             const char* renderModes[] = {"Solid", "Wireframe", "Unlit", "Normals", "Depth", "UV"};
             int currentMode = static_cast<int>(config.renderMode);
+            
             if (ImGui::Combo("Render Mode", &currentMode, renderModes, IM_ARRAYSIZE(renderModes))) {
                 config.renderMode = static_cast<ViewportRenderMode>(currentMode);
             }

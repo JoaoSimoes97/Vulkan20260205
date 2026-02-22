@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 #include <functional>
 #include <vulkan/vulkan.h>
@@ -25,6 +26,14 @@ struct DrawCall {
     VkDeviceSize      instanceBufferOffset = 0;
     /** Dynamic offsets for descriptor sets (one per dynamic binding). Empty = no dynamic offsets. */
     std::vector<uint32_t> dynamicOffsets;
+    
+    /** Per-object data for per-viewport MVP recalculation. */
+    const float*      pLocalTransform  = nullptr;  /**< Pointer to object's 4x4 model matrix (column-major). */
+    float             color[4]         = {1.f, 1.f, 1.f, 1.f}; /**< Object color for push constants. */
+    uint32_t          objectIndex      = 0;        /**< Object index for push constants SSBO indexing. */
+    
+    /** Pipeline key for per-viewport render mode switching. */
+    std::string       pipelineKey;
 };
 
 /*

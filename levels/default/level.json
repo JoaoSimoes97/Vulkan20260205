@@ -105,6 +105,18 @@
       "metallic": 1.0,
       "roughness": 0.0,
       "renderMode": "solid"
+    },
+    {
+      "name": "Emissive Test Sphere",
+      "source": "procedural:sphere",
+      "position": [5.0, 1.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.5, 0.5, 0.5],
+      "color": [1.0, 1.0, 1.0, 1.0],
+      "emissive": [1.0, 0.5, 0.0, 5.0],
+      "metallic": 0.0,
+      "roughness": 0.5,
+      "renderMode": "solid"
     }
   ]
 }

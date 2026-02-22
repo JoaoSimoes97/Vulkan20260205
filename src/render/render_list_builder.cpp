@@ -242,6 +242,10 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
             .instanceBuffer     = VK_NULL_HANDLE,
             .instanceBufferOffset = 0,
             .dynamicOffsets     = {},  /* Not using dynamic offsets; SSBO indexed via push constant objectIndex */
+            .pLocalTransform    = obj.localTransform,
+            .color              = {obj.color[0], obj.color[1], obj.color[2], obj.color[3]},
+            .objectIndex        = static_cast<uint32_t>(objIndex),
+            .pipelineKey        = obj.pMaterial ? obj.pMaterial->pipelineKey : "",
         };
         
         // Use per-object texture descriptor set if available, otherwise fall back to pipeline default

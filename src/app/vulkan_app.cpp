@@ -16,6 +16,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -41,6 +42,16 @@ static constexpr float kDefaultPanSpeed = 0.012f;
 static constexpr float kOrthoFallbackHalfExtent = 8.f;
 
 namespace {
+    /** Map solid pipeline key to wireframe equivalent. Returns original if no wireframe variant exists. */
+    std::string GetWireframePipelineKey(const std::string& solidKey) {
+        if (solidKey == "main_tex" || solidKey == "transparent_tex") return "wire_tex";
+        if (solidKey == "main_untex" || solidKey == "transparent_untex") return "wire_untex";
+        if (solidKey == "mask_tex") return "wire_tex";
+        if (solidKey == "mask_untex") return "wire_untex";
+        // Already a wire pipeline or unknown
+        return solidKey;
+    }
+    
     uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
         VkPhysicalDeviceMemoryProperties memProps;
         vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
@@ -1177,9 +1188,38 @@ void VulkanApp::MainLoop() {
                     this->m_lightManager.InjectEmissiveLights(emissiveLights);
                     // Pass to debug renderer for visualization
                     this->m_lightDebugRenderer.SetEmissiveLights(emissiveLights);
+                    
+                    // Debug: log once when emissive lights are injected
+                    static bool bLoggedEmissive = false;
+                    if (!bLoggedEmissive) {
+                        printf("[VulkanApp] Injected %zu emissive lights\n", emissiveLights.size());
+                        for (size_t i = 0; i < emissiveLights.size() && i < 3; ++i) {
+                            const auto& el = emissiveLights[i];
+                            printf("  [%zu] pos=(%.2f, %.2f, %.2f), color=(%.2f, %.2f, %.2f), intensity=%.2f, radius=%.2f\n",
+                                   i, el.position[0], el.position[1], el.position[2],
+                                   el.color[0], el.color[1], el.color[2], el.intensity, el.radius);
+                        }
+                        bLoggedEmissive = true;
+                    }
                 } else {
                     // Clear any previous emissive lights from debug renderer
                     this->m_lightDebugRenderer.SetEmissiveLights({});
+                    
+                    // Debug: log once about no emissive lights
+                    static bool bLoggedNoEmissive = false;
+                    if (!bLoggedNoEmissive && pScene->GetObjects().size() > 0) {
+                        printf("[VulkanApp] No emissive lights found. Checking %zu objects:\n", pScene->GetObjects().size());
+                        int emitsLightCount = 0;
+                        for (size_t i = 0; i < pScene->GetObjects().size() && i < 5; ++i) {
+                            const Object& obj = pScene->GetObjects()[i];
+                            printf("  [%zu] emitsLight=%d, emissive=(%.2f, %.2f, %.2f, %.2f)\n",
+                                   i, obj.emitsLight ? 1 : 0, 
+                                   obj.emissive[0], obj.emissive[1], obj.emissive[2], obj.emissive[3]);
+                            if (obj.emitsLight) emitsLightCount++;
+                        }
+                        printf("  Total objects with emitsLight=true: %d\n", emitsLightCount);
+                        bLoggedNoEmissive = true;
+                    }
                 }
             }
         }
@@ -1423,6 +1463,9 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
     SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
     
     preSceneCallback = [this, &vecDrawCalls_ic, bRenderLightDebug, pSceneNew, pViewProjMat16_ic](VkCommandBuffer cmd) {
+        // Per-viewport temporary push constant buffer (112 bytes)
+        alignas(16) uint8_t vpPushData[kObjectPushConstantSize];
+        
         auto& vps = this->m_viewportManager.GetViewports();
         for (auto& vp : vps) {
             if (!vp.config.bVisible) {
@@ -1432,12 +1475,74 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
                 continue;
             }
             
+            // Get the camera for this viewport (main camera or scene camera)
+            Camera* pVpCamera = this->m_viewportManager.GetCameraForViewport(vp, pSceneNew, &this->m_camera);
+            if (!pVpCamera) {
+                pVpCamera = &this->m_camera;  // Fallback to main camera
+            }
+            
+            // Get camera position for this viewport
+            float vpCamPos[3];
+            pVpCamera->GetPosition(vpCamPos[0], vpCamPos[1], vpCamPos[2]);
+            
+            // Get view matrix from the viewport's camera
+            alignas(16) float vpViewMat[16];
+            pVpCamera->GetViewMatrix(vpViewMat);
+            
+            // Compute per-viewport projection matrix using viewport's aspect ratio
+            const float vpAspect = (vp.renderTarget.height > 0) 
+                ? static_cast<float>(vp.renderTarget.width) / static_cast<float>(vp.renderTarget.height)
+                : 1.0f;
+            
+            alignas(16) float vpProjMat[16];
+            if (this->m_config.bUsePerspective) {
+                ObjectSetPerspective(vpProjMat, this->m_config.fCameraFovYRad, vpAspect, 
+                                     this->m_config.fCameraNearZ, this->m_config.fCameraFarZ);
+            } else {
+                const float fH = (this->m_config.fOrthoHalfExtent > 0.f) 
+                    ? this->m_config.fOrthoHalfExtent : kOrthoFallbackHalfExtent;
+                ObjectSetOrtho(vpProjMat, -fH * vpAspect, fH * vpAspect, -fH, fH,
+                               this->m_config.fOrthoNear, this->m_config.fOrthoFar);
+            }
+            
+            // Combine projection and view for this viewport
+            alignas(16) float vpViewProj[16];
+            ObjectMat4Multiply(vpViewProj, vpProjMat, vpViewMat);
+            
             // Begin viewport render pass
             this->m_viewportManager.BeginViewportRender(vp.config.id, cmd);
             
-            // Render scene draw calls to this viewport
+            // Determine if we need to switch to wireframe pipeline for this viewport
+            const bool bWireframeMode = (vp.config.renderMode == ViewportRenderMode::Wireframe);
+            
+            // Render scene draw calls to this viewport with recomputed MVP
             for (const auto& dc : vecDrawCalls_ic) {
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipeline);
+                // Select the appropriate pipeline based on viewport render mode
+                VkPipeline pipelineToUse = dc.pipeline;
+                
+                if (bWireframeMode && !dc.pipelineKey.empty()) {
+                    // Get the wireframe variant of this pipeline
+                    std::string wireKey = GetWireframePipelineKey(dc.pipelineKey);
+                    if (wireKey != dc.pipelineKey) {
+                        // Look up the wireframe material/pipeline
+                        auto pWireMat = this->m_materialManager.GetMaterial(wireKey);
+                        if (pWireMat) {
+                            // Get the pipeline from the material
+                            VkPipeline wirePipe = pWireMat->GetPipelineIfReady(
+                                this->m_device.GetDevice(),
+                                this->m_viewportManager.GetOffscreenRenderPass(),
+                                &this->m_pipelineManager,
+                                &this->m_shaderManager,
+                                true  // renderPassHasDepth
+                            );
+                            if (wirePipe != VK_NULL_HANDLE) {
+                                pipelineToUse = wirePipe;
+                            }
+                        }
+                    }
+                }
+                
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToUse);
                 if (!dc.descriptorSets.empty()) {
                     if (!dc.dynamicOffsets.empty()) {
                         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
@@ -1449,10 +1554,30 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
                             0, nullptr);
                     }
                 }
-                if (dc.pushConstantSize > 0 && dc.pPushConstants != nullptr) {
+                
+                // Recompute push constants with viewport-specific viewProj
+                if (dc.pushConstantSize > 0 && dc.pLocalTransform != nullptr) {
+                    // MVP = viewProj * model
+                    alignas(16) float mvp[16];
+                    ObjectMat4Multiply(mvp, vpViewProj, dc.pLocalTransform);
+                    
+                    // Build push data: MVP (64) + color (16) + objectIndex (4) + padding (12) + camPos (16) = 112 bytes
+                    std::memcpy(vpPushData, mvp, 64);
+                    std::memcpy(vpPushData + 64, dc.color, 16);
+                    std::memcpy(vpPushData + 80, &dc.objectIndex, 4);
+                    std::memset(vpPushData + 84, 0, 12);  // Padding
+                    std::memcpy(vpPushData + 96, vpCamPos, 12);
+                    float camW = 1.0f;
+                    std::memcpy(vpPushData + 108, &camW, 4);
+                    
+                    vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                        0, kObjectPushConstantSize, vpPushData);
+                } else if (dc.pushConstantSize > 0 && dc.pPushConstants != nullptr) {
+                    // Fallback: use original push constants
                     vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                         0, dc.pushConstantSize, dc.pPushConstants);
                 }
+                
                 VkDeviceSize offset = dc.vertexBufferOffset;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &dc.vertexBuffer, &offset);
                 vkCmdDraw(cmd, dc.vertexCount, dc.instanceCount, dc.firstVertex, dc.firstInstance);
@@ -1460,7 +1585,7 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
             
             // Render light debug visualizations (inside the viewport render pass)
             if (bRenderLightDebug && pSceneNew) {
-                this->m_lightDebugRenderer.Draw(cmd, pSceneNew, pViewProjMat16_ic);
+                this->m_lightDebugRenderer.Draw(cmd, pSceneNew, vpViewProj);
             }
             
             // End viewport render pass

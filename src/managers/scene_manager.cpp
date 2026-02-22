@@ -419,6 +419,12 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                 obj.emissive[1] = emissiveOverride[1];
                 obj.emissive[2] = emissiveOverride[2];
                 obj.emissive[3] = emissiveOverride[3];
+                
+                // Auto-enable light emission if emissive override is non-zero
+                float emissiveLen = emissiveOverride[0] + emissiveOverride[1] + emissiveOverride[2];
+                if (emissiveLen > 0.001f) {
+                    obj.emitsLight = true;
+                }
             }
             if (hasMetallicOverride) {
                 obj.metallicFactor = metallicOverride;
