@@ -93,7 +93,7 @@
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Merge Scene + SceneNew | 📋 | Single ECS-based scene |
-| Remove legacy Scene sync | 📋 | Eliminate SyncFromSceneNew() |
+| Remove legacy Scene sync | 📋 | Eliminate SyncTransformsToScene() / SyncEmissiveLights() |
 | Component-only architecture | 📋 | All data in pools |
 | Update systems (Transform, Light) | 📋 | Process components in batches |
 
@@ -214,6 +214,12 @@ src/
 | Animation/Skinning | 📋 | glTF animation support |
 | Instanced Rendering | ✅ | BatchedDrawList with dirty tracking |
 | Occlusion Culling | 📋 | GPU-driven culling |
+| Compute Shaders | ❌ | Blocked: PipelineManager only supports graphics |
+| Ray Tracing | ❌ | Blocked: No RT pipeline, no acceleration structures |
+| Hybrid Rendering | ❌ | Blocked: No render graph for pass dependencies |
+
+> **Note:** Compute/Ray Tracing/Hybrid rendering require Phase 4 (Architecture Refactor) to be completed first.
+> Prerequisites: ComputePipeline in PipelineManager, compute queue in VulkanDevice, RenderGraph for pass dependencies.
 
 ---
 
@@ -238,6 +244,8 @@ src/
 |-------|----------|--------|
 | PDB lock during parallel builds | Low | Workaround: single-thread build |
 | Dual scene system (Scene + SceneNew) | Medium | Phase 4.2 will unify |
+| PipelineManager only supports graphics | Medium | Phase 4.3 will add compute/RT |
+| No compute queue exposed | Medium | Phase 4.3 will add to VulkanDevice |
 | Animation import not implemented | Low | Logged when glTF has animations |
 | Skinning import not implemented | Low | Logged when glTF has skins |
 | Cylinder/Cone mesh caps missing | Low | Wireframe only for now |
