@@ -1,11 +1,11 @@
 /*
  * EditorLayer — ImGui-based editor overlay.
- * Only active in Debug builds. Provides object selection, transform gizmos,
+ * Only active in Editor/Debug builds. Provides object selection, transform gizmos,
  * hierarchy panel, inspector, and multi-viewport support.
  */
 #pragma once
 
-#ifndef NDEBUG  // Editor only in Debug builds
+#if EDITOR_BUILD  // Editor only in Debug/Editor builds
 
 #include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
@@ -201,4 +201,4 @@ private:
     Scene* m_pLegacyScene = nullptr;
 };
 
-#endif // NDEBUG
+#endif // EDITOR_BUILD

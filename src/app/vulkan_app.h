@@ -35,8 +35,11 @@
 #include <string>
 #include <vector>
 
-#ifndef NDEBUG
+// UI layers: Editor (Debug) or RuntimeOverlay (Release)
+#if EDITOR_BUILD
 #include "editor/editor_layer.h"
+#else
+#include "runtime/runtime_overlay.h"
 #endif
 
 class VulkanShaderManager;
@@ -167,9 +170,12 @@ private:
     /** Multi-viewport manager (render targets, cameras). */
     ViewportManager m_viewportManager;
 
-#ifndef NDEBUG
-    /** Editor layer for ImGui-based visual editing (Debug builds only). */
+#if EDITOR_BUILD
+    /** Editor layer for ImGui-based visual editing (Debug/Editor builds). */
     EditorLayer m_editorLayer;
+#else
+    /** Runtime overlay for minimal stats display (Release/Runtime builds). */
+    RuntimeOverlay m_runtimeOverlay;
 #endif
 
     Camera m_camera;

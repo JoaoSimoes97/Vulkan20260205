@@ -403,7 +403,7 @@ void VulkanApp::InitVulkan() {
         }
     }
 
-#ifndef NDEBUG
+#if EDITOR_BUILD
     /* Initialize editor layer (ImGui + ImGuizmo). */
     this->m_editorLayer.Init(
         this->m_pWindow->GetSDLWindow(),
@@ -417,6 +417,18 @@ void VulkanApp::InitVulkan() {
     );
     /* Set level path for editor save functionality. */
     this->m_editorLayer.SetLevelPath(VulkanUtils::GetResourcePath(this->m_config.sLevelPath));
+#else
+    /* Initialize runtime overlay (minimal stats display). */
+    this->m_runtimeOverlay.Init(
+        this->m_pWindow->GetSDLWindow(),
+        this->m_instance.Get(),
+        this->m_device.GetPhysicalDevice(),
+        this->m_device.GetDevice(),
+        this->m_device.GetQueueFamilyIndices().graphicsFamily,
+        this->m_device.GetGraphicsQueue(),
+        this->m_renderPass.Get(),
+        this->m_swapchain.GetImageCount()
+    );
 #endif
 
     /* Initialize multi-viewport manager. */
@@ -961,7 +973,7 @@ void VulkanApp::MainLoop() {
                 [this]() { this->m_resourceCleanupManager.TrimAllCaches(); })
         );
 
-#ifndef NDEBUG
+#if EDITOR_BUILD
         // Process events with editor handler (ImGui gets first pass)
         bQuit = this->m_pWindow->PollEventsWithHandler([this](const SDL_Event& evt) -> bool {
             return this->m_editorLayer.ProcessEvent(&evt);
@@ -970,16 +982,25 @@ void VulkanApp::MainLoop() {
         // Begin editor frame
         this->m_editorLayer.BeginFrame();
 #else
-        bQuit = this->m_pWindow->PollEvents();
+        // Runtime mode: poll events with overlay handler
+        bQuit = this->m_pWindow->PollEventsWithHandler([this](const SDL_Event& evt) -> bool {
+            // Toggle overlay with F3 key
+            if (evt.type == SDL_EVENT_KEY_DOWN && evt.key.key == SDLK_F3) {
+                this->m_runtimeOverlay.ToggleVisible();
+                return true;
+            }
+            return this->m_runtimeOverlay.ProcessEvent(&evt);
+        });
 #endif
         if (bQuit == true)
             break;
 
-#ifndef NDEBUG
+#if EDITOR_BUILD
         // Skip camera update if editor wants input
         const bool bEditorWantsInput = this->m_editorLayer.WantCaptureMouse() || this->m_editorLayer.WantCaptureKeyboard();
 #else
-        const bool bEditorWantsInput = false;
+        // Runtime overlay: check if ImGui wants input
+        const bool bEditorWantsInput = this->m_runtimeOverlay.WantCaptureMouse() || this->m_runtimeOverlay.WantCaptureKeyboard();
 #endif
 
         const float fMoveSpeed = (this->m_config.fPanSpeed > 0.f) ? this->m_config.fPanSpeed : kDefaultPanSpeed;
@@ -996,7 +1017,7 @@ void VulkanApp::MainLoop() {
 
         if (this->m_pWindow->GetWindowMinimized() == true) {
             VulkanUtils::LogTrace("Window minimized, skipping draw");
-#ifndef NDEBUG
+#if EDITOR_BUILD
             // EndFrame must match BeginFrame to keep ImGui state consistent
             this->m_editorLayer.EndFrame();
 #endif
@@ -1246,12 +1267,16 @@ void VulkanApp::MainLoop() {
                                   &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
                                   fViewProj, &this->m_pipelineDescriptorSets, getTextureDescriptorSet);
 
-#ifndef NDEBUG
+#if EDITOR_BUILD
         /* Draw editor panels and gizmos, then end ImGui frame. */
         SceneNew* pSceneNewForEditor = this->m_sceneManager.GetSceneNew();
         Scene* pLegacySceneForEditor = this->m_sceneManager.GetCurrentScene();
         this->m_editorLayer.DrawEditor(pSceneNewForEditor, &this->m_camera, this->m_config, &this->m_viewportManager, pLegacySceneForEditor);
         this->m_editorLayer.EndFrame();
+#else
+        /* Update and draw runtime overlay (FPS, frame time, etc.). */
+        this->m_runtimeOverlay.Update(this->m_avgFrameTimeSec);
+        this->m_runtimeOverlay.Draw(&this->m_camera, &this->m_config);
 #endif
 
         /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
@@ -1311,8 +1336,10 @@ void VulkanApp::Cleanup() {
     if (r != VK_SUCCESS)
         VulkanUtils::LogErr("vkDeviceWaitIdle before cleanup failed: {}", static_cast<int>(r));
 
-#ifndef NDEBUG
+#if EDITOR_BUILD
     this->m_editorLayer.Shutdown();
+#else
+    this->m_runtimeOverlay.ShutdownImGui();
 #endif
 
     this->m_sync.Destroy();
@@ -1449,10 +1476,15 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
 
     /* Build post-scene callback for ImGui rendering only (inside swapchain render pass). */
     std::function<void(VkCommandBuffer)> postSceneCallback = nullptr;
-#ifndef NDEBUG
+#if EDITOR_BUILD
     postSceneCallback = [this](VkCommandBuffer cmd) {
         // Render ImGui draw data (displays viewport textures)
         this->m_editorLayer.RenderDrawData(cmd);
+    };
+#else
+    postSceneCallback = [this](VkCommandBuffer cmd) {
+        // Render runtime overlay draw data
+        this->m_runtimeOverlay.RenderDrawData(cmd);
     };
 #endif
 

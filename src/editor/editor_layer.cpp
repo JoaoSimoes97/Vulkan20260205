@@ -1,7 +1,7 @@
 /*
  * EditorLayer — ImGui-based editor overlay implementation.
  */
-#ifndef NDEBUG  // Editor only in Debug builds
+#if EDITOR_BUILD  // Editor only in Debug/Editor builds
 
 #include "editor_layer.h"
 #include "core/scene_new.h"
@@ -1079,4 +1079,4 @@ void EditorLayer::DrawViewportsPanel(ViewportManager* pViewportManager, SceneNew
     }
 }
 
-#endif // NDEBUG
+#endif // EDITOR_BUILD

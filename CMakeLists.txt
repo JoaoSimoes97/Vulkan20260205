@@ -37,56 +37,76 @@ find_package(glm REQUIRED)
 # Enable GLM experimental features (required by ImGuizmo)
 add_compile_definitions(GLM_ENABLE_EXPERIMENTAL)
 
-# ImGui: Editor UI (Debug builds only)
+# =============================================================================
+# UI Setup: ImGui (always) + ImGuizmo (Debug/Editor only)
+# =============================================================================
+# Debug builds: Full editor with ImGui + ImGuizmo (level editing, gizmos, etc.)
+# Release builds: Minimal runtime overlay with ImGui only (FPS, frame time, etc.)
+# =============================================================================
+
+# Determine build mode
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
     set(EDITOR_ENABLED TRUE)
+    set(IMGUIZMO_ENABLED TRUE)
+    add_compile_definitions(EDITOR_BUILD=1)
+    message(STATUS "Build mode: EDITOR (Debug) - Full ImGui + ImGuizmo")
+else()
+    set(EDITOR_ENABLED FALSE)
+    set(IMGUIZMO_ENABLED FALSE)
+    add_compile_definitions(EDITOR_BUILD=0)
+    message(STATUS "Build mode: RUNTIME (Release) - Minimal ImGui overlay")
+endif()
+
+# ImGui is always required (both editor and runtime need it)
+if(WIN32)
+    # Windows: use vcpkg
+    find_package(imgui CONFIG REQUIRED)
+    set(IMGUI_FROM_DEPS FALSE)
     
-    if(WIN32)
-        # Windows: use vcpkg
-        find_package(imgui CONFIG REQUIRED)
+    # ImGuizmo only for editor (Debug) builds
+    if(IMGUIZMO_ENABLED)
         find_package(imguizmo CONFIG REQUIRED)
-        set(IMGUI_FROM_DEPS FALSE)
-    else()
-        # Linux/macOS: use deps/ folder
-        set(DEPS_IMGUI_DIR ${CMAKE_SOURCE_DIR}/deps/imgui CACHE PATH "Path to imgui (populated by setup)")
+    endif()
+else()
+    # Linux/macOS: use deps/ folder
+    set(DEPS_IMGUI_DIR ${CMAKE_SOURCE_DIR}/deps/imgui CACHE PATH "Path to imgui (populated by setup)")
+    
+    if(NOT EXISTS "${DEPS_IMGUI_DIR}/imgui.h")
+        message(FATAL_ERROR "imgui not found at ${DEPS_IMGUI_DIR}. Run the project setup script first (e.g. ./setup.sh).")
+    endif()
+    
+    # Build imgui as a library (required for both editor and runtime)
+    set(IMGUI_SOURCES
+        ${DEPS_IMGUI_DIR}/imgui.cpp
+        ${DEPS_IMGUI_DIR}/imgui_draw.cpp
+        ${DEPS_IMGUI_DIR}/imgui_tables.cpp
+        ${DEPS_IMGUI_DIR}/imgui_widgets.cpp
+        ${DEPS_IMGUI_DIR}/imgui_demo.cpp
+        ${DEPS_IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
+        ${DEPS_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
+    )
+    add_library(imgui_deps STATIC ${IMGUI_SOURCES})
+    target_include_directories(imgui_deps PUBLIC ${DEPS_IMGUI_DIR} ${DEPS_IMGUI_DIR}/backends)
+    target_link_libraries(imgui_deps PUBLIC SDL3::SDL3 ${Vulkan_LIBRARIES})
+    target_include_directories(imgui_deps PUBLIC ${Vulkan_INCLUDE_DIRS})
+    
+    set(IMGUI_FROM_DEPS TRUE)
+    message(STATUS "Using imgui from deps: ${DEPS_IMGUI_DIR}")
+    
+    # ImGuizmo only for editor (Debug) builds
+    if(IMGUIZMO_ENABLED)
         set(DEPS_IMGUIZMO_DIR ${CMAKE_SOURCE_DIR}/deps/imguizmo CACHE PATH "Path to imguizmo (populated by setup)")
         
-        if(NOT EXISTS "${DEPS_IMGUI_DIR}/imgui.h")
-            message(FATAL_ERROR "imgui not found at ${DEPS_IMGUI_DIR}. Run the project setup script first (e.g. ./setup.sh).")
-        endif()
         if(NOT EXISTS "${DEPS_IMGUIZMO_DIR}/ImGuizmo.h")
             message(FATAL_ERROR "ImGuizmo not found at ${DEPS_IMGUIZMO_DIR}. Run the project setup script first (e.g. ./setup.sh).")
         endif()
         
-        # Build imgui as a library
-        set(IMGUI_SOURCES
-            ${DEPS_IMGUI_DIR}/imgui.cpp
-            ${DEPS_IMGUI_DIR}/imgui_draw.cpp
-            ${DEPS_IMGUI_DIR}/imgui_tables.cpp
-            ${DEPS_IMGUI_DIR}/imgui_widgets.cpp
-            ${DEPS_IMGUI_DIR}/imgui_demo.cpp
-            ${DEPS_IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
-            ${DEPS_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
-        )
-        add_library(imgui_deps STATIC ${IMGUI_SOURCES})
-        target_include_directories(imgui_deps PUBLIC ${DEPS_IMGUI_DIR} ${DEPS_IMGUI_DIR}/backends)
-        target_link_libraries(imgui_deps PUBLIC SDL3::SDL3 ${Vulkan_LIBRARIES})
-        target_include_directories(imgui_deps PUBLIC ${Vulkan_INCLUDE_DIRS})
-        
-        # Build imguizmo as a library
         add_library(imguizmo_deps STATIC ${DEPS_IMGUIZMO_DIR}/ImGuizmo.cpp)
         target_include_directories(imguizmo_deps PUBLIC ${DEPS_IMGUIZMO_DIR})
         target_link_libraries(imguizmo_deps PUBLIC imgui_deps)
         
-        set(IMGUI_FROM_DEPS TRUE)
-        message(STATUS "Using imgui from deps: ${DEPS_IMGUI_DIR}")
         message(STATUS "Using ImGuizmo from deps: ${DEPS_IMGUIZMO_DIR}")
     endif()
-    
-    message(STATUS "Editor enabled (Debug build): ImGui + ImGuizmo")
-else()
-    set(EDITOR_ENABLED FALSE)
-    message(STATUS "Editor disabled (Release build)")
 endif()
 
 # stb (header-only): must be provided by setup in deps/stb — no download during build
@@ -135,6 +155,9 @@ include_directories(${CMAKE_SOURCE_DIR}/src/camera)
 include_directories(${CMAKE_SOURCE_DIR}/src/render)
 include_directories(${CMAKE_SOURCE_DIR}/src/loaders)
 include_directories(${CMAKE_SOURCE_DIR}/src/vulkan)
+include_directories(${CMAKE_SOURCE_DIR}/src/ui)
+include_directories(${CMAKE_SOURCE_DIR}/src/runtime)
+include_directories(${CMAKE_SOURCE_DIR}/src/editor)
 include_directories(${Vulkan_INCLUDE_DIRS})
 
 # Source files (Option B: one subfolder per module)
@@ -174,6 +197,8 @@ set(SOURCES
     src/core/light_manager.cpp
     src/core/light_debug_renderer.cpp
     src/core/scene_new.cpp
+    src/ui/imgui_base.cpp
+    src/runtime/runtime_overlay.cpp
 )
 
 # Editor sources (Debug builds only)
@@ -230,6 +255,8 @@ set(HEADERS
     src/core/scene_new.h
     src/core/script_component.h
     src/core/transform.h
+    src/ui/imgui_base.h
+    src/runtime/runtime_overlay.h
 )
 
 # Editor headers (Debug builds only)
@@ -255,6 +282,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src/scene
     ${CMAKE_SOURCE_DIR}/src/render
     ${CMAKE_SOURCE_DIR}/src/vulkan
+    ${CMAKE_SOURCE_DIR}/src/ui
+    ${CMAKE_SOURCE_DIR}/src/runtime
     ${CMAKE_SOURCE_DIR}/src/editor
     ${DEPS_STB_DIR}
     ${Vulkan_INCLUDE_DIRS}
@@ -268,20 +297,22 @@ target_link_libraries(${PROJECT_NAME}
     glm::glm
 )
 
-# Link ImGui and ImGuizmo (Debug builds only)
-if(EDITOR_ENABLED)
+# Link ImGui (always - needed for both editor and runtime overlay)
+if(IMGUI_FROM_DEPS)
+    target_link_libraries(${PROJECT_NAME} imgui_deps)
+else()
+    target_link_libraries(${PROJECT_NAME} imgui::imgui)
+endif()
+
+# Link ImGuizmo (Debug/Editor builds only - for transform gizmos)
+if(IMGUIZMO_ENABLED)
     if(IMGUI_FROM_DEPS)
-        target_link_libraries(${PROJECT_NAME}
-            imgui_deps
-            imguizmo_deps
-        )
+        target_link_libraries(${PROJECT_NAME} imguizmo_deps)
     else()
-        target_link_libraries(${PROJECT_NAME}
-            imgui::imgui
-            imguizmo::imguizmo
-        )
+        target_link_libraries(${PROJECT_NAME} imguizmo::imguizmo)
     endif()
 endif()
+
 if(TinyGLTF_FOUND)
     target_link_libraries(${PROJECT_NAME} TinyGLTF::tinygltf)
 else()
