@@ -7,6 +7,7 @@
 #include "../core/scene_new.h"
 #include "../core/camera_component.h"
 #include "../core/transform.h"
+#include "../vulkan/vulkan_utils.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <stdexcept>
@@ -95,8 +96,14 @@ void ViewportManager::RemoveViewport(uint32_t id) {
         return;
     }
     
-    auto it = std::find_if(m_viewports.begin(), m_viewports.end(),
-                           [id](const Viewport& v) { return v.config.id == id; });
+    // Find viewport by id using manual loop (per coding guidelines - no lambdas)
+    auto it = m_viewports.end();
+    for (auto iter = m_viewports.begin(); iter != m_viewports.end(); ++iter) {
+        if (iter->config.id == id) {
+            it = iter;
+            break;
+        }
+    }
     
     if (it != m_viewports.end()) {
         DestroyRenderTarget(it->renderTarget);
@@ -352,7 +359,7 @@ void ViewportManager::CreateRenderTarget(ViewportRenderTarget& target, uint32_t 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    allocInfo.memoryTypeIndex = VulkanUtils::FindMemoryType(m_physicalDevice, memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     
     if (vkAllocateMemory(m_device, &allocInfo, nullptr, &target.colorMemory) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate viewport color memory");
@@ -386,7 +393,7 @@ void ViewportManager::CreateRenderTarget(ViewportRenderTarget& target, uint32_t 
     
     vkGetImageMemoryRequirements(m_device, target.depthImage, &memRequirements);
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    allocInfo.memoryTypeIndex = VulkanUtils::FindMemoryType(m_physicalDevice, memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     
     if (vkAllocateMemory(m_device, &allocInfo, nullptr, &target.depthMemory) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate viewport depth memory");
@@ -576,18 +583,4 @@ void ViewportManager::CreateOffscreenRenderPass() {
     if (vkCreateRenderPass(m_device, &renderPassInfo, nullptr, &m_offscreenRenderPass) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create offscreen render pass");
     }
-}
-
-uint32_t ViewportManager::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
-    
-    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && 
-            (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-    
-    throw std::runtime_error("Failed to find suitable memory type for viewport");
 }

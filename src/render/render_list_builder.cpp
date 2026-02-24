@@ -23,6 +23,12 @@ namespace {
         return stA_ic.firstVertex < stB_ic.firstVertex;
     }
 
+    /** Sort transparent draw calls back-to-front (farther first in Vulkan NDC depth). */
+    bool TransparentDrawCallOrder(const std::pair<float, DrawCall>& stA_ic,
+                                  const std::pair<float, DrawCall>& stB_ic) {
+        return stA_ic.first > stB_ic.first;
+    }
+
     bool IsTransparentPipelineKey(const std::string& pipelineKey) {
         return pipelineKey.find("transparent") != std::string::npos;
     }
@@ -275,10 +281,7 @@ void RenderListBuilder::Build(std::vector<DrawCall>& vecOutDrawCalls_out,
     }
 
     std::sort(vecOpaque.begin(), vecOpaque.end(), DrawCallOrder);
-    std::sort(vecTransparent.begin(), vecTransparent.end(),
-        [](const std::pair<float, DrawCall>& a, const std::pair<float, DrawCall>& b) {
-            return a.first > b.first; // back-to-front (farther first in Vulkan NDC depth)
-        });
+    std::sort(vecTransparent.begin(), vecTransparent.end(), TransparentDrawCallOrder);
 
     vecOutDrawCalls_out = std::move(vecOpaque);
     vecOutDrawCalls_out.reserve(vecOutDrawCalls_out.size() + vecTransparent.size());

@@ -32,6 +32,15 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
+namespace {
+    /** ImGui Vulkan error callback (required function pointer for ImGui_ImplVulkan_Init). */
+    void CheckVkResult(VkResult r) {
+        if (r != VK_SUCCESS) {
+            VulkanUtils::LogErr("ImGui Vulkan error: {}", static_cast<int>(r));
+        }
+    }
+}
+
 EditorLayer::~EditorLayer() {
     if (m_bInitialized) {
         Shutdown();
@@ -108,11 +117,7 @@ void EditorLayer::Init(
     initInfo.ImageCount = imageCount;
     initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     initInfo.Allocator = nullptr;
-    initInfo.CheckVkResultFn = [](VkResult r) {
-        if (r != VK_SUCCESS) {
-            VulkanUtils::LogErr("ImGui Vulkan error: {}", static_cast<int>(r));
-        }
-    };
+    initInfo.CheckVkResultFn = CheckVkResult;
 
     ImGui_ImplVulkan_Init(&initInfo);
 

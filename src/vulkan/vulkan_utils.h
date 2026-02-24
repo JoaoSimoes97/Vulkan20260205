@@ -148,4 +148,42 @@ namespace VulkanUtils {
                                                  VkDebugUtilsMessageTypeFlagsEXT messageType,
                                                  const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
                                                  void* pUserData);
+    
+    /**
+     * Find memory type index matching typeFilter and required properties.
+     * Throws std::runtime_error if no suitable memory type is found.
+     */
+    uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t lTypeFilter, VkMemoryPropertyFlags properties);
+    
+    /**
+     * Create a VkBuffer with allocated and bound memory.
+     * @param device Logical device
+     * @param physicalDevice Physical device (for memory type selection)
+     * @param size Buffer size in bytes
+     * @param usage VkBufferUsageFlags (e.g., VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)
+     * @param memProps VkMemoryPropertyFlags (e.g., VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+     * @param outBuffer Output buffer handle
+     * @param outMemory Output memory handle
+     * @return VK_SUCCESS on success, error code otherwise
+     */
+    VkResult CreateBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkDeviceSize size,
+                          VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps,
+                          VkBuffer* outBuffer, VkDeviceMemory* outMemory);
+    
+    /**
+     * Begin a single-time-submit command buffer.
+     * @param device Logical device
+     * @param pool Command pool to allocate from
+     * @return Command buffer, or VK_NULL_HANDLE on failure
+     */
+    VkCommandBuffer BeginSingleTimeCommands(VkDevice device, VkCommandPool pool);
+    
+    /**
+     * End, submit, and wait for a single-time command buffer, then free it.
+     * @param device Logical device
+     * @param queue Queue to submit to
+     * @param pool Command pool (for freeing the buffer)
+     * @param cmd Command buffer to finish
+     */
+    void EndSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandPool pool, VkCommandBuffer cmd);
 }

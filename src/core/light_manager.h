@@ -64,8 +64,5 @@ private:
     void* m_mappedMemory = nullptr;
 
     uint32_t m_activeLightCount = 0;
-
-    /** Find suitable memory type for buffer allocation. */
-    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 };
 

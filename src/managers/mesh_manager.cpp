@@ -8,18 +8,7 @@
 #include <stdexcept>
 #include <algorithm>
 
-namespace {
-    uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-        VkPhysicalDeviceMemoryProperties memProps;
-        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
-        for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
-            if ((typeFilter & (1u << i)) &&
-                (memProps.memoryTypes[i].propertyFlags & properties) == properties)
-                return i;
-        }
-        throw std::runtime_error("MeshManager: no suitable memory type");
-    }
-}
+
 
 // -----------------------------------------------------------------------------
 // MeshHandle
@@ -118,32 +107,11 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const void* 
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
     {
-        VkBufferCreateInfo bufInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = static_cast<VkBufferCreateFlags>(0),
-            .size = bufferSize,
-            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices = nullptr,
-        };
-        VkResult r = vkCreateBuffer(m_device, &bufInfo, nullptr, &stagingBuffer);
-        if (r != VK_SUCCESS) return nullptr;
-        VkMemoryRequirements memReqs;
-        vkGetBufferMemoryRequirements(m_device, stagingBuffer, &memReqs);
-        VkMemoryAllocateInfo allocInfo = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = nullptr,
-            .allocationSize = memReqs.size,
-            .memoryTypeIndex = FindMemoryType(m_physicalDevice, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
-        };
-        r = vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory);
-        if (r != VK_SUCCESS) {
-            vkDestroyBuffer(m_device, stagingBuffer, nullptr);
+        if (VulkanUtils::CreateBuffer(m_device, m_physicalDevice, bufferSize,
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                &stagingBuffer, &stagingMemory) != VK_SUCCESS)
             return nullptr;
-        }
-        vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0);
         void* pMapped = nullptr;
         vkMapMemory(m_device, stagingMemory, 0, bufferSize, 0, &pMapped);
         if (pMapped) {
@@ -155,38 +123,14 @@ std::shared_ptr<MeshHandle> MeshManager::CreateVertexBufferFromData(const void* 
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
     {
-        VkBufferCreateInfo bufInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = static_cast<VkBufferCreateFlags>(0),
-            .size = bufferSize,
-            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices = nullptr,
-        };
-        VkResult r = vkCreateBuffer(m_device, &bufInfo, nullptr, &vertexBuffer);
-        if (r != VK_SUCCESS) {
+        if (VulkanUtils::CreateBuffer(m_device, m_physicalDevice, bufferSize,
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                &vertexBuffer, &vertexMemory) != VK_SUCCESS) {
             vkFreeMemory(m_device, stagingMemory, nullptr);
             vkDestroyBuffer(m_device, stagingBuffer, nullptr);
             return nullptr;
         }
-        VkMemoryRequirements memReqs;
-        vkGetBufferMemoryRequirements(m_device, vertexBuffer, &memReqs);
-        VkMemoryAllocateInfo allocInfo = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = nullptr,
-            .allocationSize = memReqs.size,
-            .memoryTypeIndex = FindMemoryType(m_physicalDevice, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
-        };
-        r = vkAllocateMemory(m_device, &allocInfo, nullptr, &vertexMemory);
-        if (r != VK_SUCCESS) {
-            vkDestroyBuffer(m_device, vertexBuffer, nullptr);
-            vkFreeMemory(m_device, stagingMemory, nullptr);
-            vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-            return nullptr;
-        }
-        vkBindBufferMemory(m_device, vertexBuffer, vertexMemory, 0);
     }
 
     VkCommandPool cmdPool = VK_NULL_HANDLE;

@@ -85,9 +85,6 @@ private:
     /* Update vertex buffer with current frame's geometry */
     bool UpdateVertexBuffer(const std::vector<DebugLineVertex>& vertices);
 
-    /* Find suitable memory type */
-    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-
     /* Vulkan handles */
     VkDevice            m_device            = VK_NULL_HANDLE;
     VkPhysicalDevice    m_physicalDevice    = VK_NULL_HANDLE;

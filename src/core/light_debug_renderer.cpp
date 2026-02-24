@@ -227,18 +227,6 @@ void LightDebugRenderer::Destroy() {
     m_bReady = false;
 }
 
-/* ---- Find memory type ---- */
-uint32_t LightDebugRenderer::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties memProps;
-    vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProps);
-    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
-        if ((typeFilter & (1 << i)) && (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-    return 0;
-}
-
 /* ---- Update vertex buffer ---- */
 bool LightDebugRenderer::UpdateVertexBuffer(const std::vector<DebugLineVertex>& vertices) {
     if (vertices.empty()) { m_vertexCount = 0; return true; }
@@ -253,29 +241,12 @@ bool LightDebugRenderer::UpdateVertexBuffer(const std::vector<DebugLineVertex>& 
         }
 
         uint32_t newCap = static_cast<uint32_t>(vertices.size() * 2);
-        VkBufferCreateInfo bufCI{};
-        bufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufCI.size = newCap * sizeof(DebugLineVertex);
-        bufCI.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        bufCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-        if (vkCreateBuffer(m_device, &bufCI, nullptr, &m_vertexBuffer) != VK_SUCCESS) return false;
-
-        VkMemoryRequirements memReqs;
-        vkGetBufferMemoryRequirements(m_device, m_vertexBuffer, &memReqs);
-
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memReqs.size;
-        allocInfo.memoryTypeIndex = FindMemoryType(memReqs.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_vertexMemory) != VK_SUCCESS) {
-            vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
-            m_vertexBuffer = VK_NULL_HANDLE;
+        if (VulkanUtils::CreateBuffer(m_device, m_physicalDevice,
+                newCap * sizeof(DebugLineVertex),
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                &m_vertexBuffer, &m_vertexMemory) != VK_SUCCESS)
             return false;
-        }
-        vkBindBufferMemory(m_device, m_vertexBuffer, m_vertexMemory, 0);
         m_bufferCapacity = newCap;
     }
 

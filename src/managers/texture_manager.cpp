@@ -11,59 +11,6 @@
 
 namespace {
 
-uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties memProps;
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
-    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
-        if ((typeFilter & (1u << i)) &&
-            (memProps.memoryTypes[i].propertyFlags & properties) == properties)
-            return i;
-    }
-    throw std::runtime_error("TextureManager: no suitable memory type");
-}
-
-VkCommandBuffer BeginSingleTimeCommands(VkDevice device, VkCommandPool pool) {
-    VkCommandBufferAllocateInfo allocInfo = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .pNext = nullptr,
-        .commandPool = pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    if (vkAllocateCommandBuffers(device, &allocInfo, &cmd) != VK_SUCCESS)
-        return VK_NULL_HANDLE;
-    VkCommandBufferBeginInfo beginInfo = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext = nullptr,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        .pInheritanceInfo = nullptr,
-    };
-    if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
-        vkFreeCommandBuffers(device, pool, 1, &cmd);
-        return VK_NULL_HANDLE;
-    }
-    return cmd;
-}
-
-void EndSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandPool pool, VkCommandBuffer cmd) {
-    vkEndCommandBuffer(cmd);
-    VkSubmitInfo submit = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext = nullptr,
-        .waitSemaphoreCount = 0,
-        .pWaitSemaphores = nullptr,
-        .pWaitDstStageMask = nullptr,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-        .signalSemaphoreCount = 0,
-        .pSignalSemaphores = nullptr,
-    };
-    vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue);
-    vkFreeCommandBuffers(device, pool, 1, &cmd);
-}
-
 void TransitionImageLayout(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
     VkImageMemoryBarrier barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -350,32 +297,11 @@ std::shared_ptr<TextureHandle> TextureManager::UploadTexture(int width, int heig
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
     {
-        VkBufferCreateInfo bufInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = static_cast<VkBufferCreateFlags>(0),
-            .size = imageSize,
-            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices = nullptr,
-        };
-        if (vkCreateBuffer(m_device, &bufInfo, nullptr, &stagingBuffer) != VK_SUCCESS)
+        if (VulkanUtils::CreateBuffer(m_device, m_physicalDevice, imageSize,
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                &stagingBuffer, &stagingMemory) != VK_SUCCESS)
             return nullptr;
-        VkMemoryRequirements memReqs;
-        vkGetBufferMemoryRequirements(m_device, stagingBuffer, &memReqs);
-        VkMemoryAllocateInfo allocInfo = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = nullptr,
-            .allocationSize = memReqs.size,
-            .memoryTypeIndex = FindMemoryType(m_physicalDevice, memReqs.memoryTypeBits,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
-        };
-        if (vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS) {
-            vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-            return nullptr;
-        }
-        vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0);
         void* pMapped = nullptr;
         vkMapMemory(m_device, stagingMemory, 0, imageSize, 0, &pMapped);
         if (pMapped) {
@@ -415,7 +341,7 @@ std::shared_ptr<TextureHandle> TextureManager::UploadTexture(int width, int heig
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .pNext = nullptr,
             .allocationSize = memReqs.size,
-            .memoryTypeIndex = FindMemoryType(m_physicalDevice, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+            .memoryTypeIndex = VulkanUtils::FindMemoryType(m_physicalDevice, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
         };
         if (vkAllocateMemory(m_device, &allocInfo, nullptr, &imageMemory) != VK_SUCCESS) {
             vkDestroyImage(m_device, image, nullptr);
@@ -441,7 +367,7 @@ std::shared_ptr<TextureHandle> TextureManager::UploadTexture(int width, int heig
             vkDestroyBuffer(m_device, stagingBuffer, nullptr);
             return nullptr;
         }
-        VkCommandBuffer cmd = BeginSingleTimeCommands(m_device, cmdPool);
+        VkCommandBuffer cmd = VulkanUtils::BeginSingleTimeCommands(m_device, cmdPool);
         if (cmd == VK_NULL_HANDLE) {
             vkDestroyCommandPool(m_device, cmdPool, nullptr);
             vkFreeMemory(m_device, imageMemory, nullptr);
@@ -461,7 +387,7 @@ std::shared_ptr<TextureHandle> TextureManager::UploadTexture(int width, int heig
         };
         vkCmdCopyBufferToImage(cmd, stagingBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
         TransitionImageLayout(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        EndSingleTimeCommands(m_device, m_queue, cmdPool, cmd);
+        VulkanUtils::EndSingleTimeCommands(m_device, m_queue, cmdPool, cmd);
         vkDestroyCommandPool(m_device, cmdPool, nullptr);
     }
 

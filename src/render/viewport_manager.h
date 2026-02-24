@@ -127,9 +127,6 @@ private:
     /** Create offscreen render pass for PIP viewports. */
     void CreateOffscreenRenderPass();
     
-    /** Find memory type. */
-    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-    
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     VkRenderPass m_renderPass = VK_NULL_HANDLE;

@@ -9,6 +9,15 @@
 #include <imgui_impl_vulkan.h>
 #include <SDL3/SDL.h>
 
+namespace {
+    /** ImGui Vulkan error callback (required function pointer for ImGui_ImplVulkan_Init). */
+    void CheckVkResult(VkResult r) {
+        if (r != VK_SUCCESS) {
+            VulkanUtils::LogErr("ImGui Vulkan error: {}", static_cast<int>(r));
+        }
+    }
+}
+
 ImGuiBase::~ImGuiBase() {
     if (m_bInitialized) {
         ShutdownImGui();
@@ -85,11 +94,7 @@ void ImGuiBase::InitImGui(
     initInfo.ImageCount = imageCount;
     initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     initInfo.Allocator = nullptr;
-    initInfo.CheckVkResultFn = [](VkResult r) {
-        if (r != VK_SUCCESS) {
-            VulkanUtils::LogErr("ImGui Vulkan error: {}", static_cast<int>(r));
-        }
-    };
+    initInfo.CheckVkResultFn = CheckVkResult;
 
     ImGui_ImplVulkan_Init(&initInfo);
     ImGui_ImplVulkan_CreateFontsTexture();

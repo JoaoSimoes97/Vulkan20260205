@@ -7,6 +7,29 @@
 
 namespace ProceduralMeshFactory {
 
+/** Helper function to add a quad (4 vertices, 6 indices for 2 triangles). */
+static void AddQuad(std::vector<VertexData>& vecVertices_out,
+                    std::vector<uint32_t>& vecIndices_out,
+                    const float pos[4][3],
+                    const float normal[3],
+                    const float uvs[4][2]) {
+    uint32_t baseIdx = static_cast<uint32_t>(vecVertices_out.size());
+    for (int i = 0; i < 4; ++i) {
+        VertexData v;
+        v.position[0] = pos[i][0]; v.position[1] = pos[i][1]; v.position[2] = pos[i][2];
+        v.uv[0] = uvs[i][0]; v.uv[1] = uvs[i][1];
+        v.normal[0] = normal[0]; v.normal[1] = normal[1]; v.normal[2] = normal[2];
+        vecVertices_out.push_back(v);
+    }
+    // Two triangles: 0-1-2, 0-2-3
+    vecIndices_out.push_back(baseIdx + static_cast<uint32_t>(0));
+    vecIndices_out.push_back(baseIdx + static_cast<uint32_t>(1));
+    vecIndices_out.push_back(baseIdx + static_cast<uint32_t>(2));
+    vecIndices_out.push_back(baseIdx + static_cast<uint32_t>(0));
+    vecIndices_out.push_back(baseIdx + static_cast<uint32_t>(2));
+    vecIndices_out.push_back(baseIdx + static_cast<uint32_t>(3));
+}
+
 std::shared_ptr<MeshHandle> CreateMesh(const std::string& type, MeshManager* pMeshManager) {
     if (type == "cube") {
         return CreateCube(pMeshManager);
@@ -30,60 +53,41 @@ std::shared_ptr<MeshHandle> CreateCube(MeshManager* pMeshManager) {
     std::vector<VertexData> vertices;
     std::vector<uint32_t> indices;
 
-    // Helper lambda to add a quad (4 vertices, 6 indices for 2 triangles)
-    auto addQuad = [&](const float pos[4][3], const float normal[3], const float uvs[4][2]) {
-        uint32_t baseIdx = static_cast<uint32_t>(vertices.size());
-        for (int i = 0; i < 4; ++i) {
-            VertexData v;
-            v.position[0] = pos[i][0]; v.position[1] = pos[i][1]; v.position[2] = pos[i][2];
-            v.uv[0] = uvs[i][0]; v.uv[1] = uvs[i][1];
-            v.normal[0] = normal[0]; v.normal[1] = normal[1]; v.normal[2] = normal[2];
-            vertices.push_back(v);
-        }
-        // Two triangles: 0-1-2, 0-2-3
-        indices.push_back(baseIdx + 0);
-        indices.push_back(baseIdx + 1);
-        indices.push_back(baseIdx + 2);
-        indices.push_back(baseIdx + 0);
-        indices.push_back(baseIdx + 2);
-        indices.push_back(baseIdx + 3);
-    };
-
     // Front face (+Z)
     float posFront[4][3] = {{-0.5f, -0.5f, 0.5f}, {0.5f, -0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}};
     float normalFront[3] = {0.0f, 0.0f, 1.0f};
     float uvsFront[4][2] = {{0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}};
-    addQuad(posFront, normalFront, uvsFront);
+    AddQuad(vertices, indices, posFront, normalFront, uvsFront);
 
     // Back face (-Z)
     float posBack[4][3] = {{0.5f, -0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f}, {-0.5f, 0.5f, -0.5f}, {0.5f, 0.5f, -0.5f}};
     float normalBack[3] = {0.0f, 0.0f, -1.0f};
     float uvsBack[4][2] = {{0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}};
-    addQuad(posBack, normalBack, uvsBack);
+    AddQuad(vertices, indices, posBack, normalBack, uvsBack);
 
     // Right face (+X)
     float posRight[4][3] = {{0.5f, -0.5f, 0.5f}, {0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}};
     float normalRight[3] = {1.0f, 0.0f, 0.0f};
     float uvsRight[4][2] = {{0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}};
-    addQuad(posRight, normalRight, uvsRight);
+    AddQuad(vertices, indices, posRight, normalRight, uvsRight);
 
     // Left face (-X)
     float posLeft[4][3] = {{-0.5f, -0.5f, -0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, -0.5f}};
     float normalLeft[3] = {-1.0f, 0.0f, 0.0f};
     float uvsLeft[4][2] = {{0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}};
-    addQuad(posLeft, normalLeft, uvsLeft);
+    AddQuad(vertices, indices, posLeft, normalLeft, uvsLeft);
 
     // Top face (+Y)
     float posTop[4][3] = {{-0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, -0.5f}, {-0.5f, 0.5f, -0.5f}};
     float normalTop[3] = {0.0f, 1.0f, 0.0f};
     float uvsTop[4][2] = {{0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}};
-    addQuad(posTop, normalTop, uvsTop);
+    AddQuad(vertices, indices, posTop, normalTop, uvsTop);
 
     // Bottom face (-Y)
     float posBottom[4][3] = {{-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, 0.5f}};
     float normalBottom[3] = {0.0f, -1.0f, 0.0f};
     float uvsBottom[4][2] = {{0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}};
-    addQuad(posBottom, normalBottom, uvsBottom);
+    AddQuad(vertices, indices, posBottom, normalBottom, uvsBottom);
 
     // Convert indexed vertices to triangle list (expand indices)
     std::vector<VertexData> triangleVertices;

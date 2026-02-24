@@ -4,17 +4,6 @@
 
 namespace {
 
-uint32_t FindMemoryType(VkPhysicalDevice pPhysicalDevice_ic, uint32_t lTypeFilter_ic, VkMemoryPropertyFlags uProperties_ic) {
-    VkPhysicalDeviceMemoryProperties stMemProps = {};
-    vkGetPhysicalDeviceMemoryProperties(pPhysicalDevice_ic, &stMemProps);
-    for (uint32_t lIdx = static_cast<uint32_t>(0); lIdx < stMemProps.memoryTypeCount; ++lIdx) {
-        if (((lTypeFilter_ic & (1u << lIdx)) != 0u) &&
-            ((stMemProps.memoryTypes[lIdx].propertyFlags & uProperties_ic) == uProperties_ic))
-            return lIdx;
-    }
-    throw std::runtime_error("VulkanDepthImage: no suitable memory type");
-}
-
 bool HasStencilComponent(VkFormat eFormat_ic) {
     return (eFormat_ic == VK_FORMAT_D32_SFLOAT_S8_UINT) || (eFormat_ic == VK_FORMAT_D24_UNORM_S8_UINT);
 }
@@ -83,7 +72,7 @@ void VulkanDepthImage::Create(VkDevice pDevice_ic, VkPhysicalDevice pPhysicalDev
         .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .pNext           = nullptr,
         .allocationSize  = stMemReqs.size,
-        .memoryTypeIndex = FindMemoryType(pPhysicalDevice_ic, stMemReqs.memoryTypeBits,
+        .memoryTypeIndex = VulkanUtils::FindMemoryType(pPhysicalDevice_ic, stMemReqs.memoryTypeBits,
                                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
     };
     r = vkAllocateMemory(pDevice_ic, &stAllocInfo, nullptr, &this->m_memory);

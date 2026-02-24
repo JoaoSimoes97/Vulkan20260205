@@ -16,6 +16,7 @@ struct Primitive;
 class MaterialManager;
 class MeshManager;
 class TextureManager;
+struct GltfNodeVisitorContext;
 
 /**
  * SceneManager: owns current scene and level loading. Level = JSON descriptor + many glTFs (one per instance).
@@ -85,6 +86,9 @@ private:
      */
     void PrepareAnimationImportStub(const tinygltf::Model& model, const std::string& gltfPath);
     void PrepareSkinningImportStub(const tinygltf::Model& model, const tinygltf::Primitive& prim, const std::string& gltfPath);
+    
+    /** Recursive helper for visiting glTF nodes (factored from lambda per coding guidelines). */
+    void VisitGltfNode(GltfNodeVisitorContext& ctx, int nodeIndex, const float* parentMatrix);
 
     GltfLoader m_gltfLoader;
     MaterialManager* m_pMaterialManager = nullptr;

@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -51,23 +52,12 @@ namespace {
         // Already a wire pipeline or unknown
         return solidKey;
     }
-    
-    uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-        VkPhysicalDeviceMemoryProperties memProps;
-        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
-        for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
-            if ((typeFilter & (1u << i)) && (memProps.memoryTypes[i].propertyFlags & properties) == properties)
-                return i;
-        }
-        throw std::runtime_error("FindMemoryType: no suitable memory type");
-    }
 }
 
 VulkanApp::VulkanApp(const VulkanConfig& config_in)
     : m_config(config_in)
-    , m_completedJobHandler([this](LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
-          this->OnCompletedLoadJob(eType_ic, sPath_ic, std::move(vecData_in));
-      }) {
+    , m_completedJobHandler(std::bind(&VulkanApp::OnCompletedLoadJob, this,
+          std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)) {
     VulkanUtils::LogTrace("VulkanApp constructor");
     m_camera.SetPosition(m_config.fInitialCameraX, m_config.fInitialCameraY, m_config.fInitialCameraZ);
     m_jobQueue.Start();
@@ -316,10 +306,8 @@ void VulkanApp::InitVulkan() {
     /* Set up scene change callback to invalidate batched draw list.
        This ensures batches are rebuilt only when scene structure changes, not every frame. */
     Scene* pLoadedScene = this->m_sceneManager.GetCurrentScene();
-    if (pLoadedScene) {
-        pLoadedScene->SetChangeCallback([this]() {
-            this->m_batchedDrawList.SetDirty();
-        });
+    if (pLoadedScene != nullptr) {
+        pLoadedScene->SetChangeCallback(std::bind(&VulkanApp::OnSceneChanged, this));
     }
 
     /* Descriptor pool (sized from layout keys) and one set for "main" pipeline. */
@@ -343,43 +331,15 @@ void VulkanApp::InitVulkan() {
         constexpr uint32_t OBJECT_DATA_SIZE = 256;  // sizeof(ObjectData)
         constexpr VkDeviceSize bufSize = MAX_OBJECTS * OBJECT_DATA_SIZE;  // 1MB
         
-        VkBufferCreateInfo bufInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = static_cast<VkBufferCreateFlags>(0),
-            .size = bufSize,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices = nullptr,
-        };
-        
-        VkResult r = vkCreateBuffer(this->m_device.GetDevice(), &bufInfo, nullptr, &this->m_objectDataBuffer);
+        VkResult r = VulkanUtils::CreateBuffer(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(),
+            bufSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &this->m_objectDataBuffer, &this->m_objectDataMemory);
         if (r != VK_SUCCESS) {
-            VulkanUtils::LogErr("vkCreateBuffer (object data SSBO) failed: {}", static_cast<int>(r));
+            VulkanUtils::LogErr("VulkanUtils::CreateBuffer (object data SSBO) failed: {}", static_cast<int>(r));
             throw std::runtime_error("VulkanApp::InitVulkan: object data buffer creation failed");
         }
         
-        VkMemoryRequirements memReqs{};
-        vkGetBufferMemoryRequirements(this->m_device.GetDevice(), this->m_objectDataBuffer, &memReqs);
-        
-        VkMemoryAllocateInfo allocInfo = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = nullptr,
-            .allocationSize = memReqs.size,
-            .memoryTypeIndex = FindMemoryType(this->m_device.GetPhysicalDevice(), memReqs.memoryTypeBits,
-                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
-        };
-        
-        r = vkAllocateMemory(this->m_device.GetDevice(), &allocInfo, nullptr, &this->m_objectDataMemory);
-        if (r != VK_SUCCESS) {
-            vkDestroyBuffer(this->m_device.GetDevice(), this->m_objectDataBuffer, nullptr);
-            this->m_objectDataBuffer = VK_NULL_HANDLE;
-            VulkanUtils::LogErr("vkAllocateMemory (object data) failed: {}", static_cast<int>(r));
-            throw std::runtime_error("VulkanApp::InitVulkan: object data memory allocation failed");
-        }
-        
-        vkBindBufferMemory(this->m_device.GetDevice(), this->m_objectDataBuffer, this->m_objectDataMemory, 0);
         VulkanUtils::LogInfo("Object data SSBO created: {} objects × {} bytes = {} MB", MAX_OBJECTS, OBJECT_DATA_SIZE, (bufSize / 1024 / 1024));
     }
     
@@ -979,42 +939,35 @@ void VulkanApp::MainLoop() {
         const auto frameStart = std::chrono::steady_clock::now();
 
         this->m_jobQueue.ProcessCompletedJobs(this->m_completedJobHandler);
-        // Clean up unused texture descriptor sets before trimming textures
+        /* Clean up unused texture descriptor sets before trimming textures */
         CleanupUnusedTextureDescriptorSets();
         
         /* Enqueue unified resource cleanup to worker thread (non-blocking) */
         this->m_resourceManagerThread.EnqueueCommand(
             ResourceManagerThread::Command(ResourceManagerThread::CommandType::TrimAll,
-                [this]() { this->m_resourceCleanupManager.TrimAllCaches(); })
+                std::bind(&VulkanApp::OnTrimAllCaches, this))
         );
 
 #if EDITOR_BUILD
-        // Process events with editor handler (ImGui gets first pass)
-        bQuit = this->m_pWindow->PollEventsWithHandler([this](const SDL_Event& evt) -> bool {
-            return this->m_editorLayer.ProcessEvent(&evt);
-        });
+        /* Process events with editor handler (ImGui gets first pass) */
+        bQuit = this->m_pWindow->PollEventsWithHandler(
+            std::bind(&VulkanApp::OnEditorEvent, this, std::placeholders::_1));
         
-        // Begin editor frame
+        /* Begin editor frame */
         this->m_editorLayer.BeginFrame();
 #else
-        // Runtime mode: poll events with overlay handler
-        bQuit = this->m_pWindow->PollEventsWithHandler([this](const SDL_Event& evt) -> bool {
-            // Toggle overlay with F3 key
-            if (evt.type == SDL_EVENT_KEY_DOWN && evt.key.key == SDLK_F3) {
-                this->m_runtimeOverlay.ToggleVisible();
-                return true;
-            }
-            return this->m_runtimeOverlay.ProcessEvent(&evt);
-        });
+        /* Process events with runtime overlay handler */
+        bQuit = this->m_pWindow->PollEventsWithHandler(
+            std::bind(&VulkanApp::OnRuntimeEvent, this, std::placeholders::_1));
 #endif
         if (bQuit == true)
             break;
 
 #if EDITOR_BUILD
-        // Skip camera update if editor wants input
+        /* Skip camera update if editor wants input */
         const bool bEditorWantsInput = this->m_editorLayer.WantCaptureMouse() || this->m_editorLayer.WantCaptureKeyboard();
 #else
-        // Runtime overlay: check if ImGui wants input
+        /* Runtime overlay: check if ImGui wants input */
         const bool bEditorWantsInput = this->m_runtimeOverlay.WantCaptureMouse() || this->m_runtimeOverlay.WantCaptureKeyboard();
 #endif
 
@@ -1183,14 +1136,11 @@ void VulkanApp::MainLoop() {
         EnsureMainDescriptorSetWritten();
 
         /* Build draw list from scene (frustum culling, push size validation, sort by pipeline/mesh). */
-        // Pass callback to get descriptor sets for per-object PBR textures (base color, metallic-roughness, emissive, normal, occlusion)
-        auto getTextureDescriptorSet = [this](std::shared_ptr<TextureHandle> pBaseColor, 
-                                              std::shared_ptr<TextureHandle> pMR,
-                                              std::shared_ptr<TextureHandle> pEmissive,
-                                              std::shared_ptr<TextureHandle> pNormal,
-                                              std::shared_ptr<TextureHandle> pOcclusion) -> VkDescriptorSet {
-            return this->GetOrCreateDescriptorSetForTextures(pBaseColor, pMR, pEmissive, pNormal, pOcclusion);
-        };
+        /* Use std::bind to create callback for per-object PBR texture descriptor sets */
+        auto getTextureDescriptorSet = std::bind(
+            &VulkanApp::GetOrCreateDescriptorSetForTextures, this,
+            std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+            std::placeholders::_4, std::placeholders::_5);
         
         /* Use BatchedDrawList for efficient instanced rendering with dirty tracking.
            Only rebuilds batches when scene changes, not every frame.
@@ -1334,6 +1284,183 @@ void VulkanApp::ApplyConfig(const VulkanConfig& stNewConfig_ic) {
     }
     this->m_config.bSwapchainDirty = true;
 }
+
+/* ============================================================================
+ * Callback functions (extracted from lambdas per coding guidelines)
+ * ============================================================================ */
+
+void VulkanApp::OnSceneChanged() {
+    this->m_batchedDrawList.SetDirty();
+}
+
+void VulkanApp::OnTrimAllCaches() {
+    this->m_resourceCleanupManager.TrimAllCaches();
+}
+
+bool VulkanApp::OnEditorEvent(const SDL_Event& evt_ic) {
+#if EDITOR_BUILD
+    return this->m_editorLayer.ProcessEvent(&evt_ic);
+#else
+    (void)evt_ic;
+    return false;
+#endif
+}
+
+bool VulkanApp::OnRuntimeEvent(const SDL_Event& evt_ic) {
+#if !EDITOR_BUILD
+    if ((evt_ic.type == SDL_EVENT_KEY_DOWN) && (evt_ic.key.key == SDLK_F3)) {
+        this->m_runtimeOverlay.ToggleVisible();
+        return true;
+    }
+    return this->m_runtimeOverlay.ProcessEvent(&evt_ic);
+#else
+    (void)evt_ic;
+    return false;
+#endif
+}
+
+void VulkanApp::RenderEditorUI(VkCommandBuffer cmd) {
+#if EDITOR_BUILD
+    this->m_editorLayer.RenderDrawData(cmd);
+#else
+    (void)cmd;
+#endif
+}
+
+void VulkanApp::RenderRuntimeUI(VkCommandBuffer cmd) {
+#if !EDITOR_BUILD
+    this->m_runtimeOverlay.RenderDrawData(cmd);
+#else
+    (void)cmd;
+#endif
+}
+
+#if EDITOR_BUILD
+void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>* pDrawCalls_ic, const float* pViewProj_ic,
+                                bool bRenderLightDebug, SceneNew* pSceneNew_ic) {
+    /* Per-viewport temporary push constant buffer (96 bytes for instanced rendering) */
+    alignas(16) uint8_t vpPushData[kInstancedPushConstantSize];
+    
+    auto& vps = this->m_viewportManager.GetViewports();
+    for (auto& vp : vps) {
+        if (vp.config.bVisible == false) {
+            continue;
+        }
+        if (vp.renderTarget.IsValid() == false) {
+            continue;
+        }
+        
+        /* Get the camera for this viewport (main camera or scene camera) */
+        Camera* pVpCamera = this->m_viewportManager.GetCameraForViewport(vp, pSceneNew_ic, &this->m_camera);
+        if (pVpCamera == nullptr) {
+            pVpCamera = &this->m_camera;
+        }
+        
+        /* Get camera position for this viewport */
+        float vpCamPos[3];
+        pVpCamera->GetPosition(vpCamPos[0], vpCamPos[1], vpCamPos[2]);
+        
+        /* Get view matrix from the viewport's camera */
+        alignas(16) float vpViewMat[16];
+        pVpCamera->GetViewMatrix(vpViewMat);
+        
+        /* Compute per-viewport projection matrix using viewport's aspect ratio */
+        const float vpAspect = (vp.renderTarget.height > static_cast<uint32_t>(0)) 
+            ? static_cast<float>(vp.renderTarget.width) / static_cast<float>(vp.renderTarget.height)
+            : static_cast<float>(1.0f);
+        
+        alignas(16) float vpProjMat[16];
+        if (this->m_config.bUsePerspective == true) {
+            ObjectSetPerspective(vpProjMat, this->m_config.fCameraFovYRad, vpAspect, 
+                                 this->m_config.fCameraNearZ, this->m_config.fCameraFarZ);
+        } else {
+            const float fH = (this->m_config.fOrthoHalfExtent > static_cast<float>(0.f)) 
+                ? this->m_config.fOrthoHalfExtent : kOrthoFallbackHalfExtent;
+            ObjectSetOrtho(vpProjMat, -fH * vpAspect, fH * vpAspect, -fH, fH,
+                           this->m_config.fOrthoNear, this->m_config.fOrthoFar);
+        }
+        
+        /* Combine projection and view for this viewport */
+        alignas(16) float vpViewProj[16];
+        ObjectMat4Multiply(vpViewProj, vpProjMat, vpViewMat);
+        
+        /* Begin viewport render pass */
+        this->m_viewportManager.BeginViewportRender(vp.config.id, cmd);
+        
+        /* Determine if we need to switch to wireframe pipeline for this viewport */
+        const bool bWireframeMode = (vp.config.renderMode == ViewportRenderMode::Wireframe);
+        
+        /* Render scene draw calls to this viewport with recomputed MVP */
+        for (const auto& dc : *pDrawCalls_ic) {
+            /* Select the appropriate pipeline based on viewport render mode */
+            VkPipeline pipelineToUse = dc.pipeline;
+            
+            if ((bWireframeMode == true) && (dc.pipelineKey.empty() == false)) {
+                /* Get the wireframe variant of this pipeline */
+                std::string wireKey = GetWireframePipelineKey(dc.pipelineKey);
+                if (wireKey != dc.pipelineKey) {
+                    auto pWireMat = this->m_materialManager.GetMaterial(wireKey);
+                    if (pWireMat != nullptr) {
+                        VkPipeline wirePipe = pWireMat->GetPipelineIfReady(
+                            this->m_device.GetDevice(),
+                            this->m_viewportManager.GetOffscreenRenderPass(),
+                            &this->m_pipelineManager,
+                            &this->m_shaderManager,
+                            true
+                        );
+                        if (wirePipe != VK_NULL_HANDLE) {
+                            pipelineToUse = wirePipe;
+                        }
+                    }
+                }
+            }
+            
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToUse);
+            if (dc.descriptorSets.empty() == false) {
+                if (dc.dynamicOffsets.empty() == false) {
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
+                        static_cast<uint32_t>(0), static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
+                        static_cast<uint32_t>(dc.dynamicOffsets.size()), dc.dynamicOffsets.data());
+                } else {
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
+                        static_cast<uint32_t>(0), static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
+                        static_cast<uint32_t>(0), nullptr);
+                }
+            }
+            
+            /* Recompute push constants with viewport-specific viewProj (instanced layout) */
+            if (dc.pushConstantSize == kInstancedPushConstantSize) {
+                std::memcpy(vpPushData, vpViewProj, static_cast<size_t>(64));
+                std::memcpy(vpPushData + static_cast<size_t>(64), vpCamPos, static_cast<size_t>(12));
+                float camW = static_cast<float>(1.0f);
+                std::memcpy(vpPushData + static_cast<size_t>(76), &camW, static_cast<size_t>(4));
+                std::memcpy(vpPushData + static_cast<size_t>(80), &dc.objectIndex, static_cast<size_t>(4));
+                std::memset(vpPushData + static_cast<size_t>(84), static_cast<int>(0), static_cast<size_t>(12));
+                
+                vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    static_cast<uint32_t>(0), kInstancedPushConstantSize, vpPushData);
+            } else if ((dc.pushConstantSize > static_cast<uint32_t>(0)) && (dc.pPushConstants != nullptr)) {
+                vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    static_cast<uint32_t>(0), dc.pushConstantSize, dc.pPushConstants);
+            }
+            
+            VkDeviceSize offset = dc.vertexBufferOffset;
+            vkCmdBindVertexBuffers(cmd, static_cast<uint32_t>(0), static_cast<uint32_t>(1), &dc.vertexBuffer, &offset);
+            vkCmdDraw(cmd, dc.vertexCount, dc.instanceCount, dc.firstVertex, dc.firstInstance);
+        }
+        
+        /* Render light debug visualizations (inside the viewport render pass) */
+        if ((bRenderLightDebug == true) && (pSceneNew_ic != nullptr)) {
+            this->m_lightDebugRenderer.Draw(cmd, pSceneNew_ic, vpViewProj);
+        }
+        
+        /* End viewport render pass */
+        this->m_viewportManager.EndViewportRender(vp.config.id, cmd);
+    }
+    
+    (void)pViewProj_ic; /* May be used for future features */
+}
+#endif
 
 void VulkanApp::Cleanup() {
     if (this->m_device.IsValid() == false)
@@ -1483,153 +1610,25 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
     /* Build post-scene callback for ImGui rendering only (inside swapchain render pass). */
     std::function<void(VkCommandBuffer)> postSceneCallback = nullptr;
 #if EDITOR_BUILD
-    postSceneCallback = [this](VkCommandBuffer cmd) {
-        // Render ImGui draw data (displays viewport textures)
-        this->m_editorLayer.RenderDrawData(cmd);
-    };
+    postSceneCallback = std::bind(&VulkanApp::RenderEditorUI, this, std::placeholders::_1);
 #else
-    postSceneCallback = [this](VkCommandBuffer cmd) {
-        // Render runtime overlay draw data
-        this->m_runtimeOverlay.RenderDrawData(cmd);
-    };
+    postSceneCallback = std::bind(&VulkanApp::RenderRuntimeUI, this, std::placeholders::_1);
 #endif
 
 #if EDITOR_BUILD
-    // Pre-scene callback for viewport rendering (all viewports render to offscreen targets)
-    // This includes scene objects AND light debug
-    std::function<void(VkCommandBuffer)> preSceneCallback = nullptr;
-    const bool bRenderLightDebug = this->m_config.bShowLightDebug && this->m_lightDebugRenderer.IsReady() && pViewProjMat16_ic != nullptr;
+    /* Pre-scene callback for viewport rendering (all viewports render to offscreen targets).
+       This includes scene objects AND light debug. */
+    const bool bRenderLightDebug = (this->m_config.bShowLightDebug == true) && 
+                                   (this->m_lightDebugRenderer.IsReady() == true) && 
+                                   (pViewProjMat16_ic != nullptr);
     SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
     
-    preSceneCallback = [this, &vecDrawCalls_ic, bRenderLightDebug, pSceneNew, pViewProjMat16_ic](VkCommandBuffer cmd) {
-        // Per-viewport temporary push constant buffer (96 bytes for instanced rendering)
-        alignas(16) uint8_t vpPushData[kInstancedPushConstantSize];
-        
-        auto& vps = this->m_viewportManager.GetViewports();
-        for (auto& vp : vps) {
-            if (!vp.config.bVisible) {
-                continue;
-            }
-            if (!vp.renderTarget.IsValid()) {
-                continue;
-            }
-            
-            // Get the camera for this viewport (main camera or scene camera)
-            Camera* pVpCamera = this->m_viewportManager.GetCameraForViewport(vp, pSceneNew, &this->m_camera);
-            if (!pVpCamera) {
-                pVpCamera = &this->m_camera;  // Fallback to main camera
-            }
-            
-            // Get camera position for this viewport
-            float vpCamPos[3];
-            pVpCamera->GetPosition(vpCamPos[0], vpCamPos[1], vpCamPos[2]);
-            
-            // Get view matrix from the viewport's camera
-            alignas(16) float vpViewMat[16];
-            pVpCamera->GetViewMatrix(vpViewMat);
-            
-            // Compute per-viewport projection matrix using viewport's aspect ratio
-            const float vpAspect = (vp.renderTarget.height > 0) 
-                ? static_cast<float>(vp.renderTarget.width) / static_cast<float>(vp.renderTarget.height)
-                : 1.0f;
-            
-            alignas(16) float vpProjMat[16];
-            if (this->m_config.bUsePerspective) {
-                ObjectSetPerspective(vpProjMat, this->m_config.fCameraFovYRad, vpAspect, 
-                                     this->m_config.fCameraNearZ, this->m_config.fCameraFarZ);
-            } else {
-                const float fH = (this->m_config.fOrthoHalfExtent > 0.f) 
-                    ? this->m_config.fOrthoHalfExtent : kOrthoFallbackHalfExtent;
-                ObjectSetOrtho(vpProjMat, -fH * vpAspect, fH * vpAspect, -fH, fH,
-                               this->m_config.fOrthoNear, this->m_config.fOrthoFar);
-            }
-            
-            // Combine projection and view for this viewport
-            alignas(16) float vpViewProj[16];
-            ObjectMat4Multiply(vpViewProj, vpProjMat, vpViewMat);
-            
-            // Begin viewport render pass
-            this->m_viewportManager.BeginViewportRender(vp.config.id, cmd);
-            
-            // Determine if we need to switch to wireframe pipeline for this viewport
-            const bool bWireframeMode = (vp.config.renderMode == ViewportRenderMode::Wireframe);
-            
-            // Render scene draw calls to this viewport with recomputed MVP
-            for (const auto& dc : vecDrawCalls_ic) {
-                // Select the appropriate pipeline based on viewport render mode
-                VkPipeline pipelineToUse = dc.pipeline;
-                
-                if (bWireframeMode && !dc.pipelineKey.empty()) {
-                    // Get the wireframe variant of this pipeline
-                    std::string wireKey = GetWireframePipelineKey(dc.pipelineKey);
-                    if (wireKey != dc.pipelineKey) {
-                        // Look up the wireframe material/pipeline
-                        auto pWireMat = this->m_materialManager.GetMaterial(wireKey);
-                        if (pWireMat) {
-                            // Get the pipeline from the material
-                            VkPipeline wirePipe = pWireMat->GetPipelineIfReady(
-                                this->m_device.GetDevice(),
-                                this->m_viewportManager.GetOffscreenRenderPass(),
-                                &this->m_pipelineManager,
-                                &this->m_shaderManager,
-                                true  // renderPassHasDepth
-                            );
-                            if (wirePipe != VK_NULL_HANDLE) {
-                                pipelineToUse = wirePipe;
-                            }
-                        }
-                    }
-                }
-                
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToUse);
-                if (!dc.descriptorSets.empty()) {
-                    if (!dc.dynamicOffsets.empty()) {
-                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
-                            0, static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
-                            static_cast<uint32_t>(dc.dynamicOffsets.size()), dc.dynamicOffsets.data());
-                    } else {
-                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
-                            0, static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
-                            0, nullptr);
-                    }
-                }
-                
-                // Recompute push constants with viewport-specific viewProj (instanced layout)
-                if (dc.pushConstantSize == kInstancedPushConstantSize) {
-                    // Instanced layout: viewProj (64) + camPos (16) + batchStartIndex (4) + padding (12) = 96 bytes
-                    // objectIndex holds batchStartIndex for this batch
-                    std::memcpy(vpPushData, vpViewProj, 64);  // viewProj at offset 0
-                    std::memcpy(vpPushData + 64, vpCamPos, 12);  // camPos xyz at offset 64
-                    float camW = 1.0f;
-                    std::memcpy(vpPushData + 76, &camW, 4);  // camPos.w at offset 76
-                    std::memcpy(vpPushData + 80, &dc.objectIndex, 4);  // batchStartIndex at offset 80
-                    std::memset(vpPushData + 84, 0, 12);  // Padding at offset 84
-                    
-                    vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                        0, kInstancedPushConstantSize, vpPushData);
-                } else if (dc.pushConstantSize > 0 && dc.pPushConstants != nullptr) {
-                    // Fallback: use original push constants (legacy path)
-                    vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                        0, dc.pushConstantSize, dc.pPushConstants);
-                }
-                
-                VkDeviceSize offset = dc.vertexBufferOffset;
-                vkCmdBindVertexBuffers(cmd, 0, 1, &dc.vertexBuffer, &offset);
-                vkCmdDraw(cmd, dc.vertexCount, dc.instanceCount, dc.firstVertex, dc.firstInstance);
-            }
-            
-            // Render light debug visualizations (inside the viewport render pass)
-            if (bRenderLightDebug && pSceneNew) {
-                this->m_lightDebugRenderer.Draw(cmd, pSceneNew, vpViewProj);
-            }
-            
-            // End viewport render pass
-            this->m_viewportManager.EndViewportRender(vp.config.id, cmd);
-        }
-    };
+    std::function<void(VkCommandBuffer)> preSceneCallback = std::bind(
+        &VulkanApp::RenderViewports, this, std::placeholders::_1,
+        &vecDrawCalls_ic, pViewProjMat16_ic, bRenderLightDebug, pSceneNew);
     
-    // Editor mode: Scene renders to offscreen viewports via preSceneCallback
-    // Main render pass only renders ImGui which displays the viewport textures
+    /* Editor mode: Scene renders to offscreen viewports via preSceneCallback.
+       Main render pass only renders ImGui which displays the viewport textures. */
     std::vector<DrawCall> emptyDrawCalls;
 
     this->m_commandBuffers.Record(lImageIndex, this->m_renderPass.Get(),
@@ -1637,20 +1636,20 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
                             stRenderArea, stViewport, stScissor, emptyDrawCalls,
                             vecClearValues.data(), lClearValueCount, preSceneCallback, postSceneCallback);
 #else
-    // Release/Runtime mode: Render scene directly to swapchain render pass
-    // No viewport system - render directly to screen
+    /* Release/Runtime mode: Render scene directly to swapchain render pass.
+       No viewport system - render directly to screen. */
     
-    // Get camera matrices for main camera
+    /* Get camera matrices for main camera */
     alignas(16) float rtViewMat[16];
     this->m_camera.GetViewMatrix(rtViewMat);
     
     float rtCamPos[3];
     this->m_camera.GetPosition(rtCamPos[0], rtCamPos[1], rtCamPos[2]);
     
-    // Compute projection matrix for swapchain aspect ratio
-    const float rtAspect = (stExtent.height > 0) 
+    /* Compute projection matrix for swapchain aspect ratio */
+    const float rtAspect = (stExtent.height > static_cast<uint32_t>(0)) 
         ? static_cast<float>(stExtent.width) / static_cast<float>(stExtent.height)
-        : 1.0f;
+        : static_cast<float>(1.0f);
     
     alignas(16) float rtProjMat[16];
     if (this->m_config.bUsePerspective) {
@@ -1689,16 +1688,10 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
         dc.pushConstantSize = kInstancedPushConstantSize;
     }
     
-    // Runtime: No preSceneCallback - scene renders directly in main pass
+    /* Runtime: No preSceneCallback - scene renders directly in main pass */
     std::function<void(VkCommandBuffer)> preSceneCallback = nullptr;
     
-    // Post-scene callback for runtime overlay only (NO light debug in Release)
-    postSceneCallback = [this](VkCommandBuffer cmd) {
-        // Render runtime overlay draw data (FPS, etc.)
-        this->m_runtimeOverlay.RenderDrawData(cmd);
-    };
-    
-    // Runtime: Pass actual draw calls to render scene directly to swapchain
+    /* Runtime: Pass actual draw calls to render scene directly to swapchain */
     this->m_commandBuffers.Record(lImageIndex, this->m_renderPass.Get(),
                             this->m_framebuffers.Get()[lImageIndex],
                             stRenderArea, stViewport, stScissor, runtimeDrawCalls,

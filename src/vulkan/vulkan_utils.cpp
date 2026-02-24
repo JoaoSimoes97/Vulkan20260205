@@ -188,4 +188,94 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBits
     return VK_FALSE;
 }
 
+uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t lTypeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
+    for (uint32_t i = static_cast<uint32_t>(0); i < memProps.memoryTypeCount; ++i) {
+        if (((lTypeFilter & (static_cast<uint32_t>(1) << i)) != static_cast<uint32_t>(0)) &&
+            ((memProps.memoryTypes[i].propertyFlags & properties) == properties)) {
+            return i;
+        }
+    }
+    throw std::runtime_error("VulkanUtils::FindMemoryType: no suitable memory type");
+}
+
+VkResult CreateBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkDeviceSize size,
+                      VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps,
+                      VkBuffer* outBuffer, VkDeviceMemory* outMemory) {
+    VkBufferCreateInfo bufInfo = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = static_cast<VkBufferCreateFlags>(0),
+        .size = size,
+        .usage = usage,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = nullptr,
+    };
+    VkResult r = vkCreateBuffer(device, &bufInfo, nullptr, outBuffer);
+    if (r != VK_SUCCESS) return r;
+    
+    VkMemoryRequirements memReqs;
+    vkGetBufferMemoryRequirements(device, *outBuffer, &memReqs);
+    
+    VkMemoryAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .allocationSize = memReqs.size,
+        .memoryTypeIndex = FindMemoryType(physicalDevice, memReqs.memoryTypeBits, memProps),
+    };
+    r = vkAllocateMemory(device, &allocInfo, nullptr, outMemory);
+    if (r != VK_SUCCESS) {
+        vkDestroyBuffer(device, *outBuffer, nullptr);
+        *outBuffer = VK_NULL_HANDLE;
+        return r;
+    }
+    
+    vkBindBufferMemory(device, *outBuffer, *outMemory, 0);
+    return VK_SUCCESS;
+}
+
+VkCommandBuffer BeginSingleTimeCommands(VkDevice device, VkCommandPool pool) {
+    VkCommandBufferAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .commandPool = pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(device, &allocInfo, &cmd) != VK_SUCCESS)
+        return VK_NULL_HANDLE;
+    VkCommandBufferBeginInfo beginInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = nullptr,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        .pInheritanceInfo = nullptr,
+    };
+    if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
+        vkFreeCommandBuffers(device, pool, 1, &cmd);
+        return VK_NULL_HANDLE;
+    }
+    return cmd;
+}
+
+void EndSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandPool pool, VkCommandBuffer cmd) {
+    vkEndCommandBuffer(cmd);
+    VkSubmitInfo submit = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext = nullptr,
+        .waitSemaphoreCount = 0,
+        .pWaitSemaphores = nullptr,
+        .pWaitDstStageMask = nullptr,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores = nullptr,
+    };
+    vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(queue);
+    vkFreeCommandBuffers(device, pool, 1, &cmd);
+}
+
 }

@@ -44,6 +44,8 @@
 #endif
 
 class VulkanShaderManager;
+class SceneNew;
+union SDL_Event;
 
 /**
  * Per-object data stored in SSBO for GPU access.
@@ -113,78 +115,96 @@ private:
     void CleanupUnusedTextureDescriptorSets();
     void OnCompletedLoadJob(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in);
     void ApplyConfig(const VulkanConfig& stNewConfig_ic);
+    
+    /* Callback functions (extracted from lambdas per coding guidelines). */
+    void OnSceneChanged();
+    void OnTrimAllCaches();
+    bool OnEditorEvent(const SDL_Event& evt_ic);
+    bool OnRuntimeEvent(const SDL_Event& evt_ic);
+    void RenderEditorUI(VkCommandBuffer cmd);
+    void RenderRuntimeUI(VkCommandBuffer cmd);
+#if EDITOR_BUILD
+    void RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>* pDrawCalls_ic, const float* pViewProj_ic,
+                         bool bRenderLightDebug, SceneNew* pSceneNew_ic);
+#endif
 
+    /* ======== Threading & Job Queue ======== */
     JobQueue::CompletedJobHandler m_completedJobHandler;
-    VulkanConfig m_config;
     JobQueue m_jobQueue;
     ResourceManagerThread m_resourceManagerThread;
     ResourceCleanupManager m_resourceCleanupManager;
-    VulkanShaderManager m_shaderManager;
+
+    /* ======== Configuration ======== */
+    VulkanConfig m_config;
+
+    /* ======== Vulkan Core (instance, device, swapchain) ======== */
     std::unique_ptr<Window> m_pWindow;
     VulkanInstance m_instance;
     VulkanDevice m_device;
     VulkanSwapchain m_swapchain;
     VulkanRenderPass m_renderPass;
     VulkanDepthImage m_depthImage;
+    VulkanFramebuffers m_framebuffers;
+    VulkanCommandBuffers m_commandBuffers;
+    VulkanSync m_sync;
+
+    /* ======== Managers (shaders, pipelines, resources) ======== */
+    VulkanShaderManager m_shaderManager;
     PipelineManager m_pipelineManager;
     MaterialManager m_materialManager;
     MeshManager m_meshManager;
     TextureManager m_textureManager;
     SceneManager m_sceneManager;
+
+    /* ======== Render Lists & Draw Calls ======== */
     RenderListBuilder m_renderListBuilder;
     BatchedDrawList m_batchedDrawList;
     std::vector<DrawCall> m_drawCalls;
-    VulkanFramebuffers m_framebuffers;
-    VulkanCommandBuffers m_commandBuffers;
-    VulkanSync m_sync;
 
-    /* Descriptor layouts and pool (data-driven by layout keys). Sets allocated from pool; map passed to render list. */
+    /* ======== Descriptors (layouts, pools, sets) ======== */
     DescriptorSetLayoutManager m_descriptorSetLayoutManager;
     DescriptorPoolManager     m_descriptorPoolManager;
     std::map<std::string, std::vector<VkDescriptorSet>> m_pipelineDescriptorSets;
     VkDescriptorSet           m_descriptorSetMain = VK_NULL_HANDLE;  /* single set for textured pipelines (default texture) */
-    /** Keep default texture alive so TrimUnused() does not destroy it (textured descriptor sets use its view/sampler). */
+    /** Keep default texture alive so TrimUnused() does not destroy it. */
     std::shared_ptr<TextureHandle> m_pDefaultTexture;
     /** Keep material references alive so TrimUnused() does not destroy them. */
     std::vector<std::shared_ptr<MaterialHandle>> m_cachedMaterials;
     /** Per-texture descriptor set cache: texture -> descriptor set. */
     std::map<TextureHandle*, VkDescriptorSet> m_textureDescriptorSets;
-    /** Per-texture-quintuple descriptor set cache: (baseColor, metallicRoughness, emissive, normal, occlusion) -> descriptor set. */
+    /** Per-texture-quintuple descriptor set cache. */
     std::map<std::tuple<TextureHandle*, TextureHandle*, TextureHandle*, TextureHandle*, TextureHandle*>, VkDescriptorSet> m_textureQuintupleDescriptorSets;
     /** Reverse map: descriptor set -> texture (for reference counting and cleanup). */
     std::map<VkDescriptorSet, std::shared_ptr<TextureHandle>> m_descriptorSetTextures;
+
+    /* ======== GPU Buffers (SSBO for objects & lights) ======== */
     /** Per-object data SSBO buffer (4096 objects × 256 bytes = 1MB). Written each frame. */
     VkBuffer m_objectDataBuffer = VK_NULL_HANDLE;
     VkDeviceMemory m_objectDataMemory = VK_NULL_HANDLE;
-    
-    /** Light data SSBO buffer (16 byte header + 256 lights × 64 bytes = ~16KB). 
-        Note: We have both raw buffer (created early) and LightManager (manages upload).
-        The LightManager uses its own buffer internally which is bound to the descriptor set. */
+    /** Light data SSBO buffer (16 byte header + 256 lights × 64 bytes = ~16KB). */
     VkBuffer m_lightBuffer = VK_NULL_HANDLE;
     VkDeviceMemory m_lightBufferMemory = VK_NULL_HANDLE;
-    
-    /** Light manager for uploading scene lights to GPU. */
+
+    /* ======== Lighting ======== */
     LightManager m_lightManager;
-    
-    /** Light debug renderer for visualizing lights in debug mode. */
     LightDebugRenderer m_lightDebugRenderer;
 
-    /** Multi-viewport manager (render targets, cameras). */
+    /* ======== Viewports ======== */
     ViewportManager m_viewportManager;
 
+    /* ======== Build-Specific Components ======== */
 #if !EDITOR_BUILD
-    /** Push constant storage for Runtime mode (Release builds render scene directly to swapchain). */
+    /** Push constant storage for Runtime mode. */
     std::vector<std::array<uint8_t, 96>> m_runtimePushConstantBuffer;
 #endif
 
 #if EDITOR_BUILD
-    /** Editor layer for ImGui-based visual editing (Debug/Editor builds). */
     EditorLayer m_editorLayer;
 #else
-    /** Runtime overlay for minimal stats display (Release/Runtime builds). */
     RuntimeOverlay m_runtimeOverlay;
 #endif
 
+    /* ======== Camera & Frame Timing ======== */
     Camera m_camera;
     float m_avgFrameTimeSec = 1.f / 60.f;
     std::chrono::steady_clock::time_point m_lastFpsTitleUpdate;
