@@ -13,10 +13,24 @@
 #pragma once
 
 #include "ui/imgui_base.h"
+#include <cstdint>
 #include <string>
 
 struct VulkanConfig;
 class Camera;
+
+/**
+ * Runtime render statistics for overlay display.
+ */
+struct RenderStats {
+    uint32_t drawCalls       = 0;  // Number of draw calls (batches)
+    uint32_t objectsVisible  = 0;  // Objects after frustum culling
+    uint32_t objectsTotal    = 0;  // Total objects in scene
+    uint32_t triangles       = 0;  // Total triangles rendered
+    uint32_t vertices        = 0;  // Total vertices rendered
+    uint32_t batches         = 0;  // Number of batches
+    float    cullingRatio    = 0;  // % culled (1.0 = all visible)
+};
 
 /**
  * RuntimeOverlay - Lightweight stats display for Release builds.
@@ -71,6 +85,11 @@ public:
      */
     void SetCorner(int corner) { m_corner = corner; }
 
+    /**
+     * Set current frame render statistics.
+     */
+    void SetRenderStats(const RenderStats& stats) { m_renderStats = stats; }
+
 protected:
     void DrawContent() override;
 
@@ -98,4 +117,7 @@ private:
     // Temp storage for Draw() context
     const Camera* m_pCurrentCamera = nullptr;
     const VulkanConfig* m_pCurrentConfig = nullptr;
+    
+    // Render statistics
+    RenderStats m_renderStats;  
 };

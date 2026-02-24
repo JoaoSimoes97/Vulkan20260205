@@ -112,6 +112,19 @@ void RuntimeOverlay::DrawStatsWindow(const Camera* pCamera, const VulkanConfig* 
         ImGui::PlotLines("##FPSGraph", m_fpsHistory, kFpsHistorySize, m_fpsHistoryIndex,
                          nullptr, 0.0f, 120.0f, ImVec2(150, 40));
         
+        // Render statistics
+        if (m_renderStats.objectsTotal > 0 || m_renderStats.drawCalls > 0) {
+            ImGui::Separator();
+            ImGui::Text("Draw Calls: %u", m_renderStats.drawCalls);
+            ImGui::Text("Objects: %u / %u", m_renderStats.objectsVisible, m_renderStats.objectsTotal);
+            ImGui::Text("Triangles: %u", m_renderStats.triangles);
+            ImGui::Text("Vertices: %u", m_renderStats.vertices);
+            if (m_renderStats.objectsTotal > 0) {
+                const float cullPct = (1.0f - m_renderStats.cullingRatio) * 100.0f;
+                ImGui::Text("Culled: %.1f%%", cullPct);
+            }
+        }
+        
         // Camera info (if available)
         if (pCamera) {
             ImGui::Separator();

@@ -7,6 +7,7 @@
 #include "core/scene_new.h"
 #include "core/transform.h"
 #include "core/renderer_component.h"
+#include "core/camera_component.h"
 #include "managers/mesh_manager.h"
 #include "scene/scene.h"
 #include "scene/object.h"
@@ -273,6 +274,7 @@ void EditorLayer::DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConf
     DrawToolbar();
     DrawHierarchyPanel(pScene);
     DrawInspectorPanel(pScene);
+    DrawCamerasPanel(pScene);
     DrawViewportPanel(pScene, pCamera, config, pViewportManager);
     DrawViewportsPanel(pViewportManager, pScene);
 }
@@ -852,6 +854,199 @@ void EditorLayer::SaveCurrentLevel(SceneNew* pScene) {
     } catch (const std::exception& e) {
         VulkanUtils::LogErr("Error saving level: {}", e.what());
     }
+}
+
+void EditorLayer::DrawCamerasPanel(SceneNew* pScene) {
+    if (!pScene) return;
+    
+    ImGui::Begin("Cameras");
+    
+    // Add camera button
+    if (ImGui::Button("+ Add Camera")) {
+        // Create a new GameObject with a camera component
+        uint32_t newGoId = pScene->CreateGameObject("Camera");
+        
+        // Set initial position
+        Transform* pTransform = pScene->GetTransform(newGoId);
+        if (pTransform) {
+            TransformSetPosition(*pTransform, 0.f, 2.f, 5.f);
+            // Face forward (-Z)
+            TransformSetRotation(*pTransform, 0.f, 0.f, 0.f, 1.f);
+        }
+        
+        // Add camera component with default settings
+        CameraComponent cam;
+        cam.projection = ProjectionType::Perspective;
+        cam.fov = 1.0472f;  // ~60 degrees
+        cam.nearClip = 0.1f;
+        cam.farClip = 1000.0f;
+        cam.bIsMain = false;
+        pScene->AddCamera(newGoId, cam);
+    }
+    
+    ImGui::Separator();
+    
+    // List all cameras in the scene
+    const auto& gameObjects = pScene->GetGameObjects();
+    auto& cameras = pScene->GetCameras();
+    
+    for (const auto& go : gameObjects) {
+        if (!go.HasCamera()) continue;
+        
+        ImGui::PushID(static_cast<int>(go.id));
+        
+        // Build camera label
+        std::string label = go.name.empty() ? ("Camera " + std::to_string(go.id)) : go.name;
+        
+        bool opened = ImGui::CollapsingHeader(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+        
+        // Context menu for delete
+        if (ImGui::BeginPopupContextItem()) {
+            if (ImGui::MenuItem("Delete Camera")) {
+                pScene->DestroyGameObject(go.id);
+                ImGui::EndPopup();
+                ImGui::PopID();
+                break;  // Exit loop since vector modified
+            }
+            if (ImGui::MenuItem("Select in Hierarchy")) {
+                m_selectedObjectId = go.id;
+            }
+            ImGui::EndPopup();
+        }
+        
+        if (opened && go.cameraIndex < cameras.size()) {
+            CameraComponent& cam = cameras[go.cameraIndex];
+            Transform* pTransform = pScene->GetTransform(go.id);
+            
+            // Camera name (editable)
+            char nameBuf[64] = {};
+            const std::string& goName = go.name;
+            size_t copyLen = goName.size() < sizeof(nameBuf) - 1 ? goName.size() : sizeof(nameBuf) - 1;
+            for (size_t ci = 0; ci < copyLen; ++ci) {
+                nameBuf[ci] = goName[ci];
+            }
+            if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+                // Need mutable access to change name
+                GameObject* pGoMut = pScene->FindGameObject(go.id);
+                if (pGoMut) pGoMut->name = nameBuf;
+            }
+            
+            // Main camera checkbox
+            if (ImGui::Checkbox("Is Main Camera", &cam.bIsMain)) {
+                // If setting this as main, unset others
+                if (cam.bIsMain) {
+                    for (auto& otherCam : cameras) {
+                        if (&otherCam != &cam) otherCam.bIsMain = false;
+                    }
+                }
+            }
+            
+            // Transform: Position
+            if (pTransform) {
+                float pos[3] = {pTransform->position[0], pTransform->position[1], pTransform->position[2]};
+                if (ImGui::DragFloat3("Position", pos, 0.1f)) {
+                    TransformSetPosition(*pTransform, pos[0], pos[1], pos[2]);
+                }
+                
+                // Transform: Rotation (show as Euler degrees for ease)
+                // Convert quaternion to Euler (approximate)
+                float yaw = std::atan2(2.0f * (pTransform->rotation[3] * pTransform->rotation[1] + 
+                                              pTransform->rotation[0] * pTransform->rotation[2]),
+                                       1.0f - 2.0f * (pTransform->rotation[1] * pTransform->rotation[1] + 
+                                                      pTransform->rotation[2] * pTransform->rotation[2]));
+                float pitch = std::asin(std::clamp(2.0f * (pTransform->rotation[3] * pTransform->rotation[0] - 
+                                                          pTransform->rotation[2] * pTransform->rotation[1]), -1.0f, 1.0f));
+                
+                float yawDeg = yaw * 180.0f / 3.14159265f;
+                float pitchDeg = pitch * 180.0f / 3.14159265f;
+                
+                bool rotChanged = false;
+                rotChanged |= ImGui::DragFloat("Yaw (Y)", &yawDeg, 1.0f, -180.0f, 180.0f);
+                rotChanged |= ImGui::DragFloat("Pitch (X)", &pitchDeg, 1.0f, -89.0f, 89.0f);
+                
+                if (rotChanged) {
+                    // Convert back to quaternion
+                    float yawRad = yawDeg * 3.14159265f / 180.0f;
+                    float pitchRad = pitchDeg * 3.14159265f / 180.0f;
+                    
+                    float cy = std::cos(yawRad * 0.5f);
+                    float sy = std::sin(yawRad * 0.5f);
+                    float cp = std::cos(pitchRad * 0.5f);
+                    float sp = std::sin(pitchRad * 0.5f);
+                    
+                    // Order: Y (yaw) then X (pitch)
+                    float qx = cy * sp;
+                    float qy = sy * cp;
+                    float qz = -sy * sp;
+                    float qw = cy * cp;
+                    
+                    TransformSetRotation(*pTransform, qx, qy, qz, qw);
+                }
+            }
+            
+            ImGui::Separator();
+            
+            // Projection type
+            const char* projTypes[] = {"Perspective", "Orthographic"};
+            int projIdx = static_cast<int>(cam.projection);
+            if (ImGui::Combo("Projection", &projIdx, projTypes, IM_ARRAYSIZE(projTypes))) {
+                cam.projection = static_cast<ProjectionType>(projIdx);
+            }
+            
+            // Projection-specific settings
+            if (cam.projection == ProjectionType::Perspective) {
+                float fovDeg = cam.fov * 180.0f / 3.14159265f;
+                if (ImGui::DragFloat("FOV (degrees)", &fovDeg, 1.0f, 10.0f, 150.0f)) {
+                    cam.fov = fovDeg * 3.14159265f / 180.0f;
+                }
+            } else {
+                ImGui::DragFloat("Ortho Size", &cam.orthoSize, 0.1f, 0.1f, 100.0f);
+            }
+            
+            // Clip planes
+            ImGui::DragFloat("Near Clip", &cam.nearClip, 0.01f, 0.001f, cam.farClip - 0.001f);
+            ImGui::DragFloat("Far Clip", &cam.farClip, 1.0f, cam.nearClip + 0.001f, 100000.0f);
+            
+            // Aspect ratio override
+            ImGui::DragFloat("Aspect Ratio Override", &cam.aspectRatio, 0.01f, 0.0f, 4.0f, "%.2f (0 = auto)");
+            
+            // Clear settings
+            const char* clearFlags[] = {"Skybox", "Solid Color", "Depth Only", "Nothing"};
+            int clearIdx = static_cast<int>(cam.clearFlags);
+            if (ImGui::Combo("Clear Flags", &clearIdx, clearFlags, IM_ARRAYSIZE(clearFlags))) {
+                cam.clearFlags = static_cast<CameraClearFlags>(clearIdx);
+            }
+            
+            if (cam.clearFlags == CameraClearFlags::SolidColor) {
+                ImGui::ColorEdit4("Clear Color", cam.clearColor);
+            }
+            
+            // Render depth (priority)
+            ImGui::DragInt("Depth (priority)", &cam.depth, 1, -100, 100);
+            
+            // Culling mask
+            if (ImGui::TreeNode("Culling Mask")) {
+                // Show as bit flags (simplified)
+                for (int layer = 0; layer < 8; ++layer) {
+                    bool layerEnabled = (cam.cullingMask & (1u << layer)) != 0;
+                    char layerName[16];
+                    snprintf(layerName, sizeof(layerName), "Layer %d", layer);
+                    if (ImGui::Checkbox(layerName, &layerEnabled)) {
+                        if (layerEnabled)
+                            cam.cullingMask |= (1u << layer);
+                        else
+                            cam.cullingMask &= ~(1u << layer);
+                    }
+                }
+                ImGui::TreePop();
+            }
+        }
+        
+        ImGui::PopID();
+        ImGui::Separator();
+    }
+    
+    ImGui::End();
 }
 
 void EditorLayer::DrawViewportsPanel(ViewportManager* pViewportManager, SceneNew* pScene) {

@@ -1256,6 +1256,30 @@ void VulkanApp::MainLoop() {
         this->m_editorLayer.DrawEditor(pSceneNewForEditor, &this->m_camera, this->m_config, &this->m_viewportManager, pLegacySceneForEditor);
         this->m_editorLayer.EndFrame();
 #else
+        /* Calculate render statistics for overlay. */
+        {
+            RenderStats stats;
+            stats.drawCalls = static_cast<uint32_t>(this->m_drawCalls.size());
+            stats.objectsVisible = static_cast<uint32_t>(this->m_batchedDrawList.GetVisibleObjectIndices().size());
+            stats.objectsTotal = static_cast<uint32_t>(this->m_batchedDrawList.GetTotalInstanceCount());
+            stats.batches = static_cast<uint32_t>(this->m_batchedDrawList.GetDrawCallCount());
+            
+            // Calculate total triangles and vertices
+            uint32_t totalVerts = 0;
+            for (const auto& dc : this->m_drawCalls) {
+                totalVerts += dc.vertexCount * dc.instanceCount;
+            }
+            stats.vertices = totalVerts;
+            stats.triangles = totalVerts / 3;  // Assuming triangle lists
+            
+            // Culling ratio (1.0 = all visible, 0.0 = all culled)
+            stats.cullingRatio = (stats.objectsTotal > 0) 
+                ? static_cast<float>(stats.objectsVisible) / static_cast<float>(stats.objectsTotal)
+                : 1.0f;
+            
+            this->m_runtimeOverlay.SetRenderStats(stats);
+        }
+        
         /* Update and draw runtime overlay (FPS, frame time, etc.). */
         this->m_runtimeOverlay.Update(this->m_avgFrameTimeSec);
         this->m_runtimeOverlay.Draw(&this->m_camera, &this->m_config);
@@ -1665,19 +1689,11 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
         dc.pushConstantSize = kInstancedPushConstantSize;
     }
     
-    // Pre-scene callback: light debug rendering (runtime doesn't have viewports)
-    SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
-    const bool bRenderLightDebug = this->m_config.bShowLightDebug && this->m_lightDebugRenderer.IsReady() && pViewProjMat16_ic != nullptr;
-    
+    // Runtime: No preSceneCallback - scene renders directly in main pass
     std::function<void(VkCommandBuffer)> preSceneCallback = nullptr;
-    // No pre-scene callback for Runtime - we render directly in main pass
     
-    // Post-scene callback for light debug and runtime overlay (reassign existing variable)
-    postSceneCallback = [this, bRenderLightDebug, pSceneNew, &rtViewProj](VkCommandBuffer cmd) {
-        // Render light debug (inside main render pass, after scene objects)
-        if (bRenderLightDebug && pSceneNew) {
-            this->m_lightDebugRenderer.Draw(cmd, pSceneNew, rtViewProj);
-        }
+    // Post-scene callback for runtime overlay only (NO light debug in Release)
+    postSceneCallback = [this](VkCommandBuffer cmd) {
         // Render runtime overlay draw data (FPS, etc.)
         this->m_runtimeOverlay.RenderDrawData(cmd);
     };

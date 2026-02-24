@@ -159,6 +159,7 @@ private:
     void DrawInspectorPanel(SceneNew* pScene);
     void DrawViewportPanel(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager);
     void DrawViewportsPanel(ViewportManager* pViewportManager, SceneNew* pScene);
+    void DrawCamerasPanel(SceneNew* pScene);
     void DrawGizmo(SceneNew* pScene, Camera* pCamera);
     void DrawToolbar();
     void DrawMenuBar();
