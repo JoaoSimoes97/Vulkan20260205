@@ -192,6 +192,7 @@ set(SOURCES
     src/loaders/gltf_loader.cpp
     src/loaders/gltf_mesh_utils.cpp
     src/loaders/procedural_mesh_factory.cpp
+    src/render/batched_draw_list.cpp
     src/render/render_list_builder.cpp
     src/render/viewport_manager.cpp
     src/core/light_manager.cpp

@@ -14,6 +14,7 @@
 #include "managers/resource_cleanup_manager.h"
 #include "managers/scene_manager.h"
 #include "managers/texture_manager.h"
+#include "render/batched_draw_list.h"
 #include "render/render_list_builder.h"
 #include "render/viewport_manager.h"
 #include "thread/job_queue.h"
@@ -131,6 +132,7 @@ private:
     TextureManager m_textureManager;
     SceneManager m_sceneManager;
     RenderListBuilder m_renderListBuilder;
+    BatchedDrawList m_batchedDrawList;
     std::vector<DrawCall> m_drawCalls;
     VulkanFramebuffers m_framebuffers;
     VulkanCommandBuffers m_commandBuffers;
@@ -169,6 +171,11 @@ private:
 
     /** Multi-viewport manager (render targets, cameras). */
     ViewportManager m_viewportManager;
+
+#if !EDITOR_BUILD
+    /** Push constant storage for Runtime mode (Release builds render scene directly to swapchain). */
+    std::vector<std::array<uint8_t, 96>> m_runtimePushConstantBuffer;
+#endif
 
 #if EDITOR_BUILD
     /** Editor layer for ImGui-based visual editing (Debug/Editor builds). */

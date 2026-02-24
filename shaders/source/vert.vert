@@ -1,14 +1,15 @@
 #version 450
 
-/* ---- Push Constants ---- */
+/* ---- Push Constants (Instanced Rendering) ---- */
+/* 96 bytes total - shared per draw call batch */
 layout(push_constant) uniform Push {
-    mat4 mvp;           // Model-View-Projection matrix
-    vec4 color;         // Per-object tint color
-    uint objectIndex;   // Index into object data SSBO
-    uint _pad0;         // Padding for 16-byte alignment of camPos
-    uint _pad1;         // Padding
-    uint _pad2;         // Padding (total 12 bytes padding)
-    vec4 camPos;        // Camera world position (xyz), w unused
+    mat4 viewProj;        // View-Projection matrix (64 bytes)
+    vec4 camPos;          // Camera world position xyz, w unused (16 bytes)
+    uint batchStartIndex; // Start index into SSBO for this batch (4 bytes)
+    uint _pad0;           // Padding (4 bytes)
+    uint _pad1;           // Padding (4 bytes)
+    uint _pad2;           // Padding (4 bytes)
+    // Total: 96 bytes
 } pc;
 
 /* ---- Object Data SSBO (binding 2) ---- */
@@ -46,11 +47,14 @@ layout(location = 2) out vec3 outWorldPos;
 layout(location = 3) flat out uint outObjectIndex;
 
 void main() {
-    // Get model matrix from SSBO
-    mat4 model = objectData.objects[pc.objectIndex].model;
+    // Calculate object index using instancing: batch start + instance ID
+    uint objIdx = pc.batchStartIndex + gl_InstanceIndex;
     
-    // Transform to clip space
-    gl_Position = pc.mvp * vec4(inPosition, 1.0);
+    // Get model matrix from SSBO
+    mat4 model = objectData.objects[objIdx].model;
+    
+    // Transform to clip space: compute MVP in shader using viewProj and model
+    gl_Position = pc.viewProj * model * vec4(inPosition, 1.0);
     
     // Pass through UV (with wrapping handled in fragment shader)
     outUV = inUV;
@@ -63,6 +67,6 @@ void main() {
     // World position for lighting calculations
     outWorldPos = (model * vec4(inPosition, 1.0)).xyz;
     
-    // Pass object index to fragment shader
-    outObjectIndex = pc.objectIndex;
+    // Pass object index to fragment shader for material lookup
+    outObjectIndex = objIdx;
 }

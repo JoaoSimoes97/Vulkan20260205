@@ -17,23 +17,18 @@
  * See docs/vulkan/pbr-references.md for full extension list and formulas.
  */
 
-/* ---- Push Constants ---- */
-/* LAYOUT VALIDATION (must match C++ kPushOffset_* in object.h):
- * Offset 0:  mat4 mvp        (64 bytes)
- * Offset 64: vec4 color      (16 bytes)
- * Offset 80: uint objectIndex (4 bytes)
- * Offset 84: padding         (12 bytes) - _pad0, _pad1, _pad2
- * Offset 96: vec4 camPos     (16 bytes) - MUST be 16-byte aligned for vec4
- * Total: 112 bytes
+/* ---- Push Constants (Instanced Rendering) ---- */
+/* 96 bytes total - shared per draw call batch 
+ * Must match vertex shader and C++ InstancedPushConstants
  */
 layout(push_constant) uniform Push {
-    mat4 mvp;           // Model-View-Projection (unused in frag) - offset 0
-    vec4 color;         // Per-object tint color - offset 64
-    uint objectIndex;   // Index into object data SSBO - offset 80
-    uint _pad0;         // Padding for 16-byte alignment of camPos - offset 84
-    uint _pad1;         // Padding - offset 88
-    uint _pad2;         // Padding (total 12 bytes padding) - offset 92
-    vec4 camPos;        // Camera world position (xyz), w unused - offset 96
+    mat4 viewProj;        // View-Projection matrix (64 bytes) - unused in frag
+    vec4 camPos;          // Camera world position xyz, w unused (16 bytes)
+    uint batchStartIndex; // Start index into SSBO for this batch (4 bytes) - unused in frag
+    uint _pad0;           // Padding (4 bytes)
+    uint _pad1;           // Padding (4 bytes)
+    uint _pad2;           // Padding (4 bytes)
+    // Total: 96 bytes
 } pc;
 
 /* ---- Texture Sampler (binding 0) ---- */
@@ -225,7 +220,8 @@ void main() {
     
     // Material properties: factor * texture (per glTF spec)
     // Base color textures are in sRGB space - must convert to linear for PBR calculations
-    vec3 albedo = sRGBToLinear(texColor.rgb) * sRGBToLinear(pc.color.rgb) * sRGBToLinear(objData.baseColor.rgb);
+    // Note: baseColor from SSBO holds the material's color factor (pc.color removed for instancing)
+    vec3 albedo = sRGBToLinear(texColor.rgb) * sRGBToLinear(objData.baseColor.rgb);
     float metallic = clamp(objData.matProps.x * mrTex.b, 0.0, 1.0);
     float roughness = clamp(objData.matProps.y * mrTex.g, MIN_ROUGHNESS, 1.0);
     // glTF spec: emissive = emissiveFactor * emissiveTexture (emissive.a unused, was for 'strength')
@@ -399,5 +395,5 @@ void main() {
     // NOTE: No linearToSRGB() here - swapchain is VK_FORMAT_B8G8R8A8_SRGB
     // which automatically converts linear output to sRGB for display
     
-    outColor = vec4(color, texColor.a * pc.color.a * objData.baseColor.a);
+    outColor = vec4(color, texColor.a * objData.baseColor.a);
 }

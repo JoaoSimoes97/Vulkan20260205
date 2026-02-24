@@ -219,7 +219,8 @@ void VulkanApp::InitVulkan() {
             throw std::runtime_error("VulkanApp::InitVulkan: descriptor set layout main_frag_tex failed");
     }
 
-    constexpr uint32_t kMainPushConstantSize = kObjectPushConstantSize;
+    // Use instanced push constants (96 bytes) for batched instanced rendering
+    constexpr uint32_t kMainPushConstantSize = kInstancedPushConstantSize;
     VkDescriptorSetLayout pMainFragLayout = this->m_descriptorSetLayoutManager.GetLayout(kLayoutKeyMainFragTex);
     PipelineLayoutDescriptor stTexturedLayoutDesc = {
         .pushConstantRanges = {
@@ -310,6 +311,15 @@ void VulkanApp::InitVulkan() {
     if (!this->m_sceneManager.LoadLevelFromFile(levelPath)) {
         VulkanUtils::LogErr("Failed to load level: {}", levelPath);
         this->m_sceneManager.SetCurrentScene(std::make_unique<Scene>("empty"));
+    }
+    
+    /* Set up scene change callback to invalidate batched draw list.
+       This ensures batches are rebuilt only when scene structure changes, not every frame. */
+    Scene* pLoadedScene = this->m_sceneManager.GetCurrentScene();
+    if (pLoadedScene) {
+        pLoadedScene->SetChangeCallback([this]() {
+            this->m_batchedDrawList.SetDirty();
+        });
     }
 
     /* Descriptor pool (sized from layout keys) and one set for "main" pipeline. */
@@ -925,6 +935,11 @@ void VulkanApp::RecreateSwapchainAndDependents() {
     this->m_framebuffers.Destroy();
     this->m_depthImage.Destroy();
     this->m_pipelineManager.DestroyPipelines();
+    
+    /* Mark batched draw list dirty since pipelines were destroyed.
+       This ensures batches are rebuilt with new pipeline handles. */
+    this->m_batchedDrawList.SetDirty();
+    
     this->m_swapchain.RecreateSwapchain(this->m_config);
     VkExtent2D stExtent = this->m_swapchain.GetExtent();
     const VkFormat pDepthCandidates[] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
@@ -1262,10 +1277,62 @@ void VulkanApp::MainLoop() {
             return this->GetOrCreateDescriptorSetForTextures(pBaseColor, pMR, pEmissive, pNormal, pOcclusion);
         };
         
-        this->m_renderListBuilder.Build(this->m_drawCalls, pScene,
-                                  this->m_device.GetDevice(), this->m_renderPass.Get(), this->m_renderPass.HasDepthAttachment(),
+        /* Use BatchedDrawList for efficient instanced rendering with dirty tracking.
+           Only rebuilds batches when scene changes, not every frame.
+           Editor uses viewport's offscreen render pass; Runtime uses main swapchain render pass. */
+#if EDITOR_BUILD
+        VkRenderPass offscreenRenderPass = this->m_viewportManager.GetOffscreenRenderPass();
+        VkRenderPass renderPassForBatching = (offscreenRenderPass != VK_NULL_HANDLE) 
+            ? offscreenRenderPass 
+            : this->m_renderPass.Get();
+        bool batchRenderPassHasDepth = (offscreenRenderPass != VK_NULL_HANDLE) 
+            ? true 
+            : this->m_renderPass.HasDepthAttachment();
+#else
+        // Runtime: render directly to swapchain using main render pass
+        VkRenderPass renderPassForBatching = this->m_renderPass.Get();
+        bool batchRenderPassHasDepth = this->m_renderPass.HasDepthAttachment();
+#endif
+        this->m_batchedDrawList.RebuildIfDirty(pScene,
+                                  this->m_device.GetDevice(), renderPassForBatching, batchRenderPassHasDepth,
                                   &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
-                                  fViewProj, &this->m_pipelineDescriptorSets, getTextureDescriptorSet);
+                                  &this->m_pipelineDescriptorSets, getTextureDescriptorSet);
+        
+        /* Update visibility (frustum culling) each frame - fast operation on existing batches */
+        this->m_batchedDrawList.UpdateVisibility(fViewProj, pScene);
+        
+        /* Convert visible objects to DrawCall format.
+           We iterate visible object indices (frustum-culled) and look up batch info. */
+        this->m_drawCalls.clear();
+        const auto& visibleIndices = this->m_batchedDrawList.GetVisibleObjectIndices();
+        this->m_drawCalls.reserve(visibleIndices.size());
+        
+        for (uint32_t objIdx : visibleIndices) {
+            const auto* batch = this->m_batchedDrawList.GetBatchForObject(objIdx);
+            if (!batch) continue;
+            
+            DrawCall dc = {
+                .pipeline           = batch->pipeline,
+                .pipelineLayout     = batch->pipelineLayout,
+                .vertexBuffer       = batch->vertexBuffer,
+                .vertexBufferOffset = batch->vertexBufferOffset,
+                .pPushConstants     = nullptr,  // Push constants built per-viewport
+                .pushConstantSize   = kInstancedPushConstantSize,
+                .vertexCount        = batch->vertexCount,
+                .instanceCount      = 1,  // One instance per draw call
+                .firstVertex        = batch->firstVertex,
+                .firstInstance      = 0,
+                .descriptorSets     = batch->descriptorSets,
+                .instanceBuffer     = VK_NULL_HANDLE,
+                .instanceBufferOffset = 0,
+                .dynamicOffsets     = {},
+                .pLocalTransform    = nullptr,
+                .color              = {1.0f, 1.0f, 1.0f, 1.0f},
+                .objectIndex        = objIdx,  // Actual SSBO index for this object
+                .pipelineKey        = batch->pipelineKey,
+            };
+            this->m_drawCalls.push_back(dc);
+        }
 
 #if EDITOR_BUILD
         /* Draw editor panels and gizmos, then end ImGui frame. */
@@ -1488,6 +1555,7 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
     };
 #endif
 
+#if EDITOR_BUILD
     // Pre-scene callback for viewport rendering (all viewports render to offscreen targets)
     // This includes scene objects AND light debug
     std::function<void(VkCommandBuffer)> preSceneCallback = nullptr;
@@ -1495,8 +1563,8 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
     SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
     
     preSceneCallback = [this, &vecDrawCalls_ic, bRenderLightDebug, pSceneNew, pViewProjMat16_ic](VkCommandBuffer cmd) {
-        // Per-viewport temporary push constant buffer (112 bytes)
-        alignas(16) uint8_t vpPushData[kObjectPushConstantSize];
+        // Per-viewport temporary push constant buffer (96 bytes for instanced rendering)
+        alignas(16) uint8_t vpPushData[kInstancedPushConstantSize];
         
         auto& vps = this->m_viewportManager.GetViewports();
         for (auto& vp : vps) {
@@ -1587,25 +1655,21 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
                     }
                 }
                 
-                // Recompute push constants with viewport-specific viewProj
-                if (dc.pushConstantSize > 0 && dc.pLocalTransform != nullptr) {
-                    // MVP = viewProj * model
-                    alignas(16) float mvp[16];
-                    ObjectMat4Multiply(mvp, vpViewProj, dc.pLocalTransform);
-                    
-                    // Build push data: MVP (64) + color (16) + objectIndex (4) + padding (12) + camPos (16) = 112 bytes
-                    std::memcpy(vpPushData, mvp, 64);
-                    std::memcpy(vpPushData + 64, dc.color, 16);
-                    std::memcpy(vpPushData + 80, &dc.objectIndex, 4);
-                    std::memset(vpPushData + 84, 0, 12);  // Padding
-                    std::memcpy(vpPushData + 96, vpCamPos, 12);
+                // Recompute push constants with viewport-specific viewProj (instanced layout)
+                if (dc.pushConstantSize == kInstancedPushConstantSize) {
+                    // Instanced layout: viewProj (64) + camPos (16) + batchStartIndex (4) + padding (12) = 96 bytes
+                    // objectIndex holds batchStartIndex for this batch
+                    std::memcpy(vpPushData, vpViewProj, 64);  // viewProj at offset 0
+                    std::memcpy(vpPushData + 64, vpCamPos, 12);  // camPos xyz at offset 64
                     float camW = 1.0f;
-                    std::memcpy(vpPushData + 108, &camW, 4);
+                    std::memcpy(vpPushData + 76, &camW, 4);  // camPos.w at offset 76
+                    std::memcpy(vpPushData + 80, &dc.objectIndex, 4);  // batchStartIndex at offset 80
+                    std::memset(vpPushData + 84, 0, 12);  // Padding at offset 84
                     
                     vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                        0, kObjectPushConstantSize, vpPushData);
+                        0, kInstancedPushConstantSize, vpPushData);
                 } else if (dc.pushConstantSize > 0 && dc.pPushConstants != nullptr) {
-                    // Fallback: use original push constants
+                    // Fallback: use original push constants (legacy path)
                     vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                         0, dc.pushConstantSize, dc.pPushConstants);
                 }
@@ -1625,14 +1689,90 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
         }
     };
     
-    // Don't render scene draw calls in main render pass - they're rendered to offscreen viewports
-    // Main render pass only handles ImGui which displays the viewport textures
+    // Editor mode: Scene renders to offscreen viewports via preSceneCallback
+    // Main render pass only renders ImGui which displays the viewport textures
     std::vector<DrawCall> emptyDrawCalls;
 
     this->m_commandBuffers.Record(lImageIndex, this->m_renderPass.Get(),
                             this->m_framebuffers.Get()[lImageIndex],
                             stRenderArea, stViewport, stScissor, emptyDrawCalls,
                             vecClearValues.data(), lClearValueCount, preSceneCallback, postSceneCallback);
+#else
+    // Release/Runtime mode: Render scene directly to swapchain render pass
+    // No viewport system - render directly to screen
+    
+    // Get camera matrices for main camera
+    alignas(16) float rtViewMat[16];
+    this->m_camera.GetViewMatrix(rtViewMat);
+    
+    float rtCamPos[3];
+    this->m_camera.GetPosition(rtCamPos[0], rtCamPos[1], rtCamPos[2]);
+    
+    // Compute projection matrix for swapchain aspect ratio
+    const float rtAspect = (stExtent.height > 0) 
+        ? static_cast<float>(stExtent.width) / static_cast<float>(stExtent.height)
+        : 1.0f;
+    
+    alignas(16) float rtProjMat[16];
+    if (this->m_config.bUsePerspective) {
+        ObjectSetPerspective(rtProjMat, this->m_config.fCameraFovYRad, rtAspect, 
+                             this->m_config.fCameraNearZ, this->m_config.fCameraFarZ);
+    } else {
+        const float fH = (this->m_config.fOrthoHalfExtent > 0.f) 
+            ? this->m_config.fOrthoHalfExtent : kOrthoFallbackHalfExtent;
+        ObjectSetOrtho(rtProjMat, -fH * rtAspect, fH * rtAspect, -fH, fH,
+                       this->m_config.fOrthoNear, this->m_config.fOrthoFar);
+    }
+    
+    // Combine projection and view for Runtime rendering
+    alignas(16) float rtViewProj[16];
+    ObjectMat4Multiply(rtViewProj, rtProjMat, rtViewMat);
+    
+    // Resize push constant buffer to fit all draw calls
+    this->m_runtimePushConstantBuffer.resize(vecDrawCalls_ic.size());
+    
+    // Build push constant data for each draw call using main camera's viewProj
+    // Mutable copy of draw calls so we can set pPushConstants
+    std::vector<DrawCall> runtimeDrawCalls = vecDrawCalls_ic;
+    for (size_t i = 0; i < runtimeDrawCalls.size(); ++i) {
+        auto& dc = runtimeDrawCalls[i];
+        auto& pcData = this->m_runtimePushConstantBuffer[i];
+        
+        // Instanced layout: viewProj (64) + camPos (16) + batchStartIndex (4) + padding (12) = 96 bytes
+        std::memcpy(pcData.data(), rtViewProj, 64);  // viewProj at offset 0
+        std::memcpy(pcData.data() + 64, rtCamPos, 12);  // camPos xyz at offset 64
+        float camW = 1.0f;
+        std::memcpy(pcData.data() + 76, &camW, 4);  // camPos.w at offset 76
+        std::memcpy(pcData.data() + 80, &dc.objectIndex, 4);  // batchStartIndex at offset 80
+        std::memset(pcData.data() + 84, 0, 12);  // Padding at offset 84
+        
+        dc.pPushConstants = pcData.data();
+        dc.pushConstantSize = kInstancedPushConstantSize;
+    }
+    
+    // Pre-scene callback: light debug rendering (runtime doesn't have viewports)
+    SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
+    const bool bRenderLightDebug = this->m_config.bShowLightDebug && this->m_lightDebugRenderer.IsReady() && pViewProjMat16_ic != nullptr;
+    
+    std::function<void(VkCommandBuffer)> preSceneCallback = nullptr;
+    // No pre-scene callback for Runtime - we render directly in main pass
+    
+    // Post-scene callback for light debug and runtime overlay (reassign existing variable)
+    postSceneCallback = [this, bRenderLightDebug, pSceneNew, &rtViewProj](VkCommandBuffer cmd) {
+        // Render light debug (inside main render pass, after scene objects)
+        if (bRenderLightDebug && pSceneNew) {
+            this->m_lightDebugRenderer.Draw(cmd, pSceneNew, rtViewProj);
+        }
+        // Render runtime overlay draw data (FPS, etc.)
+        this->m_runtimeOverlay.RenderDrawData(cmd);
+    };
+    
+    // Runtime: Pass actual draw calls to render scene directly to swapchain
+    this->m_commandBuffers.Record(lImageIndex, this->m_renderPass.Get(),
+                            this->m_framebuffers.Get()[lImageIndex],
+                            stRenderArea, stViewport, stScissor, runtimeDrawCalls,
+                            vecClearValues.data(), lClearValueCount, preSceneCallback, postSceneCallback);
+#endif
 
     VkCommandBuffer pCmd = this->m_commandBuffers.Get(lImageIndex);
     VkPipelineStageFlags uWaitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
