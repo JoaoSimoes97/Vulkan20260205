@@ -90,6 +90,12 @@ struct Object {
     float                    emissiveLightRadius = 15.f;
     /** Light intensity multiplier for emissive objects. */
     float                    emissiveLightIntensity = 5.f;
+    /** 
+     * Associated emissive light's GameObject ID in SceneNew.
+     * UINT32_MAX means no light exists yet. Set by SceneManager::SyncEmissiveLights().
+     * This creates a proper parent-child relationship: mesh object → light entity.
+     */
+    uint32_t                 emissiveLightId = UINT32_MAX;
     /** Metallic factor (0-1). From glTF pbrMetallicRoughness.metallicFactor. */
     float                    metallicFactor  = 1.f;
     /** Roughness factor (0-1). From glTF pbrMetallicRoughness.roughnessFactor. */

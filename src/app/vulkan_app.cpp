@@ -1152,8 +1152,19 @@ void VulkanApp::MainLoop() {
             }
         } // End of SSBO write block
         
+        /* Sync SceneNew transforms to legacy Scene Objects for rendering.
+           This ensures editor changes to mesh transforms are reflected in the render. */
+        this->m_sceneManager.SyncTransformsToScene(); 
+        
+        /* Sync emissive objects to proper Light entities in SceneNew.
+           Creates/updates/removes LightComponents for Objects with emitsLight=true.
+           All lights (scene lights + emissive lights) are now handled uniformly.
+           Must be called BEFORE UpdateLightBuffer() so emissive lights are included. */
+        this->m_sceneManager.SyncEmissiveLights();
+
         /* Update light buffer from SceneNew.
-           This uploads light data from the ECS scene to the GPU light SSBO. */
+           This uploads light data from the ECS scene to the GPU light SSBO.
+           All lights (scene lights + emissive lights from objects) are uploaded uniformly. */
         {
             SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
             if (pSceneNew) {
@@ -1165,104 +1176,8 @@ void VulkanApp::MainLoop() {
                 
                 // Upload light data to GPU
                 this->m_lightManager.UpdateLightBuffer();
-                
-                // Inject emissive lights from scene objects
-                // Objects with emitsLight=true create point lights at their center
-                std::vector<EmissiveLightData> emissiveLights;
-                
-                for (const Object& obj : pScene->GetObjects()) {
-                    // Only objects with emitsLight enabled create lights
-                    if (!obj.emitsLight)
-                        continue;
-                    
-                    // Calculate emissive intensity: length(RGB) * strength * lightIntensity
-                    float emissiveIntensity = std::sqrt(
-                        obj.emissive[0] * obj.emissive[0] +
-                        obj.emissive[1] * obj.emissive[1] +
-                        obj.emissive[2] * obj.emissive[2]
-                    ) * obj.emissive[3] * obj.emissiveLightIntensity;
-                    
-                    if (emissiveIntensity < 0.001f)
-                        continue;
-                    
-                    // Compute world position from transform (same as ComputeWorldBoundingSphere)
-                    const float* m = obj.localTransform;
-                    float cx = m[12], cy = m[13], cz = m[14]; // Fallback: just translation
-                    
-                    if (obj.pMesh != nullptr) {
-                        const MeshAABB& aabb = obj.pMesh->GetAABB();
-                        if (aabb.IsValid()) {
-                            float localCx, localCy, localCz;
-                            aabb.GetCenter(localCx, localCy, localCz);
-                            // Transform center to world space
-                            cx = m[0]*localCx + m[4]*localCy + m[8]*localCz + m[12];
-                            cy = m[1]*localCx + m[5]*localCy + m[9]*localCz + m[13];
-                            cz = m[2]*localCx + m[6]*localCy + m[10]*localCz + m[14];
-                        }
-                    }
-                    
-                    EmissiveLightData light;
-                    light.position[0] = cx;
-                    light.position[1] = cy;
-                    light.position[2] = cz;
-                    
-                    // Use per-object configurable radius
-                    light.radius = obj.emissiveLightRadius;
-                    
-                    // Emissive color in linear space
-                    light.color[0] = obj.emissive[0];
-                    light.color[1] = obj.emissive[1];
-                    light.color[2] = obj.emissive[2];
-                    
-                    // Intensity from emissive strength * light intensity multiplier
-                    light.intensity = obj.emissive[3] * obj.emissiveLightIntensity;
-                    
-                    emissiveLights.push_back(light);
-                }
-                
-                if (!emissiveLights.empty()) {
-                    this->m_lightManager.InjectEmissiveLights(emissiveLights);
-                    // Pass to debug renderer for visualization
-                    this->m_lightDebugRenderer.SetEmissiveLights(emissiveLights);
-                    
-                    // Debug: log once when emissive lights are injected
-                    static bool bLoggedEmissive = false;
-                    if (!bLoggedEmissive) {
-                        printf("[VulkanApp] Injected %zu emissive lights\n", emissiveLights.size());
-                        for (size_t i = 0; i < emissiveLights.size() && i < 3; ++i) {
-                            const auto& el = emissiveLights[i];
-                            printf("  [%zu] pos=(%.2f, %.2f, %.2f), color=(%.2f, %.2f, %.2f), intensity=%.2f, radius=%.2f\n",
-                                   i, el.position[0], el.position[1], el.position[2],
-                                   el.color[0], el.color[1], el.color[2], el.intensity, el.radius);
-                        }
-                        bLoggedEmissive = true;
-                    }
-                } else {
-                    // Clear any previous emissive lights from debug renderer
-                    this->m_lightDebugRenderer.SetEmissiveLights({});
-                    
-                    // Debug: log once about no emissive lights
-                    static bool bLoggedNoEmissive = false;
-                    if (!bLoggedNoEmissive && pScene->GetObjects().size() > 0) {
-                        printf("[VulkanApp] No emissive lights found. Checking %zu objects:\n", pScene->GetObjects().size());
-                        int emitsLightCount = 0;
-                        for (size_t i = 0; i < pScene->GetObjects().size() && i < 5; ++i) {
-                            const Object& obj = pScene->GetObjects()[i];
-                            printf("  [%zu] emitsLight=%d, emissive=(%.2f, %.2f, %.2f, %.2f)\n",
-                                   i, obj.emitsLight ? 1 : 0, 
-                                   obj.emissive[0], obj.emissive[1], obj.emissive[2], obj.emissive[3]);
-                            if (obj.emitsLight) emitsLightCount++;
-                        }
-                        printf("  Total objects with emitsLight=true: %d\n", emitsLightCount);
-                        bLoggedNoEmissive = true;
-                    }
-                }
             }
         }
-        
-        /* Sync SceneNew transforms to legacy Scene Objects for rendering.
-           This ensures editor changes to mesh transforms are reflected in the render. */
-        this->m_sceneManager.SyncTransformsToScene();
 
         /* Ensure main descriptor set is written (default texture) before drawing main/wire; idempotent. */
         EnsureMainDescriptorSetWritten();

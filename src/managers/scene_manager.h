@@ -66,6 +66,13 @@ public:
      */
     void SyncTransformsToScene();
 
+    /**
+     * Sync emissive object lights to SceneNew LightComponents.
+     * Creates/updates/removes LightComponents for Objects with emitsLight=true.
+     * Call after SyncTransformsToScene() each frame.
+     */
+    void SyncEmissiveLights();
+
 private:
     /** Helper: check if source is procedural (starts with "procedural:"), extract type, return mesh. */
     std::shared_ptr<MeshHandle> LoadProceduralMesh(const std::string& source);

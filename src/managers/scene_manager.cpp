@@ -12,6 +12,8 @@
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #include <fstream>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <unordered_set>
@@ -791,6 +793,112 @@ void SceneManager::SyncTransformsToScene() {
             t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3],
             t.scale[0], t.scale[1], t.scale[2]
         );
+    }
+}
+
+void SceneManager::SyncEmissiveLights() {
+    if (!m_currentScene || !m_sceneNew) return;
+    
+    auto& objs = m_currentScene->GetObjects();
+    auto& lights = m_sceneNew->GetLights();
+    
+    for (auto& obj : objs) {
+        // Calculate emissive intensity
+        float emissiveIntensity = std::sqrt(
+            obj.emissive[0] * obj.emissive[0] +
+            obj.emissive[1] * obj.emissive[1] +
+            obj.emissive[2] * obj.emissive[2]
+        ) * obj.emissive[3] * obj.emissiveLightIntensity;
+        
+        const bool shouldHaveLight = obj.emitsLight && (emissiveIntensity >= 0.001f);
+        const bool hasLight = (obj.emissiveLightId != UINT32_MAX);
+        
+        if (shouldHaveLight && !hasLight) {
+            // Create new light for this emissive object
+            std::string lightName = obj.name.empty() ? "EmissiveLight" : (obj.name + "_Light");
+            uint32_t lightGoId = m_sceneNew->CreateGameObject(lightName);
+            
+            // Set light position from object's world center
+            Transform* lightTransform = m_sceneNew->GetTransform(lightGoId);
+            if (lightTransform) {
+                // Compute world position from object transform
+                const float* m = obj.localTransform;
+                float cx = m[12], cy = m[13], cz = m[14]; // Default: translation
+                
+                if (obj.pMesh != nullptr) {
+                    const MeshAABB& aabb = obj.pMesh->GetAABB();
+                    if (aabb.IsValid()) {
+                        float localCx, localCy, localCz;
+                        aabb.GetCenter(localCx, localCy, localCz);
+                        // Transform center to world space
+                        cx = m[0]*localCx + m[4]*localCy + m[8]*localCz + m[12];
+                        cy = m[1]*localCx + m[5]*localCy + m[9]*localCz + m[13];
+                        cz = m[2]*localCx + m[6]*localCy + m[10]*localCz + m[14];
+                    }
+                }
+                
+                TransformSetPosition(*lightTransform, cx, cy, cz);
+            }
+            
+            // Create light component
+            LightComponent light;
+            light.type = LightType::Point;
+            light.color[0] = obj.emissive[0];
+            light.color[1] = obj.emissive[1];
+            light.color[2] = obj.emissive[2];
+            light.intensity = obj.emissive[3] * obj.emissiveLightIntensity;
+            light.range = obj.emissiveLightRadius;
+            light.falloffExponent = 2.0f;  // Physically correct inverse square
+            light.bActive = true;
+            
+            m_sceneNew->AddLight(lightGoId, light);
+            obj.emissiveLightId = lightGoId;
+            
+            VulkanUtils::LogTrace("SyncEmissiveLights: Created light for object '{}' (lightGoId={})", 
+                                  obj.name, lightGoId);
+            
+        } else if (shouldHaveLight && hasLight) {
+            // Update existing light
+            GameObject* lightGo = m_sceneNew->FindGameObject(obj.emissiveLightId);
+            if (lightGo && lightGo->lightIndex < lights.size()) {
+                LightComponent& light = lights[lightGo->lightIndex];
+                
+                // Update light properties
+                light.color[0] = obj.emissive[0];
+                light.color[1] = obj.emissive[1];
+                light.color[2] = obj.emissive[2];
+                light.intensity = obj.emissive[3] * obj.emissiveLightIntensity;
+                light.range = obj.emissiveLightRadius;
+                
+                // Update position from object's world center
+                Transform* lightTransform = m_sceneNew->GetTransform(obj.emissiveLightId);
+                if (lightTransform) {
+                    const float* m = obj.localTransform;
+                    float cx = m[12], cy = m[13], cz = m[14];
+                    
+                    if (obj.pMesh != nullptr) {
+                        const MeshAABB& aabb = obj.pMesh->GetAABB();
+                        if (aabb.IsValid()) {
+                            float localCx, localCy, localCz;
+                            aabb.GetCenter(localCx, localCy, localCz);
+                            cx = m[0]*localCx + m[4]*localCy + m[8]*localCz + m[12];
+                            cy = m[1]*localCx + m[5]*localCy + m[9]*localCz + m[13];
+                            cz = m[2]*localCx + m[6]*localCy + m[10]*localCz + m[14];
+                        }
+                    }
+                    
+                    TransformSetPosition(*lightTransform, cx, cy, cz);
+                }
+            }
+            
+        } else if (!shouldHaveLight && hasLight) {
+            // Remove light (object no longer emits light)
+            m_sceneNew->DestroyGameObject(obj.emissiveLightId);
+            obj.emissiveLightId = UINT32_MAX;
+            
+            VulkanUtils::LogTrace("SyncEmissiveLights: Removed light for object '{}'", obj.name);
+        }
+        // else: !shouldHaveLight && !hasLight - nothing to do
     }
 }
 
