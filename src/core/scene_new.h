@@ -17,8 +17,8 @@
  * SceneNew — Container for GameObjects and component pools.
  * Uses Structure of Arrays (SoA) for cache-efficient iteration.
  * 
- * Note: Named "SceneNew" during migration to avoid conflict with legacy Scene.
- * Will be renamed to "Scene" when migration is complete.
+ * Architecture: SceneNew provides ECS component management (transforms, lights, cameras).
+ * Scene provides render-ready Object data for GPU upload. Both work together.
  */
 class SceneNew {
 public:
@@ -109,7 +109,7 @@ public:
     /** Get next available GameObject ID. */
     uint32_t GetNextId() const { return m_nextId; }
 
-    /* ---- Legacy Compatibility (Push Data for old pipeline) ---- */
+    /* ---- Compatibility (Push Data for RenderListBuilder) ---- */
 
     /** Fill push constant data for all renderers. For compatibility with existing RenderListBuilder. */
     void FillPushDataForAllObjects(const float* viewProj);

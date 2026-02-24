@@ -65,6 +65,18 @@ struct VulkanConfig {
     /** Show light debug visualization (wireframe spheres/cones for lights). */
     bool bShowLightDebug = true;
 
+    /* --- GPU Resources --- */
+    /** Maximum objects per frame in SSBO. Memory = lMaxObjects × 256 × lMaxFramesInFlight. */
+    uint32_t lMaxObjects = 4096;
+    /** Descriptor cache: max sets per frame. */
+    uint32_t lDescCacheMaxSets = 1000;
+    /** Descriptor cache: uniform buffer descriptors per frame. */
+    uint32_t lDescCacheUniformBuffers = 500;
+    /** Descriptor cache: combined image sampler descriptors per frame. */
+    uint32_t lDescCacheSamplers = 500;
+    /** Descriptor cache: storage buffer descriptors per frame. */
+    uint32_t lDescCacheStorageBuffers = 100;
+
     /* Dev/debug only: not persisted in config file. Set from build type or env when implementing. */
     bool bValidationLayers = static_cast<bool>(false);
 

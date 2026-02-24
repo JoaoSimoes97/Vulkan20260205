@@ -246,7 +246,7 @@ std::shared_ptr<MeshHandle> MeshManager::GetOrCreateFromPositions(const std::str
     auto it = m_cache.find(key);
     if (it != m_cache.end())
         return it->second;
-    // Legacy: position-only data (3 floats per vertex)
+    // Simple format: position-only data (3 floats per vertex)
     std::shared_ptr<MeshHandle> p = CreateVertexBufferFromData(pPositions, vertexCount, sizeof(float) * 3u);
     if (p) {
         // Compute AABB from vertex positions

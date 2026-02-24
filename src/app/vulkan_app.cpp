@@ -163,8 +163,9 @@ void VulkanApp::InitVulkan() {
                 .pImmutableSamplers = nullptr,
             },
             {
+                /* Dynamic offset SSBO for per-frame ring buffer regions. */
                 .binding            = 2u,
-                .descriptorType     = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
                 .descriptorCount    = 1u,
                 .stageFlags         = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT),
                 .pImmutableSamplers = nullptr,
@@ -323,37 +324,13 @@ void VulkanApp::InitVulkan() {
     if (this->m_descriptorSetMain == VK_NULL_HANDLE)
         throw std::runtime_error("VulkanApp::InitVulkan: descriptor set allocation failed");
     
-    /* Create object data SSBO (Storage Buffer for Per-Object Data).
-       4096 objects × 256 bytes each = 1MB total. Updated each frame with all object data.
-       GPU accesses via dynamic offsets: offset = objectIndex × 256. */
-    {
-        constexpr uint32_t MAX_OBJECTS = 4096;
-        constexpr uint32_t OBJECT_DATA_SIZE = 256;  // sizeof(ObjectData)
-        constexpr VkDeviceSize bufSize = MAX_OBJECTS * OBJECT_DATA_SIZE;  // 1MB
-        
-        VkResult r = VulkanUtils::CreateBuffer(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(),
-            bufSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            &this->m_objectDataBuffer, &this->m_objectDataMemory);
-        if (r != VK_SUCCESS) {
-            VulkanUtils::LogErr("VulkanUtils::CreateBuffer (object data SSBO) failed: {}", static_cast<int>(r));
-            throw std::runtime_error("VulkanApp::InitVulkan: object data buffer creation failed");
-        }
-        
-        VulkanUtils::LogInfo("Object data SSBO created: {} objects × {} bytes = {} MB", MAX_OBJECTS, OBJECT_DATA_SIZE, (bufSize / 1024 / 1024));
-    }
-    
     /* Create LightManager which owns the light SSBO.
        16 bytes header (light count) + 256 lights × 64 bytes = ~16KB.
        Updated each frame from SceneNew lights. */
     this->m_lightManager.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice());
     
-    // Also keep the raw buffer handles for legacy code paths (will be removed after full migration)
+    // Convenience accessor for descriptor set writes (LightManager owns the buffer)
     this->m_lightBuffer = this->m_lightManager.GetLightBuffer();
-    // Note: m_lightBufferMemory is now managed by LightManager
-    
-    /* Add main/wire to the map only after we write the set with a valid default texture (see EnsureMainDescriptorSetWritten). */
-    EnsureMainDescriptorSetWritten();
 
     this->m_framebuffers.Create(this->m_device.GetDevice(), this->m_renderPass.Get(),
                           this->m_swapchain.GetImageViews(),
@@ -365,6 +342,43 @@ void VulkanApp::InitVulkan() {
 
     uint32_t lMaxFramesInFlight = (this->m_config.lMaxFramesInFlight >= 1u) ? this->m_config.lMaxFramesInFlight : static_cast<uint32_t>(1u);
     this->m_sync.Create(this->m_device.GetDevice(), lMaxFramesInFlight, this->m_swapchain.GetImageCount());
+
+    /* Initialize frame context manager for per-frame resource tracking. */
+    if (!this->m_frameContextManager.Create(this->m_device.GetDevice(),
+                                            this->m_device.GetQueueFamilyIndices().graphicsFamily,
+                                            lMaxFramesInFlight)) {
+        VulkanUtils::LogWarn("FrameContextManager creation failed (using fallback frame management)");
+    } else {
+        VulkanUtils::LogInfo("FrameContextManager initialized with {} frames in flight", lMaxFramesInFlight);
+    }
+    
+    /* Initialize object data ring buffer with persistent mapping.
+       Ring buffer has N copies of the SSBO (one per frame in flight). */
+    this->m_frameSize = static_cast<VkDeviceSize>(this->m_config.lMaxObjects) * sizeof(ObjectData);
+    if (this->m_objectDataRingBuffer.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(),
+                                            this->m_config.lMaxObjects, lMaxFramesInFlight,
+                                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)) {
+        VulkanUtils::LogInfo("ObjectData RingBuffer initialized ({} objects x {} frames)", this->m_config.lMaxObjects, lMaxFramesInFlight);
+    } else {
+        VulkanUtils::LogErr("ObjectData RingBuffer creation failed");
+        throw std::runtime_error("VulkanApp::InitVulkan: ring buffer creation failed");
+    }
+
+    /* Initialize descriptor cache for transient per-frame allocations. */
+    DescriptorPoolConfig descCacheConfig{};
+    descCacheConfig.maxSets = this->m_config.lDescCacheMaxSets;
+    descCacheConfig.uniformBufferCount = this->m_config.lDescCacheUniformBuffers;
+    descCacheConfig.combinedSamplerCount = this->m_config.lDescCacheSamplers;
+    descCacheConfig.storageBufferCount = this->m_config.lDescCacheStorageBuffers;
+    if (this->m_descriptorCache.Create(this->m_device.GetDevice(), descCacheConfig, lMaxFramesInFlight)) {
+        VulkanUtils::LogInfo("DescriptorCache initialized ({} max sets x {} frames)", descCacheConfig.maxSets, lMaxFramesInFlight);
+    } else {
+        VulkanUtils::LogErr("DescriptorCache creation failed");
+        throw std::runtime_error("VulkanApp::InitVulkan: descriptor cache creation failed");
+    }
+
+    /* Add main/wire to the map only after ring buffer is ready (descriptor writes use ring buffer). */
+    EnsureMainDescriptorSetWritten();
 
     /* Initialize light debug renderer if enabled. Creates separate pipeline for debug line drawing. */
     if (this->m_config.bShowLightDebug) {
@@ -441,10 +455,12 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
     
+    /* Use ring buffer for object data SSBO - range covers one frame's worth of data.
+       Dynamic offset selects which frame's region is active at bind time. */
     VkDescriptorBufferInfo stBufferInfo = {
-        .buffer = this->m_objectDataBuffer,
+        .buffer = this->m_objectDataRingBuffer.GetBuffer(),
         .offset = 0,
-        .range  = VK_WHOLE_SIZE,  /* Entire SSBO buffer available for dynamic offset access */
+        .range  = this->m_frameSize,
     };
     
     VkDescriptorBufferInfo stLightBufferInfo = {
@@ -487,7 +503,7 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
             .dstBinding       = 2,
             .dstArrayElement  = 0,
             .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
             .pImageInfo       = nullptr,
             .pBufferInfo      = &stBufferInfo,
             .pTexelBufferView = nullptr,
@@ -576,10 +592,11 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<Te
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
     
+    /* Use ring buffer for object data SSBO. */
     VkDescriptorBufferInfo bufferInfo = {
-        .buffer = this->m_objectDataBuffer,
+        .buffer = this->m_objectDataRingBuffer.GetBuffer(),
         .offset = 0,
-        .range  = VK_WHOLE_SIZE,
+        .range  = this->m_frameSize,
     };
     
     VkDescriptorBufferInfo lightBufferInfo = {
@@ -615,7 +632,7 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<Te
             .dstBinding       = 2,
             .dstArrayElement  = 0,
             .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
             .pImageInfo       = nullptr,
             .pBufferInfo      = &bufferInfo,
             .pTexelBufferView = nullptr,
@@ -706,10 +723,11 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
     
+    /* Use ring buffer for object data SSBO. */
     VkDescriptorBufferInfo bufferInfo = {
-        .buffer = this->m_objectDataBuffer,
+        .buffer = this->m_objectDataRingBuffer.GetBuffer(),
         .offset = 0,
-        .range  = VK_WHOLE_SIZE,
+        .range  = this->m_frameSize,
     };
     
     VkDescriptorBufferInfo lightBufferInfo = {
@@ -762,7 +780,7 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
             .dstBinding       = 2,
             .dstArrayElement  = 0,
             .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
             .pImageInfo       = nullptr,
             .pBufferInfo      = &bufferInfo,
             .pTexelBufferView = nullptr,
@@ -1054,23 +1072,21 @@ void VulkanApp::MainLoop() {
             }
         }
 
-        /* Update object data SSBO: write all objects' per-object data (model matrix, emissive, material properties).
+        /* Update object data SSBO using ring buffer with persistent mapping.
            Each object occupies 256 bytes at offset = objectIndex × 256.
            GPU accesses via push constant objectIndex to index into the SSBO array. */
         {
-            constexpr uint32_t OBJECT_DATA_SIZE = 256;
-            constexpr uint32_t MAX_OBJECTS = 4096;
+            /* Get current frame index for ring buffer region. */
+            uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
+            ObjectData* pObjectData = this->m_objectDataRingBuffer.GetFrameData(lFrameIndex);
             
-            void* pMapped = nullptr;
-            vkMapMemory(this->m_device.GetDevice(), this->m_objectDataMemory, 0, VK_WHOLE_SIZE, 0, &pMapped);
-            if (pMapped) {
-                uint8_t* pBuffer = static_cast<uint8_t*>(pMapped);
+            if (pObjectData != nullptr) {
                 const auto& objects = pScene->GetObjects();
                 
-                /* Write each object's data at its reserved offset. */
-                for (size_t i = 0; i < objects.size() && i < MAX_OBJECTS; ++i) {
+                /* Write each object's data to the ring buffer region. */
+                for (size_t i = 0; i < objects.size() && i < this->m_config.lMaxObjects; ++i) {
                     const Object& obj = objects[i];
-                    ObjectData* pObjData = reinterpret_cast<ObjectData*>(pBuffer + i * OBJECT_DATA_SIZE);
+                    ObjectData* pObjData = &pObjectData[i];
                     
                     /* Model matrix (for normal transform, world position). */
                     pObjData->model = glm::mat4(
@@ -1100,13 +1116,12 @@ void VulkanApp::MainLoop() {
                     pObjData->reserved7 = glm::vec4(0.f);
                     pObjData->reserved8 = glm::vec4(0.f);
                 }
-                
-                vkUnmapMemory(this->m_device.GetDevice(), this->m_objectDataMemory);
             }
         } // End of SSBO write block
         
-        /* Sync SceneNew transforms to legacy Scene Objects for rendering.
-           This ensures editor changes to mesh transforms are reflected in the render. */
+        /* Sync ECS transforms to render Scene Objects.
+           Editor gizmo changes update SceneNew transforms, which must be copied
+           to Scene Objects for BatchedDrawList to render correctly. */
         this->m_sceneManager.SyncTransformsToScene(); 
         
         /* Sync emissive objects to proper Light entities in SceneNew.
@@ -1202,8 +1217,8 @@ void VulkanApp::MainLoop() {
 #if EDITOR_BUILD
         /* Draw editor panels and gizmos, then end ImGui frame. */
         SceneNew* pSceneNewForEditor = this->m_sceneManager.GetSceneNew();
-        Scene* pLegacySceneForEditor = this->m_sceneManager.GetCurrentScene();
-        this->m_editorLayer.DrawEditor(pSceneNewForEditor, &this->m_camera, this->m_config, &this->m_viewportManager, pLegacySceneForEditor);
+        Scene* pRenderSceneForEditor = this->m_sceneManager.GetCurrentScene();
+        this->m_editorLayer.DrawEditor(pSceneNewForEditor, &this->m_camera, this->m_config, &this->m_viewportManager, pRenderSceneForEditor);
         this->m_editorLayer.EndFrame();
 #else
         /* Calculate render statistics for overlay. */
@@ -1417,15 +1432,11 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
             
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToUse);
             if (dc.descriptorSets.empty() == false) {
-                if (dc.dynamicOffsets.empty() == false) {
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
-                        static_cast<uint32_t>(0), static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
-                        static_cast<uint32_t>(dc.dynamicOffsets.size()), dc.dynamicOffsets.data());
-                } else {
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
-                        static_cast<uint32_t>(0), static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
-                        static_cast<uint32_t>(0), nullptr);
-                }
+                /* Pass the current frame's dynamic offset for the object data SSBO.
+                   Binding 2 is STORAGE_BUFFER_DYNAMIC, requiring exactly 1 dynamic offset. */
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dc.pipelineLayout,
+                    static_cast<uint32_t>(0), static_cast<uint32_t>(dc.descriptorSets.size()), dc.descriptorSets.data(),
+                    static_cast<uint32_t>(1), &this->m_currentFrameObjectDataOffset);
             }
             
             /* Recompute push constants with viewport-specific viewProj (instanced layout) */
@@ -1503,15 +1514,10 @@ void VulkanApp::Cleanup() {
         this->m_descriptorSetMain = VK_NULL_HANDLE;
     }
     
-    /* Clean up object data SSBO. */
-    if (this->m_objectDataBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(this->m_device.GetDevice(), this->m_objectDataBuffer, nullptr);
-        this->m_objectDataBuffer = VK_NULL_HANDLE;
-    }
-    if (this->m_objectDataMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(this->m_device.GetDevice(), this->m_objectDataMemory, nullptr);
-        this->m_objectDataMemory = VK_NULL_HANDLE;
-    }
+    /* Clean up ring buffer and frame context manager. */
+    this->m_objectDataRingBuffer.Destroy();
+    this->m_frameContextManager.Destroy();
+    this->m_descriptorCache.Destroy();
     
     /* Clean up light manager (owns the light SSBO). */
     this->m_lightManager.Destroy();
@@ -1537,6 +1543,13 @@ void VulkanApp::Cleanup() {
 bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const float* pViewProjMat16_ic) {
     VkDevice pDevice = this->m_device.GetDevice();
     uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
+    
+    /* Reset descriptor cache for this frame (all sets returned to pool). */
+    this->m_descriptorCache.ResetFrame(lFrameIndex);
+    
+    /* Set current frame's dynamic offset for object data SSBO. */
+    this->m_currentFrameObjectDataOffset = lFrameIndex * static_cast<uint32_t>(this->m_frameSize);
+    
     VkFence pInFlightFence = this->m_sync.GetInFlightFence(lFrameIndex);
     VkSemaphore pImageAvailable = this->m_sync.GetImageAvailableSemaphore(lFrameIndex);
 
@@ -1686,6 +1699,10 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
         
         dc.pPushConstants = pcData.data();
         dc.pushConstantSize = kInstancedPushConstantSize;
+        
+        /* Set dynamic offset for object data SSBO binding. */
+        dc.dynamicOffsets.clear();
+        dc.dynamicOffsets.push_back(this->m_currentFrameObjectDataOffset);
     }
     
     /* Runtime: No preSceneCallback - scene renders directly in main pass */

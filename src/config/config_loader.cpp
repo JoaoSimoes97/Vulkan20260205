@@ -81,6 +81,19 @@ void ApplyJsonToConfig(const json& jRoot, VulkanConfig& stConfig) {
         if ((jDebug.contains("show_light_debug") == true) && (jDebug["show_light_debug"].is_boolean() == true))
             stConfig.bShowLightDebug = jDebug["show_light_debug"].get<bool>();
     }
+    if (jRoot.contains("gpu_resources") == true) {
+        const json& jGpu = jRoot["gpu_resources"];
+        if ((jGpu.contains("max_objects") == true) && (jGpu["max_objects"].is_number_unsigned() == true))
+            stConfig.lMaxObjects = jGpu["max_objects"].get<uint32_t>();
+        if ((jGpu.contains("desc_cache_max_sets") == true) && (jGpu["desc_cache_max_sets"].is_number_unsigned() == true))
+            stConfig.lDescCacheMaxSets = jGpu["desc_cache_max_sets"].get<uint32_t>();
+        if ((jGpu.contains("desc_cache_uniform_buffers") == true) && (jGpu["desc_cache_uniform_buffers"].is_number_unsigned() == true))
+            stConfig.lDescCacheUniformBuffers = jGpu["desc_cache_uniform_buffers"].get<uint32_t>();
+        if ((jGpu.contains("desc_cache_samplers") == true) && (jGpu["desc_cache_samplers"].is_number_unsigned() == true))
+            stConfig.lDescCacheSamplers = jGpu["desc_cache_samplers"].get<uint32_t>();
+        if ((jGpu.contains("desc_cache_storage_buffers") == true) && (jGpu["desc_cache_storage_buffers"].is_number_unsigned() == true))
+            stConfig.lDescCacheStorageBuffers = jGpu["desc_cache_storage_buffers"].get<uint32_t>();
+    }
     /* validation_layers not loaded from config — dev/debug only, set from build type or env. */
 }
 
@@ -114,6 +127,11 @@ VulkanConfig GetDefaultConfig() {
     stCfg.fClearColorB = 0.4f;
     stCfg.fClearColorA = 1.f;
     stCfg.bShowLightDebug = true;
+    stCfg.lMaxObjects = 4096;
+    stCfg.lDescCacheMaxSets = 1000;
+    stCfg.lDescCacheUniformBuffers = 500;
+    stCfg.lDescCacheSamplers = 500;
+    stCfg.lDescCacheStorageBuffers = 100;
     stCfg.bValidationLayers = static_cast<bool>(false);
     stCfg.bSwapchainDirty = static_cast<bool>(false);
     return stCfg;
@@ -205,6 +223,13 @@ void SaveConfigToFile(const std::string& sPath_ic, const VulkanConfig& stConfig_
         }},
         { "debug", {
             { "show_light_debug", stConfig_ic.bShowLightDebug }
+        }},
+        { "gpu_resources", {
+            { "max_objects", stConfig_ic.lMaxObjects },
+            { "desc_cache_max_sets", stConfig_ic.lDescCacheMaxSets },
+            { "desc_cache_uniform_buffers", stConfig_ic.lDescCacheUniformBuffers },
+            { "desc_cache_samplers", stConfig_ic.lDescCacheSamplers },
+            { "desc_cache_storage_buffers", stConfig_ic.lDescCacheStorageBuffers }
         }}
     };
     std::ofstream stmOut(sPath_ic);

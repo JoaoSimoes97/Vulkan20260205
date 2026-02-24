@@ -194,9 +194,9 @@ void SceneNew::Clear() {
 }
 
 void SceneNew::FillPushDataForAllObjects(const float* viewProj) {
-    // This is for legacy compatibility with the old RenderListBuilder.
-    // In the new system, the RenderListBuilder works directly with component pools.
-    // For now, this does nothing - push data is built differently in new architecture.
+    // This is for compatibility with the RenderListBuilder.
+    // In the current system, the RenderListBuilder works directly with Scene Objects.
+    // SceneNew handles ECS components, Scene handles render-ready Object data.
     (void)viewProj;
 }
 

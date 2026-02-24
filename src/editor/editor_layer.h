@@ -87,7 +87,7 @@ public:
      * Draw editor panels and gizmos.
      * Call after BeginFrame(), before EndFrame().
      */
-    void DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager = nullptr, Scene* pLegacyScene = nullptr);
+    void DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager = nullptr, Scene* pRenderScene = nullptr);
 
     /**
      * End ImGui frame and prepare for rendering.
@@ -198,8 +198,8 @@ private:
     float m_viewportW = 0.f;
     float m_viewportH = 0.f;
     
-    // Legacy Scene for emissive light editing (Objects with emitsLight)
-    Scene* m_pLegacyScene = nullptr;
+    // Render Scene for emissive light editing (Objects with emitsLight)
+    Scene* m_pRenderScene = nullptr;
 };
 
 #endif // EDITOR_BUILD

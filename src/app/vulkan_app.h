@@ -3,9 +3,12 @@
 #include <cstddef>
 #include <glm/glm.hpp>
 #include "camera.h"
+#include "core/frame_context.h"
 #include "core/light_component.h"
 #include "core/light_manager.h"
 #include "core/light_debug_renderer.h"
+#include "render/gpu_buffer.h"
+#include "render/descriptor_cache.h"
 #include "managers/descriptor_pool_manager.h"
 #include "managers/descriptor_set_layout_manager.h"
 #include "managers/material_manager.h"
@@ -164,6 +167,8 @@ private:
     /* ======== Descriptors (layouts, pools, sets) ======== */
     DescriptorSetLayoutManager m_descriptorSetLayoutManager;
     DescriptorPoolManager     m_descriptorPoolManager;
+    /** Per-frame descriptor cache for transient allocations (reset each frame). */
+    DescriptorCache           m_descriptorCache;
     std::map<std::string, std::vector<VkDescriptorSet>> m_pipelineDescriptorSets;
     VkDescriptorSet           m_descriptorSetMain = VK_NULL_HANDLE;  /* single set for textured pipelines (default texture) */
     /** Keep default texture alive so TrimUnused() does not destroy it. */
@@ -177,13 +182,20 @@ private:
     /** Reverse map: descriptor set -> texture (for reference counting and cleanup). */
     std::map<VkDescriptorSet, std::shared_ptr<TextureHandle>> m_descriptorSetTextures;
 
-    /* ======== GPU Buffers (SSBO for objects & lights) ======== */
-    /** Per-object data SSBO buffer (4096 objects × 256 bytes = 1MB). Written each frame. */
-    VkBuffer m_objectDataBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory m_objectDataMemory = VK_NULL_HANDLE;
+    /* ======== GPU Buffers (SSBO for lights) ======== */
     /** Light data SSBO buffer (16 byte header + 256 lights × 64 bytes = ~16KB). */
     VkBuffer m_lightBuffer = VK_NULL_HANDLE;
     VkDeviceMemory m_lightBufferMemory = VK_NULL_HANDLE;
+    
+    /* ======== Ring Buffers (persistent mapping) ======== */
+    /** Frame context manager for per-frame resource tracking. */
+    FrameContextManager m_frameContextManager;
+    /** Per-object data ring buffer with persistent mapping (triple-buffered SSBO). */
+    RingBuffer<ObjectData> m_objectDataRingBuffer;
+    /** Frame size in bytes for ring buffer region (lMaxObjects × 256). */
+    VkDeviceSize m_frameSize = 0;
+    /** Current frame's dynamic offset for object data SSBO binding. */
+    uint32_t m_currentFrameObjectDataOffset = 0;
 
     /* ======== Lighting ======== */
     LightManager m_lightManager;

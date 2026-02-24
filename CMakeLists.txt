@@ -195,23 +195,32 @@ set(SOURCES
     src/render/batched_draw_list.cpp
     src/render/render_list_builder.cpp
     src/render/viewport_manager.cpp
+    src/render/gpu_buffer.cpp
+    src/render/renderer.cpp
+    src/render/descriptor_cache.cpp
     src/core/light_manager.cpp
     src/core/light_debug_renderer.cpp
     src/core/scene_new.cpp
+    src/core/frame_context.cpp
+    src/core/engine.cpp
+    src/scene/scene_unified.cpp
     src/ui/imgui_base.cpp
     src/runtime/runtime_overlay.cpp
+    src/app/runtime_app.cpp
 )
 
 # Editor sources (Debug builds only)
 if(EDITOR_ENABLED)
     list(APPEND SOURCES
         src/editor/editor_layer.cpp
+        src/app/editor_app.cpp
     )
 endif()
 
 # Header files (same layout)
 set(HEADERS
     src/app/vulkan_app.h
+    src/app/runtime_app.h
     src/config/vulkan_config.h
     src/config/config_loader.h
     src/managers/managers.h
@@ -226,6 +235,7 @@ set(HEADERS
     src/loaders/gltf_loader.h
     src/loaders/procedural_mesh_factory.h
     src/scene/scene.h
+    src/scene/scene_unified.h
     src/render/render_list_builder.h
     src/render/viewport_config.h
     src/render/viewport_manager.h
@@ -255,7 +265,14 @@ set(HEADERS
     src/core/renderer_component.h
     src/core/scene_new.h
     src/core/script_component.h
+    src/core/subsystem.h
+    src/core/frame_context.h
+    src/core/engine.h
     src/core/transform.h
+    src/render/gpu_buffer.h
+    src/render/render_context.h
+    src/render/renderer.h
+    src/render/descriptor_cache.h
     src/ui/imgui_base.h
     src/runtime/runtime_overlay.h
 )
@@ -264,6 +281,7 @@ set(HEADERS
 if(EDITOR_ENABLED)
     list(APPEND HEADERS
         src/editor/editor_layer.h
+        src/app/editor_app.h
     )
 endif()
 

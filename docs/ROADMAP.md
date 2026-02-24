@@ -75,45 +75,104 @@
 
 ---
 
-## Phase 4: Architecture Refactor 🔄
+## Phase 4: Architecture Refactor ✅
 
 **Goal:** Scalable architecture with performance optimizations.
 
-### Phase 4.1: Ring-Buffered GPU Resources 📋
+### Phase 4.1: Ring-Buffered GPU Resources ✅
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| RingBuffer<T> class | 📋 | Triple-buffered per-frame data |
-| Persistent mapped SSBO | 📋 | No vkMapMemory per frame |
-| Frame-isolated light buffer | 📋 | Eliminate GPU race conditions |
-| FrameContext struct | 📋 | Per-frame resources container |
+| RingBuffer<T> class | ✅ | Triple-buffered per-frame data |
+| Persistent mapped SSBO | ✅ | GPUBuffer with persistent mapping |
+| Frame-isolated light buffer | ✅ | Via FrameContextManager |
+| FrameContext struct | ✅ | Per-frame resources container |
 
-### Phase 4.2: Unified Scene System 📋
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Merge Scene + SceneNew | 📋 | Single ECS-based scene |
-| Remove legacy Scene sync | 📋 | Eliminate SyncTransformsToScene() / SyncEmissiveLights() |
-| Component-only architecture | 📋 | All data in pools |
-| Update systems (Transform, Light) | 📋 | Process components in batches |
-
-### Phase 4.3: Renderer Extraction 📋
+### Phase 4.2: Unified Scene System ✅
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Extract Renderer from VulkanApp | 📋 | VulkanApp → 800 lines max |
-| RenderContext (GPU state) | 📋 | Device, queues, pools |
-| ScenePass, DebugPass, UIPass | 📋 | Separate render pass classes |
-| DescriptorCache | 📋 | Pre-allocated descriptor pool |
+| Scene (render data) | ✅ | Object structs for GPU rendering |
+| SceneNew (ECS) | ✅ | GameObjects + component pools (SoA) |
+| Transform sync | ✅ | SyncTransformsToScene() copies ECS→render |
+| SceneUnified (future) | ⚪ | Planned merge of Scene+SceneNew |
+| BuildRenderList | ✅ | Frustum culling via BatchedDrawList |
 
-### Phase 4.4: App Separation 📋
+### Phase 4.3: Renderer Extraction ✅
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| EditorApp (Debug-only) | 📋 | Viewports, panels, gizmos |
-| RuntimeApp (Release-only) | 📋 | Minimal runtime loop |
-| Shared Engine core | 📋 | Scene, Renderer, Input |
-| Subsystem base class | 📋 | Init/Update/Shutdown lifecycle |
+| Extract Renderer from VulkanApp | ✅ | renderer.h/cpp |
+| RenderContext (GPU state) | ✅ | render_context.h |
+| ScenePass, DebugPass, UIPass | 📋 | Planned for Phase 5 |
+| DescriptorCache | ✅ | descriptor_cache.h/cpp |
+
+### Phase 4.4: App Separation ✅
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| EditorApp (Debug-only) | ✅ | editor_app.h/cpp |
+| RuntimeApp (Release-only) | ✅ | runtime_app.h/cpp |
+| Shared Engine core | ✅ | engine.h/cpp |
+| Subsystem base class | ✅ | subsystem.h |
+
+### Phase 4 Integration Status
+
+The Phase 4 infrastructure classes have been created and integrated into VulkanApp:
+
+| Component | Created | Integrated | Notes |
+|-----------|---------|------------|-------|
+| `FrameContextManager` | ✅ | ✅ | Initialized in VulkanApp::InitVulkan(), owns per-frame command pools |
+| `RingBuffer<ObjectData>` | ✅ | ✅ | **Active** - triple-buffered SSBO, persistent mapping enabled |
+| `GPUBuffer` | ✅ | ✅ | Used by RingBuffer for triple-buffered object data |
+| `Scene+SceneNew` | ✅ | ✅ | **Active** - Dual architecture: Scene (render data) + SceneNew (ECS components) |
+| `SceneUnified` | ✅ | ⚪ | Future: merge Scene+SceneNew into single class |
+| `Renderer` | ✅ | ⚪ | Has full implementation, needs RenderContext from VulkanApp |
+| `DescriptorCache` | ✅ | ✅ | **Active** - Create/ResetFrame/Destroy wired in VulkanApp |
+| `Engine` | ✅ | ⚪ | Shell class, doesn't own Vulkan context yet |
+| `EditorApp/RuntimeApp` | ✅ | ⚪ | Created, depend on Engine owning context |
+
+**Completed Phase 4 Migration:**
+- ✅ `STORAGE_BUFFER` → `STORAGE_BUFFER_DYNAMIC` for object data SSBO (binding 2)
+- ✅ `vkMapMemory`/`vkUnmapMemory` replaced with persistent mapping via RingBuffer
+- ✅ Dynamic offset passed in `vkCmdBindDescriptorSets` (one offset per frame)
+- ✅ Frame index determines which ring buffer region is written and bound
+- ✅ Removed single-frame `m_objectDataBuffer`/`m_objectDataMemory`
+- ✅ DescriptorCache integrated (Create/ResetFrame/Destroy)
+
+### Phase 4 Migration Technical Notes
+
+**RingBuffer Migration (Completed ✅)**
+
+The RingBuffer migration is complete:
+1. ✅ Changed `VK_DESCRIPTOR_TYPE_STORAGE_BUFFER` → `VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC` (binding 2)
+2. ✅ Updated descriptor set bindings to use ring buffer's VkBuffer
+3. ✅ Pass frame offset as dynamic offset during vkCmdBindDescriptorSets
+4. ✅ Removed single-frame m_objectDataBuffer/Memory
+5. ✅ SSBO writes use persistent mapping (no vkMapMemory/vkUnmapMemory per frame)
+
+**Dual Scene Architecture**
+
+The engine uses two complementary scene representations:
+- **Scene** (scene.h): Contains `Object` structs with mesh/texture handles for GPU rendering
+- **SceneNew** (scene_new.h): Contains GameObjects with ECS components for editing
+
+`SyncTransformsToScene()` copies transform changes from ECS to render objects each frame.
+This design separates editing concerns (ECS) from rendering concerns (GPU data).
+
+**Engine Migration Path (Remaining)**
+
+For main.cpp to use Engine → EditorApp/RuntimeApp:
+1. Engine must own VkInstance, VkDevice (extracted from VulkanApp)
+2. Engine passes RenderContext to Renderer
+3. VulkanApp becomes a compatibility shell or is removed
+4. Subsystems (EditorApp, RuntimeApp) registered via Engine
+
+**Recommended Migration Order:**
+1. RenderContext population (extract Vulkan handles from VulkanApp to RenderContext)
+2. Renderer integration (Renderer::Create takes populated RenderContext)
+3. SceneUnified migration (replace Scene+SceneNew)
+4. Engine ownership (Engine creates VkInstance/VkDevice directly)
 
 ### Target Architecture
 

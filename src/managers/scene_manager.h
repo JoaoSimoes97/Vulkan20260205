@@ -23,7 +23,10 @@ struct GltfNodeVisitorContext;
  * SetDependencies() must be called before LoadLevelFromFile or LoadDefaultLevelOrCreate.
  * Supports procedural meshes via "procedural:type" syntax (e.g., "procedural:cube").
  * 
- * During migration: maintains both legacy Scene and new SceneNew for ECS components.
+ * Architecture: Maintains both Scene (render data) and SceneNew (ECS components).
+ * - Scene contains Object structs with mesh/texture handles for GPU rendering
+ * - SceneNew contains GameObjects with Transform/Renderer/Light/Camera components for editing
+ * - SyncTransformsToScene() copies ECS transforms to render Objects each frame
  */
 class SceneManager {
 public:
@@ -35,7 +38,7 @@ public:
     /** Unload current scene (drops refs; managers can TrimUnused). */
     void UnloadScene();
 
-    /** Current legacy scene (may be null). */
+    /** Current render scene (may be null). Contains Object structs for GPU rendering. */
     Scene* GetCurrentScene() { return m_currentScene.get(); }
     const Scene* GetCurrentScene() const { return m_currentScene.get(); }
 

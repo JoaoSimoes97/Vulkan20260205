@@ -234,11 +234,11 @@ bool EditorLayer::WantCaptureKeyboard() const {
     return ImGui::GetIO().WantCaptureKeyboard;
 }
 
-void EditorLayer::DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager, Scene* pLegacyScene) {
+void EditorLayer::DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager, Scene* pRenderScene) {
     if (!m_bInitialized || !m_bEnabled || !pScene) return;
     
-    // Store legacy scene for inspector access
-    m_pLegacyScene = pLegacyScene;
+    // Store render scene for inspector access (emissive light editing)
+    m_pRenderScene = pRenderScene;
 
     // Setup dockspace over the entire viewport
     ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -510,14 +510,14 @@ void EditorLayer::DrawInspectorPanel(SceneNew* pScene) {
                 }
             }
             
-            // Emissive Light properties (from legacy Scene Objects)
-            // Find the Object in the legacy scene that corresponds to this GameObject
-            if (m_pLegacyScene && pGO->HasRenderer()) {
+            // Emissive Light properties (from render Scene Objects)
+            // Find the Object in the render scene that corresponds to this GameObject
+            if (m_pRenderScene && pGO->HasRenderer()) {
                 Object* pObj = nullptr;
-                auto& legacyObjects = m_pLegacyScene->GetObjects();
-                for (size_t objIdx = 0; objIdx < legacyObjects.size(); ++objIdx) {
-                    if (legacyObjects[objIdx].gameObjectId == m_selectedObjectId) {
-                        pObj = &const_cast<Object&>(legacyObjects[objIdx]);
+                auto& renderObjects = m_pRenderScene->GetObjects();
+                for (size_t objIdx = 0; objIdx < renderObjects.size(); ++objIdx) {
+                    if (renderObjects[objIdx].gameObjectId == m_selectedObjectId) {
+                        pObj = &const_cast<Object&>(renderObjects[objIdx]);
                         break;
                     }
                 }
