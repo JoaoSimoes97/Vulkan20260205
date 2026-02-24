@@ -389,18 +389,6 @@ if(GLSLC)
         COMMENT "Compiling fragment shader"
     )
     add_custom_command(
-        OUTPUT ${SHADERS_OUTPUT_DIR}/frag_alt.spv
-        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/frag_alt.frag -o ${SHADERS_OUTPUT_DIR}/frag_alt.spv
-        DEPENDS ${SHADERS_SOURCE_DIR}/frag_alt.frag
-        COMMENT "Compiling alt fragment shader"
-    )
-    add_custom_command(
-        OUTPUT ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
-        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/frag_untextured.frag -o ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
-        DEPENDS ${SHADERS_SOURCE_DIR}/frag_untextured.frag
-        COMMENT "Compiling untextured fragment shader"
-    )
-    add_custom_command(
         OUTPUT ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv
         COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/debug_line.vert -o ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv
         DEPENDS ${SHADERS_SOURCE_DIR}/debug_line.vert
@@ -427,18 +415,6 @@ elseif(GLSLANGVALIDATOR)
         COMMENT "Compiling fragment shader"
     )
     add_custom_command(
-        OUTPUT ${SHADERS_OUTPUT_DIR}/frag_alt.spv
-        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/frag_alt.frag -o ${SHADERS_OUTPUT_DIR}/frag_alt.spv
-        DEPENDS ${SHADERS_SOURCE_DIR}/frag_alt.frag
-        COMMENT "Compiling alt fragment shader"
-    )
-    add_custom_command(
-        OUTPUT ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
-        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/frag_untextured.frag -o ${SHADERS_OUTPUT_DIR}/frag_untextured.spv
-        DEPENDS ${SHADERS_SOURCE_DIR}/frag_untextured.frag
-        COMMENT "Compiling untextured fragment shader"
-    )
-    add_custom_command(
         OUTPUT ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv
         COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/debug_line.vert -o ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv
         DEPENDS ${SHADERS_SOURCE_DIR}/debug_line.vert
@@ -458,7 +434,7 @@ endif()
 file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 
 add_custom_target(compile_shaders ALL
-    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/frag_alt.spv ${SHADERS_OUTPUT_DIR}/frag_untextured.spv ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
+    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
 )
 
 # Ensure shaders are built before the app. Shaders are copied to exe dir (compiled artifacts).
@@ -468,8 +444,6 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
-    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_alt.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
-    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag_untextured.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMENT "Copying compiled shaders next to executable"

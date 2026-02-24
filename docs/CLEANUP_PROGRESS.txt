@@ -1,0 +1,54 @@
+CLEANUP PROGRESS - Phase 4 Prep
+================================
+
+[x] Check guidelines/coding-guidelines.md
+[x] Analyze file sizes + identify god classes
+[x] Find TODO/FIXME comments
+[x] Identify dead code (none found)
+[x] Review vulkan_app.h member organization
+[x] Remove commented-out code (none found)
+[x] Consolidate duplicates
+[x] Document cleanup decisions
+
+NOTES:
+------
+GOD CLASSES (>500 lines):
+- vulkan_app.cpp: 1773 (10 lines removed via consolidation)
+- editor_layer.cpp: 1158
+- scene_manager.cpp: 991
+- viewport_manager.cpp: 576 (reduced via consolidation)
+- texture_manager.cpp: 528 (reduced via consolidation)
+
+TODOS (4 total - valid future features):
+- procedural_mesh_factory: caps for cylinder/cone
+- scene_manager: animation/skinning import
+
+COMPLETED:
+----------
+[x] vulkan_app.cpp: 10 lambdas -> 0 lambdas (std::bind)
+[x] Dead code search: No commented-out code found
+[x] Both Debug and Release builds pass
+[x] vulkan_app.h: Added section comments to organize members into logical groups
+[x] FindMemoryType consolidation: 7 duplicates -> 1 in VulkanUtils (HIGH priority)
+    - Removed from: vulkan_app.cpp, mesh_manager.cpp, texture_manager.cpp,
+                    vulkan_depth_image.cpp, light_manager.cpp,
+                    light_debug_renderer.cpp, viewport_manager.cpp
+    - Added to: vulkan_utils.h/cpp as VulkanUtils::FindMemoryType()
+[x] All lambdas converted to functions per coding guidelines:
+    - render_list_builder.cpp: Lambda -> TransparentDrawCallOrder() static function
+    - editor_layer.cpp: Lambda -> CheckVkResult() static function
+    - imgui_base.cpp: Lambda -> CheckVkResult() static function
+    - viewport_manager.cpp: std::find_if lambda -> manual for loop
+    - procedural_mesh_factory.cpp: Lambda -> AddQuad() static function
+    - scene_manager.cpp: Recursive visitor lambda -> GltfNodeVisitorContext struct + VisitGltfNode() method
+[x] CreateBuffer consolidation: 5 duplicates -> 1 in VulkanUtils::CreateBuffer()
+    - Removed from: vulkan_app.cpp, mesh_manager.cpp (2 uses), texture_manager.cpp,
+                    light_manager.cpp, light_debug_renderer.cpp
+    - Added to: vulkan_utils.h/cpp as VulkanUtils::CreateBuffer()
+[x] BeginSingleTimeCommands consolidation: 2 duplicates -> 1 in VulkanUtils
+    - Removed from: texture_manager.cpp (anonymous namespace)
+    - Added to: vulkan_utils.h/cpp as VulkanUtils::BeginSingleTimeCommands/EndSingleTimeCommands()
+
+CLEANUP COMPLETE
+================
+Ready for Phase 4: Architecture Refactor

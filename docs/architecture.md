@@ -196,10 +196,11 @@ class SceneNew {
 
 | Shader | Purpose |
 |--------|---------|
-| `vert.vert` | Vertex transform, pass UVs/normals/objectIndex |
-| `frag.frag` | PBR lighting (Cook-Torrance), textured |
-| `frag_untextured.frag` | PBR lighting without texture |
-| `frag_alt.frag` | Alternative shader for special effects |
+| `vert.vert` | Vertex transform with instanced rendering, SSBO lookup |
+| `frag.frag` | PBR lighting (Cook-Torrance) with full texture support |
+| `debug_line.vert/frag` | Wireframe debug visualization |
+
+All main shaders use the unified 96-byte push constant layout for instanced batching.
 
 ### PBR Material System
 
@@ -367,23 +368,38 @@ std::unique_lock lock(m_mutex);
 
 ---
 
+## Instancing & GPU Culling
+
+The engine uses a **multi-tier instance rendering system** for optimal GPU utilization:
+
+| Tier | Type | Update Frequency | Culling |
+|------|------|------------------|---------|
+| 0 | Static | Never | GPU compute |
+| 1 | Semi-Static | On dirty flag | GPU compute |
+| 2 | Dynamic | Per-frame | CPU |
+| 3 | Procedural | Compute-driven | N/A |
+
+For detailed architecture and implementation, see [instancing-architecture.md](instancing-architecture.md).
+
+---
+
 ## Future Roadmap
 
 ### Immediate
 
-- [ ] Complete Light Debug Renderer (wireframe cones/spheres)
-- [ ] Editor viewport with ImGui
-- [ ] Level.json light loading
+- [ ] Implement Multi-Tier Instance System
+- [ ] GPU culling compute pipeline
+- [ ] Indirect drawing infrastructure
 
 ### Phase 2
 
+- [ ] Shadow mapping (reuse instance buffers)
 - [ ] Physics integration (Jolt or Bullet)
 - [ ] Lua scripting system
-- [ ] Multi-camera rendering
 
 ### Phase 3
 
-- [ ] Shadow mapping
+- [ ] Ray tracing (BLAS from static instances)
 - [ ] Post-processing pipeline
 - [ ] Animation/skinning
 

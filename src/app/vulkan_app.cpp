@@ -27,8 +27,6 @@ static const char* CONFIG_PATH_DEFAULT   = "config/default.json";
 static const char* DEFAULT_LEVEL_PATH    = "levels/default/level.json";
 static const char* SHADER_VERT_PATH     = "shaders/vert.spv";
 static const char* SHADER_FRAG_PATH     = "shaders/frag.spv";
-static const char* SHADER_FRAG_UNTEX_PATH = "shaders/frag_untextured.spv";
-static const char* SHADER_FRAG_ALT_PATH = "shaders/frag_alt.spv";
 static const char* PIPELINE_KEY_MAIN_TEX   = "main_tex";
 static const char* PIPELINE_KEY_WIRE_TEX   = "wire_tex";
 static const char* PIPELINE_KEY_MASK_TEX   = "mask_tex";
@@ -37,7 +35,6 @@ static const char* PIPELINE_KEY_MAIN_UNTEX = "main_untex";
 static const char* PIPELINE_KEY_WIRE_UNTEX = "wire_untex";
 static const char* PIPELINE_KEY_MASK_UNTEX = "mask_untex";
 static const char* PIPELINE_KEY_TRANSPARENT_UNTEX = "transparent_untex";
-static const char* PIPELINE_KEY_ALT     = "alt";
 static const char* LAYOUT_KEY_MAIN_FRAG_TEX = "main_frag_tex";
 static constexpr float kDefaultPanSpeed = 0.012f;
 static constexpr float kOrthoFallbackHalfExtent = 8.f;
@@ -124,24 +121,18 @@ void VulkanApp::InitVulkan() {
     if (eDepthFormat != VK_FORMAT_UNDEFINED)
         this->m_depthImage.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(), eDepthFormat, stInitExtent);
 
-    std::string sVertPath   = VulkanUtils::GetResourcePath(SHADER_VERT_PATH);
-    std::string sFragPath   = VulkanUtils::GetResourcePath(SHADER_FRAG_PATH);
-    std::string sFragUntexPath = VulkanUtils::GetResourcePath(SHADER_FRAG_UNTEX_PATH);
-    std::string sFragAltPath = VulkanUtils::GetResourcePath(SHADER_FRAG_ALT_PATH);
-    
-    // Warn about outdated shaders - only frag.frag (textured PBR) is fully up-to-date
-    VulkanUtils::LogWarn("Shader frag_untextured.spv is OUTDATED: uses old GeometrySmith instead of V_GGX; prefer textured pipeline with default textures");
-    VulkanUtils::LogWarn("Shader frag_alt.spv is OUTDATED: debug grayscale shader only, not PBR compliant");
+    std::string sVertPath = VulkanUtils::GetResourcePath(SHADER_VERT_PATH);
+    std::string sFragPath  = VulkanUtils::GetResourcePath(SHADER_FRAG_PATH);
     
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN_TEX, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE_TEX, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MASK_TEX, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_TRANSPARENT_TEX, &this->m_shaderManager, sVertPath, sFragPath);
-    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN_UNTEX, &this->m_shaderManager, sVertPath, sFragUntexPath);
-    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE_UNTEX, &this->m_shaderManager, sVertPath, sFragUntexPath);
-    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MASK_UNTEX, &this->m_shaderManager, sVertPath, sFragUntexPath);
-    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_TRANSPARENT_UNTEX, &this->m_shaderManager, sVertPath, sFragUntexPath);
-    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_ALT, &this->m_shaderManager, sVertPath, sFragAltPath);
+    // All pipelines now use frag.frag (PBR shader handles untextured via baseColor)
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MAIN_UNTEX, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE_UNTEX, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MASK_UNTEX, &this->m_shaderManager, sVertPath, sFragPath);
+    this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_TRANSPARENT_UNTEX, &this->m_shaderManager, sVertPath, sFragPath);
 
     /* Descriptor set layouts by key (before materials so pipeline layouts can reference them). */
     static const std::string kLayoutKeyMainFragTex("main_frag_tex");
@@ -261,7 +252,6 @@ void VulkanApp::InitVulkan() {
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("wire_untex", PIPELINE_KEY_WIRE_UNTEX, stUntexturedLayoutDesc, stPipeParamsWire));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_untex", PIPELINE_KEY_MASK_UNTEX, stUntexturedLayoutDesc, stPipeParamsMask));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("transparent_untex", PIPELINE_KEY_TRANSPARENT_UNTEX, stUntexturedLayoutDesc, stPipeParamsTransparent));
-    this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("alt",  PIPELINE_KEY_ALT,  stUntexturedLayoutDesc, stPipeParamsMain));
     // Double-sided material variants (glTF doubleSided=true)
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("main_tex_ds", PIPELINE_KEY_MAIN_TEX, stTexturedLayoutDesc, stPipeParamsDoubleSided));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_tex_ds", PIPELINE_KEY_MASK_TEX, stTexturedLayoutDesc, stPipeParamsDoubleSided));
@@ -557,7 +547,6 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_WIRE_UNTEX)] = { this->m_descriptorSetMain };
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_MASK_UNTEX)] = { this->m_descriptorSetMain };
     this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_TRANSPARENT_UNTEX)] = { this->m_descriptorSetMain };
-    this->m_pipelineDescriptorSets[std::string(PIPELINE_KEY_ALT)] = { this->m_descriptorSetMain };
 }
 
 VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTexture(std::shared_ptr<TextureHandle> pTexture) {
