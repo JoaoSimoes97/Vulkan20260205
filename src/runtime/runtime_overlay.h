@@ -30,6 +30,18 @@ struct RenderStats {
     uint32_t vertices        = 0;  // Total vertices rendered
     uint32_t batches         = 0;  // Number of batches
     float    cullingRatio    = 0;  // % culled (1.0 = all visible)
+    
+    // Instance tier statistics
+    uint32_t instancesStatic     = 0;  // Tier 0: GPU-resident, never moves
+    uint32_t instancesSemiStatic = 0;  // Tier 1: Dirty flag updates
+    uint32_t instancesDynamic    = 0;  // Tier 2: Per-frame updates
+    uint32_t instancesProcedural = 0;  // Tier 3: Compute-generated
+    
+    // Draw calls per tier (batched)
+    uint32_t drawCallsStatic     = 0;  // Batched static draws
+    uint32_t drawCallsSemiStatic = 0;  // Batched semi-static draws
+    uint32_t drawCallsDynamic    = 0;  // Batched dynamic draws
+    uint32_t drawCallsProcedural = 0;  // Compute-generated draws
 };
 
 /**

@@ -400,6 +400,12 @@ if(GLSLC)
         DEPENDS ${SHADERS_SOURCE_DIR}/debug_line.frag
         COMMENT "Compiling debug line fragment shader"
     )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
+        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/gpu_cull.comp -o ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/gpu_cull.comp
+        COMMENT "Compiling GPU culling compute shader"
+    )
 elseif(GLSLANGVALIDATOR)
     message(STATUS "Found glslangValidator, will auto-compile shaders (source: shaders/source/ -> build/shaders/)")
     add_custom_command(
@@ -426,6 +432,12 @@ elseif(GLSLANGVALIDATOR)
         DEPENDS ${SHADERS_SOURCE_DIR}/debug_line.frag
         COMMENT "Compiling debug line fragment shader"
     )
+    add_custom_command(
+        OUTPUT ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
+        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/gpu_cull.comp -o ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
+        DEPENDS ${SHADERS_SOURCE_DIR}/gpu_cull.comp
+        COMMENT "Compiling GPU culling compute shader"
+    )
 else()
     message(WARNING "No shader compiler found (glslc or glslangValidator). Shaders must be compiled manually.")
     file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
@@ -434,7 +446,7 @@ endif()
 file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 
 add_custom_target(compile_shaders ALL
-    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv
+    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
 )
 
 # Ensure shaders are built before the app. Shaders are copied to exe dir (compiled artifacts).
@@ -446,6 +458,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/gpu_cull.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMENT "Copying compiled shaders next to executable"
 )
 

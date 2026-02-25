@@ -1061,52 +1061,7 @@ void VulkanApp::MainLoop() {
             }
         }
 
-        /* Update object data SSBO using ring buffer with persistent mapping.
-           Each object occupies 256 bytes at offset = objectIndex × 256.
-           GPU accesses via push constant objectIndex to index into the SSBO array. */
-        {
-            /* Get current frame index for ring buffer region. */
-            uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
-            ObjectData* pObjectData = this->m_objectDataRingBuffer.GetFrameData(lFrameIndex);
-            
-            if (pObjectData != nullptr) {
-                const auto& objects = pScene->GetObjects();
-                
-                /* Write each object's data to the ring buffer region. */
-                for (size_t i = 0; i < objects.size() && i < this->m_config.lMaxObjects; ++i) {
-                    const Object& obj = objects[i];
-                    ObjectData* pObjData = &pObjectData[i];
-                    
-                    /* Model matrix (for normal transform, world position). */
-                    pObjData->model = glm::mat4(
-                        obj.localTransform[0],  obj.localTransform[1],  obj.localTransform[2],  obj.localTransform[3],
-                        obj.localTransform[4],  obj.localTransform[5],  obj.localTransform[6],  obj.localTransform[7],
-                        obj.localTransform[8],  obj.localTransform[9],  obj.localTransform[10], obj.localTransform[11],
-                        obj.localTransform[12], obj.localTransform[13], obj.localTransform[14], obj.localTransform[15]
-                    );
-                    
-                    /* Emissive color + strength (from glTF). */
-                    pObjData->emissive = glm::vec4(obj.emissive[0], obj.emissive[1], obj.emissive[2], obj.emissive[3]);
-                    
-                    /* Material properties: metallic, roughness, normalScale, occlusionStrength (from glTF). */
-                    pObjData->matProps = glm::vec4(obj.metallicFactor, obj.roughnessFactor, obj.normalScale, obj.occlusionStrength);
-                    
-                    /* Base color (from glTF baseColorFactor). */
-                    pObjData->baseColor = glm::vec4(obj.color[0], obj.color[1], obj.color[2], obj.color[3]);
-                    
-                    /* Reserved fields for future use (phase 3+ extensions: lighting, animation, physics, etc). */
-                    pObjData->reserved0 = glm::vec4(0.f);
-                    pObjData->reserved1 = glm::vec4(0.f);
-                    pObjData->reserved2 = glm::vec4(0.f);
-                    pObjData->reserved3 = glm::vec4(0.f);
-                    pObjData->reserved4 = glm::vec4(0.f);
-                    pObjData->reserved5 = glm::vec4(0.f);
-                    pObjData->reserved6 = glm::vec4(0.f);
-                    pObjData->reserved7 = glm::vec4(0.f);
-                    pObjData->reserved8 = glm::vec4(0.f);
-                }
-            }
-        } // End of SSBO write block
+        /* SSBO write moved below after RebuildIfDirty so batches are valid */
         
         /* Sync ECS transforms to render Scene Objects.
            Editor gizmo changes update SceneNew transforms, which must be copied
@@ -1167,40 +1122,100 @@ void VulkanApp::MainLoop() {
                                   &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
                                   &this->m_pipelineDescriptorSets, getTextureDescriptorSet);
         
+        /* Update object data SSBO using ring buffer with persistent mapping.
+           Objects are written in BATCH ORDER so that batchStartIndex + gl_InstanceIndex works.
+           Each batch's objects are contiguous: batch0[obj0,obj1,...], batch1[obj0,obj1,...], etc.
+           Must happen AFTER RebuildIfDirty so batches are valid. */
+        {
+            uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
+            ObjectData* pObjectData = this->m_objectDataRingBuffer.GetFrameData(lFrameIndex);
+            
+            if (pObjectData != nullptr && pScene != nullptr) {
+                const auto& objects = pScene->GetObjects();
+                const auto& opaqueBatchesSSBO = this->m_batchedDrawList.GetOpaqueBatches();
+                const auto& transparentBatchesSSBO = this->m_batchedDrawList.GetTransparentBatches();
+                
+                auto writeObjectToSSBO = [&](uint32_t ssboIndex, const Object& obj) {
+                    if (ssboIndex >= this->m_config.lMaxObjects) return;
+                    ObjectData* pObjData = &pObjectData[ssboIndex];
+                    
+                    pObjData->model = glm::mat4(
+                        obj.localTransform[0],  obj.localTransform[1],  obj.localTransform[2],  obj.localTransform[3],
+                        obj.localTransform[4],  obj.localTransform[5],  obj.localTransform[6],  obj.localTransform[7],
+                        obj.localTransform[8],  obj.localTransform[9],  obj.localTransform[10], obj.localTransform[11],
+                        obj.localTransform[12], obj.localTransform[13], obj.localTransform[14], obj.localTransform[15]
+                    );
+                    pObjData->emissive = glm::vec4(obj.emissive[0], obj.emissive[1], obj.emissive[2], obj.emissive[3]);
+                    pObjData->matProps = glm::vec4(obj.metallicFactor, obj.roughnessFactor, obj.normalScale, obj.occlusionStrength);
+                    pObjData->baseColor = glm::vec4(obj.color[0], obj.color[1], obj.color[2], obj.color[3]);
+                    pObjData->reserved0 = pObjData->reserved1 = pObjData->reserved2 = pObjData->reserved3 = glm::vec4(0.f);
+                    pObjData->reserved4 = pObjData->reserved5 = pObjData->reserved6 = pObjData->reserved7 = pObjData->reserved8 = glm::vec4(0.f);
+                };
+                
+                /* Write objects in batch order: opaque first, then transparent */
+                for (const auto& batch : opaqueBatchesSSBO) {
+                    uint32_t ssboOffset = batch.firstInstanceIndex;
+                    for (uint32_t objIdx : batch.objectIndices) {
+                        if (objIdx < objects.size()) {
+                            writeObjectToSSBO(ssboOffset++, objects[objIdx]);
+                        }
+                    }
+                }
+                for (const auto& batch : transparentBatchesSSBO) {
+                    uint32_t ssboOffset = batch.firstInstanceIndex;
+                    for (uint32_t objIdx : batch.objectIndices) {
+                        if (objIdx < objects.size()) {
+                            writeObjectToSSBO(ssboOffset++, objects[objIdx]);
+                        }
+                    }
+                }
+            }
+        }
+        
         /* Update visibility (frustum culling) each frame - fast operation on existing batches */
         this->m_batchedDrawList.UpdateVisibility(fViewProj, pScene);
         
-        /* Convert visible objects to DrawCall format.
-           We iterate visible object indices (frustum-culled) and look up batch info. */
+        /* Convert batches to DrawCall format.
+           Each batch = 1 draw call with instanceCount = number of objects in batch.
+           GPU uses batchStartIndex + gl_InstanceIndex to look up per-object data in SSBO. */
         this->m_drawCalls.clear();
-        const auto& visibleIndices = this->m_batchedDrawList.GetVisibleObjectIndices();
-        this->m_drawCalls.reserve(visibleIndices.size());
+        const auto& opaqueBatches = this->m_batchedDrawList.GetOpaqueBatches();
+        const auto& transparentBatches = this->m_batchedDrawList.GetTransparentBatches();
+        this->m_drawCalls.reserve(opaqueBatches.size() + transparentBatches.size());
         
-        for (uint32_t objIdx : visibleIndices) {
-            const auto* batch = this->m_batchedDrawList.GetBatchForObject(objIdx);
-            if (!batch) continue;
+        /* Helper to create draw call from batch */
+        auto createDrawCallFromBatch = [&](const DrawBatch& batch) {
+            if (batch.objectIndices.empty()) return;
+            if (batch.pipeline == VK_NULL_HANDLE) return;
             
             DrawCall dc = {
-                .pipeline           = batch->pipeline,
-                .pipelineLayout     = batch->pipelineLayout,
-                .vertexBuffer       = batch->vertexBuffer,
-                .vertexBufferOffset = batch->vertexBufferOffset,
+                .pipeline           = batch.pipeline,
+                .pipelineLayout     = batch.pipelineLayout,
+                .vertexBuffer       = batch.vertexBuffer,
+                .vertexBufferOffset = batch.vertexBufferOffset,
                 .pPushConstants     = nullptr,  // Push constants built per-viewport
                 .pushConstantSize   = kInstancedPushConstantSize,
-                .vertexCount        = batch->vertexCount,
-                .instanceCount      = 1,  // One instance per draw call
-                .firstVertex        = batch->firstVertex,
+                .vertexCount        = batch.vertexCount,
+                .instanceCount      = static_cast<uint32_t>(batch.objectIndices.size()),  // Instanced!
+                .firstVertex        = batch.firstVertex,
                 .firstInstance      = 0,
-                .descriptorSets     = batch->descriptorSets,
+                .descriptorSets     = batch.descriptorSets,
                 .instanceBuffer     = VK_NULL_HANDLE,
                 .instanceBufferOffset = 0,
                 .dynamicOffsets     = {},
                 .pLocalTransform    = nullptr,
                 .color              = {1.0f, 1.0f, 1.0f, 1.0f},
-                .objectIndex        = objIdx,  // Actual SSBO index for this object
-                .pipelineKey        = batch->pipelineKey,
+                .objectIndex        = batch.firstInstanceIndex,  // batchStartIndex for SSBO
+                .pipelineKey        = batch.pipelineKey,
             };
             this->m_drawCalls.push_back(dc);
+        };
+        
+        for (const auto& batch : opaqueBatches) {
+            createDrawCallFromBatch(batch);
+        }
+        for (const auto& batch : transparentBatches) {
+            createDrawCallFromBatch(batch);
         }
 
 #if EDITOR_BUILD
@@ -1230,6 +1245,37 @@ void VulkanApp::MainLoop() {
             stats.cullingRatio = (stats.objectsTotal > 0) 
                 ? static_cast<float>(stats.objectsVisible) / static_cast<float>(stats.objectsTotal)
                 : 1.0f;
+            
+            // Count instance tiers from scene objects
+            Scene* pStatsScene = this->m_sceneManager.GetCurrentScene();
+            if (pStatsScene) {
+                for (const Object& obj : pStatsScene->GetObjects()) {
+                    switch (obj.instanceTier) {
+                        case InstanceTier::Static:     ++stats.instancesStatic; break;
+                        case InstanceTier::SemiStatic: ++stats.instancesSemiStatic; break;
+                        case InstanceTier::Dynamic:    ++stats.instancesDynamic; break;
+                        case InstanceTier::Procedural: ++stats.instancesProcedural; break;
+                    }
+                }
+            }
+            
+            // Count draw calls per tier (each batch has a dominant tier)
+            for (const auto& batch : this->m_batchedDrawList.GetOpaqueBatches()) {
+                switch (batch.dominantTier) {
+                    case InstanceTier::Static:     ++stats.drawCallsStatic; break;
+                    case InstanceTier::SemiStatic: ++stats.drawCallsSemiStatic; break;
+                    case InstanceTier::Dynamic:    ++stats.drawCallsDynamic; break;
+                    case InstanceTier::Procedural: ++stats.drawCallsProcedural; break;
+                }
+            }
+            for (const auto& batch : this->m_batchedDrawList.GetTransparentBatches()) {
+                switch (batch.dominantTier) {
+                    case InstanceTier::Static:     ++stats.drawCallsStatic; break;
+                    case InstanceTier::SemiStatic: ++stats.drawCallsSemiStatic; break;
+                    case InstanceTier::Dynamic:    ++stats.drawCallsDynamic; break;
+                    case InstanceTier::Procedural: ++stats.drawCallsProcedural; break;
+                }
+            }
             
             this->m_runtimeOverlay.SetRenderStats(stats);
         }

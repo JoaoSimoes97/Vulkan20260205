@@ -4,6 +4,22 @@
 
 ---
 
+## Implementation Progress
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Architecture doc | ✅ Done | This document |
+| InstanceTier enum + structs | ✅ Done | `src/render/instance_types.h` |
+| StaticBatchManager | ✅ Done | `src/render/static_batch_manager.h/cpp` |
+| GPU culling compute shader | ✅ Done | `shaders/source/gpu_cull.comp` |
+| GPUCuller class | ✅ Done | `src/render/gpu_culler.h/cpp` |
+| RenderSystem wrapper | ✅ Done | `src/render/render_system.h/cpp` |
+| Demo scene with all tiers | ✅ Done | `levels/demo/level.json` - All 4 tiers demonstrated |
+| Level loader tier support | ⬜ Not Started | Parse `instanceTier` field in level loader |
+| Wire into VulkanApp | ⬜ Not Started | Integrate RenderSystem into main app |
+
+---
+
 ## Table of Contents
 
 1. [Overview](#overview)

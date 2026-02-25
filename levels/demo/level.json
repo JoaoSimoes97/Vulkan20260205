@@ -1,6 +1,28 @@
 {
-  "name": "Demo Level - Feature Showcase",
-  "version": "1.0",
+  "name": "Demo Level - Multi-Tier Instancing Showcase",
+  "version": "2.0",
+  "description": "Demonstrates all 4 instancing tiers: Static, Semi-Static, Dynamic, Procedural",
+  "tierInfo": {
+    "_description": "Instance tiers control GPU buffer management and update frequency",
+    "tiers": {
+      "static": {
+        "description": "Never moves after level load. GPU-resident forever, uploaded once.",
+        "examples": "Terrain, buildings, rocks, props, flora"
+      },
+      "semi-static": {
+        "description": "Moves infrequently (dirty flag pattern). Updated only when changed.",
+        "examples": "Doors, switches, levers, chests, destructibles"
+      },
+      "dynamic": {
+        "description": "Moves every frame. Ring-buffered, CPU uploads per-frame.",
+        "examples": "Player, NPCs, physics objects, projectiles"
+      },
+      "procedural": {
+        "description": "GPU-generated via compute shaders. No CPU involvement.",
+        "examples": "Particles, grass blades, debris, foliage animation"
+      }
+    }
+  },
   "lights": [
     {
       "name": "Sun",
@@ -24,23 +46,164 @@
   ],
   "instances": [
     {
+      "_comment": "=== TIER 0: STATIC - Never move, GPU-resident, uploaded once ===",
       "name": "Floor",
       "source": "procedural:rectangle",
       "position": [0.0, -1.0, 0.0],
       "rotation": [-0.707, 0.0, 0.0, 0.707],
       "scale": [20.0, 20.0, 1.0],
       "color": [0.3, 0.3, 0.35, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
+    },
+    {
+      "name": "Static Rock 1",
+      "source": "procedural:cube",
+      "position": [-10.0, -0.5, -8.0],
+      "rotation": [0.0, 0.383, 0.0, 0.924],
+      "scale": [1.5, 0.8, 1.2],
+      "color": [0.4, 0.35, 0.3, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "static"
+    },
+    {
+      "name": "Static Rock 2",
+      "source": "procedural:cube",
+      "position": [10.0, -0.5, -8.0],
+      "rotation": [0.0, 0.707, 0.0, 0.707],
+      "scale": [1.2, 0.6, 1.4],
+      "color": [0.45, 0.4, 0.35, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "static"
+    },
+    {
+      "name": "Static Pillar Left",
+      "source": "procedural:cube",
+      "position": [-12.0, 1.5, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.5, 3.0, 0.5],
+      "color": [0.6, 0.55, 0.5, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "static"
+    },
+    {
+      "name": "Static Pillar Right",
+      "source": "procedural:cube",
+      "position": [12.0, 1.5, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.5, 3.0, 0.5],
+      "color": [0.6, 0.55, 0.5, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     
     {
+      "_comment": "=== TIER 1: SEMI-STATIC - Doors, switches, occasional updates ===",
+      "name": "Door Left (Semi-Static)",
+      "source": "procedural:cube",
+      "position": [-5.0, 1.0, -10.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.5, 2.0, 0.2],
+      "color": [0.5, 0.3, 0.15, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "semi-static"
+    },
+    {
+      "name": "Door Right (Semi-Static)",
+      "source": "procedural:cube",
+      "position": [5.0, 1.0, -10.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.5, 2.0, 0.2],
+      "color": [0.5, 0.3, 0.15, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "semi-static"
+    },
+    {
+      "name": "Lever (Semi-Static)",
+      "source": "procedural:cube",
+      "position": [-7.0, 0.5, -10.0],
+      "rotation": [0.0, 0.0, 0.383, 0.924],
+      "scale": [0.1, 0.8, 0.1],
+      "color": [0.3, 0.3, 0.3, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "semi-static"
+    },
+    {
+      "name": "Chest (Semi-Static)",
+      "source": "procedural:cube",
+      "position": [0.0, 0.3, -10.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.8, 0.6, 0.5],
+      "color": [0.6, 0.4, 0.2, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "semi-static"
+    },
+    
+    {
+      "_comment": "=== TIER 2: DYNAMIC - Player, NPCs, per-frame updates ===",
+      "name": "Player Cube (Dynamic)",
+      "source": "procedural:cube",
+      "position": [0.0, 0.5, 3.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.6, 1.0, 0.4],
+      "color": [0.2, 0.6, 1.0, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "dynamic"
+    },
+    {
+      "name": "NPC 1 (Dynamic)",
+      "source": "procedural:cube",
+      "position": [-3.0, 0.5, 5.0],
+      "rotation": [0.0, 0.383, 0.0, 0.924],
+      "scale": [0.5, 0.9, 0.35],
+      "color": [1.0, 0.6, 0.2, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "dynamic"
+    },
+    {
+      "name": "NPC 2 (Dynamic)",
+      "source": "procedural:cube",
+      "position": [3.0, 0.5, 5.0],
+      "rotation": [0.0, -0.383, 0.0, 0.924],
+      "scale": [0.5, 0.9, 0.35],
+      "color": [0.8, 0.2, 0.6, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "dynamic"
+    },
+    {
+      "name": "Flying Orb (Dynamic)",
+      "source": "procedural:cube",
+      "position": [0.0, 3.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.3, 0.3, 0.3],
+      "color": [1.0, 1.0, 0.5, 1.0],
+      "emissive": [1.0, 1.0, 0.5, 2.0],
+      "renderMode": "solid",
+      "instanceTier": "dynamic"
+    },
+    
+    {
+      "_comment": "=== TIER 3: PROCEDURAL - GPU-generated (future particle systems) ===",
+      "name": "Particle Emitter Placeholder (Procedural)",
+      "source": "procedural:cube",
+      "position": [0.0, 5.0, -5.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [0.2, 0.2, 0.2],
+      "color": [1.0, 0.0, 1.0, 0.5],
+      "renderMode": "solid",
+      "instanceTier": "procedural"
+    },
+    
+    {
+      "_comment": "=== ORIGINAL SHOWCASE OBJECTS ===",
       "name": "Primitives - Cube Red",
       "source": "procedural:cube",
       "position": [-8.0, 0.0, -5.0],
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [0.8, 0.8, 0.8],
       "color": [1.0, 0.2, 0.2, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Primitives - Cube Green Wireframe",
@@ -49,7 +212,8 @@
       "rotation": [0.0, 0.383, 0.0, 0.924],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.2, 1.0, 0.2, 1.0],
-      "renderMode": "wireframe"
+      "renderMode": "wireframe",
+      "instanceTier": "static"
     },
     {
       "name": "Primitives - Triangle Blue",
@@ -58,7 +222,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [1.0, 1.0, 1.0],
       "color": [0.2, 0.2, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Primitives - Rectangle Yellow",
@@ -67,7 +232,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [1.0, 1.0, 1.0],
       "color": [1.0, 1.0, 0.2, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     
     {
@@ -77,7 +243,8 @@
       "rotation": [0.0, 0.707, 0.0, 0.707],
       "scale": [1.0, 1.0, 1.0],
       "color": [1.0, 1.0, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Textured - Box",
@@ -86,7 +253,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [1.0, 1.0, 1.0],
       "color": [1.0, 1.0, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Textured - Duck",
@@ -95,7 +263,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [0.01, 0.01, 0.01],
       "color": [1.0, 1.0, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Textured - Avocado",
@@ -104,7 +273,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [20.0, 20.0, 20.0],
       "color": [1.0, 1.0, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Textured - Metal Spheres",
@@ -113,7 +283,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [1.0, 1.0, 1.0],
       "color": [1.0, 1.0, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     
     {
@@ -123,7 +294,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.8, 0.2, 0.8, 0.75],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Transparent - Cube 50% Alpha",
@@ -132,7 +304,8 @@
       "rotation": [0.0, 0.383, 0.0, 0.924],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.2, 0.8, 0.8, 0.5],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Transparent - Triangle 25% Alpha",
@@ -141,7 +314,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [1.0, 1.0, 1.0],
       "color": [1.0, 0.8, 0.2, 0.25],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Transparent - Rectangle 10% Alpha",
@@ -150,7 +324,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [1.0, 1.0, 1.0],
       "color": [0.2, 1.0, 0.2, 0.1],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     
     {
@@ -161,7 +336,8 @@
       "scale": [0.8, 0.8, 0.8],
       "color": [0.1, 0.1, 0.1, 1.0],
       "emissive": [1.0, 0.0, 0.0, 2.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Emissive - Green Glow (Future)",
@@ -171,7 +347,8 @@
       "scale": [0.8, 0.8, 0.8],
       "color": [0.1, 0.1, 0.1, 1.0],
       "emissive": [0.0, 1.0, 0.0, 2.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Emissive - Blue Glow (Future)",
@@ -181,7 +358,8 @@
       "scale": [0.8, 0.8, 0.8],
       "color": [0.1, 0.1, 0.1, 1.0],
       "emissive": [0.0, 0.0, 1.0, 2.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Emissive - White Glow (Future)",
@@ -191,7 +369,8 @@
       "scale": [0.8, 0.8, 0.8],
       "color": [0.1, 0.1, 0.1, 1.0],
       "emissive": [1.0, 1.0, 1.0, 3.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     
     {
@@ -201,7 +380,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.0, 1.0, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Solid Color - Magenta",
@@ -210,7 +390,8 @@
       "rotation": [0.0, 0.383, 0.0, 0.924],
       "scale": [0.8, 0.8, 0.8],
       "color": [1.0, 0.0, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Solid Color - Orange",
@@ -219,7 +400,8 @@
       "rotation": [0.0, 0.707, 0.0, 0.707],
       "scale": [0.8, 0.8, 0.8],
       "color": [1.0, 0.5, 0.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Solid Color - Purple",
@@ -228,7 +410,8 @@
       "rotation": [0.0, 0.924, 0.0, 0.383],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.5, 0.0, 1.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Solid Color - Pink",
@@ -237,7 +420,8 @@
       "rotation": [0.0, 1.0, 0.0, 0.0],
       "scale": [0.8, 0.8, 0.8],
       "color": [1.0, 0.4, 0.7, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Solid Color - Lime",
@@ -246,7 +430,8 @@
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.5, 1.0, 0.0, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Solid Color - Teal",
@@ -255,7 +440,8 @@
       "rotation": [0.0, 0.383, 0.0, 0.924],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.0, 0.8, 0.6, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Solid Color - Brown",
@@ -264,7 +450,8 @@
       "rotation": [0.0, 0.707, 0.0, 0.707],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.6, 0.3, 0.1, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     },
     {
       "name": "Solid Color - Gray",
@@ -273,7 +460,9 @@
       "rotation": [0.0, 0.924, 0.0, 0.383],
       "scale": [0.8, 0.8, 0.8],
       "color": [0.5, 0.5, 0.5, 1.0],
-      "renderMode": "solid"
+      "renderMode": "solid",
+      "instanceTier": "static"
     }
   ]
 }
+

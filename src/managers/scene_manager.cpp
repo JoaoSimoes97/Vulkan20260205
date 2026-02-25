@@ -220,6 +220,7 @@ struct GltfNodeVisitorContext {
     float metallicOverride;
     bool hasRoughnessOverride;
     float roughnessOverride;
+    InstanceTier instanceTier;
 };
 
 void SceneManager::PrepareAnimationImportStub(const tinygltf::Model& model, const std::string& gltfPath) {
@@ -468,6 +469,9 @@ void SceneManager::VisitGltfNode(GltfNodeVisitorContext& ctx, int nodeIndex, con
             // Load occlusion texture strength from glTF material (default 1.0)
             obj.occlusionStrength = static_cast<float>(gltfMat.occlusionTexture.strength);
 
+            // Apply instance tier from level JSON
+            obj.instanceTier = ctx.instanceTier;
+
             obj.pushData.resize(kObjectPushConstantSize);
             obj.pushDataSize = kObjectPushConstantSize;
             ctx.objs.push_back(std::move(obj));
@@ -567,6 +571,12 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                 VulkanUtils::LogErr("SceneManager: unknown renderMode \"{}\" for source \"{}\"", modeStr, source);
                 continue;
             }
+        }
+
+        // Parse instance tier (default: static)
+        InstanceTier instanceTier = InstanceTier::Static;
+        if (jInst.contains("instanceTier") && jInst["instanceTier"].is_string()) {
+            instanceTier = ParseInstanceTier(jInst["instanceTier"].get<std::string>());
         }
 
         float pos[3] = { 0.f, 0.f, 0.f };
@@ -683,6 +693,7 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             if (hasRoughnessOverride) {
                 obj.roughnessFactor = roughnessOverride;
             }
+            obj.instanceTier = instanceTier;
             obj.pushData.resize(kObjectPushConstantSize);
             obj.pushDataSize = kObjectPushConstantSize;
             objs.push_back(std::move(obj));
@@ -730,7 +741,8 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             hasMetallicOverride,
             metallicOverride,
             hasRoughnessOverride,
-            roughnessOverride
+            roughnessOverride,
+            instanceTier
         };
         
         float identity[16];

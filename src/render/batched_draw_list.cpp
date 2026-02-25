@@ -193,6 +193,7 @@ void BatchedDrawList::BuildBatches(
         key.emissiveTexture = obj.pEmissiveTexture;
         key.normalTexture = obj.pNormalTexture;
         key.occlusionTexture = obj.pOcclusionTexture;
+        key.tier = obj.instanceTier;  // Batch only with same tier
         
         batchGroups[key].push_back(static_cast<uint32_t>(i));
     }
@@ -206,6 +207,9 @@ void BatchedDrawList::BuildBatches(
         batch.objectIndices = std::move(indices);
         batch.firstInstanceIndex = globalInstanceOffset;
         globalInstanceOffset += static_cast<uint32_t>(batch.objectIndices.size());
+        
+        // Tier is now part of key - all objects in batch have same tier
+        batch.dominantTier = key.tier;
         
         // Resolve Vulkan handles from key
         if (!key.mesh || !key.material) continue;

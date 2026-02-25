@@ -12,6 +12,29 @@ class MeshHandle;
 class TextureHandle;
 struct Object;
 
+/**
+ * Instance tiers for GPU buffer management.
+ * See docs/instancing-architecture.md for full design.
+ */
+enum class InstanceTier : uint8_t {
+    Static      = 0,  // Never moves after level load, GPU-resident
+    SemiStatic  = 1,  // Moves infrequently (dirty flag pattern)
+    Dynamic     = 2,  // Moves every frame (ring-buffered)
+    Procedural  = 3   // GPU-generated via compute shaders
+};
+
+/**
+ * Parse instanceTier string from JSON.
+ * @param tierStr String value: "static", "semi-static", "dynamic", "procedural"
+ * @return Corresponding InstanceTier enum value (defaults to Static)
+ */
+inline InstanceTier ParseInstanceTier(const std::string& tierStr) {
+    if (tierStr == "semi-static") return InstanceTier::SemiStatic;
+    if (tierStr == "dynamic") return InstanceTier::Dynamic;
+    if (tierStr == "procedural") return InstanceTier::Procedural;
+    return InstanceTier::Static;  // Default
+}
+
 /** Per-object update callback. Called each frame with object reference and delta time in seconds. */
 using ObjectUpdateCallback = std::function<void(Object&, float)>;
 
@@ -117,6 +140,8 @@ struct Object {
     std::string              name;
     /** Link to corresponding GameObject in SceneNew. UINT32_MAX = no link. */
     uint32_t                 gameObjectId  = UINT32_MAX;
+    /** Instance tier for GPU buffer management. Determines update frequency and culling strategy. */
+    InstanceTier             instanceTier  = InstanceTier::Static;
 };
 
 #ifdef _MSC_VER

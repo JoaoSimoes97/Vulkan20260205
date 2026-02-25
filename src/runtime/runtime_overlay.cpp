@@ -125,6 +125,28 @@ void RuntimeOverlay::DrawStatsWindow(const Camera* pCamera, const VulkanConfig* 
             }
         }
         
+        // Instance tier statistics with draw calls
+        const uint32_t totalInstances = m_renderStats.instancesStatic + 
+                                        m_renderStats.instancesSemiStatic + 
+                                        m_renderStats.instancesDynamic + 
+                                        m_renderStats.instancesProcedural;
+        if (totalInstances > 0) {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.7f, 0.9f, 1.0f, 1.0f), "Instancing Tiers (obj / draws)");
+            ImGui::Text("Static:      %3u / %u", m_renderStats.instancesStatic, m_renderStats.drawCallsStatic);
+            ImGui::Text("Semi-Static: %3u / %u", m_renderStats.instancesSemiStatic, m_renderStats.drawCallsSemiStatic);
+            ImGui::Text("Dynamic:     %3u / %u", m_renderStats.instancesDynamic, m_renderStats.drawCallsDynamic);
+            ImGui::Text("Procedural:  %3u / %u", m_renderStats.instancesProcedural, m_renderStats.drawCallsProcedural);
+            
+            // Instancing efficiency
+            const uint32_t totalDraws = m_renderStats.drawCallsStatic + m_renderStats.drawCallsSemiStatic +
+                                        m_renderStats.drawCallsDynamic + m_renderStats.drawCallsProcedural;
+            if (totalDraws > 0) {
+                const float efficiency = static_cast<float>(totalInstances) / static_cast<float>(totalDraws);
+                ImGui::Text("Efficiency:  %.1fx", efficiency);
+            }
+        }
+        
         // Camera info (if available)
         if (pCamera) {
             ImGui::Separator();

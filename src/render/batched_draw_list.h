@@ -10,6 +10,7 @@
 #pragma once
 
 #include "vulkan/vulkan_command_buffers.h"
+#include "scene/object.h"
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -29,6 +30,7 @@ struct MaterialHandle;
 
 /**
  * Key for batching: objects with same key can be drawn in one instanced call.
+ * Includes instanceTier to keep tiers separate (different update patterns).
  */
 struct BatchKey {
     std::shared_ptr<MeshHandle> mesh;
@@ -38,12 +40,13 @@ struct BatchKey {
     std::shared_ptr<TextureHandle> emissiveTexture;
     std::shared_ptr<TextureHandle> normalTexture;
     std::shared_ptr<TextureHandle> occlusionTexture;
+    InstanceTier tier = InstanceTier::Static;  // Objects batch only with same tier
     
     bool operator<(const BatchKey& other) const {
         return std::tie(mesh, material, baseColorTexture, metallicRoughnessTexture, 
-                        emissiveTexture, normalTexture, occlusionTexture) <
+                        emissiveTexture, normalTexture, occlusionTexture, tier) <
                std::tie(other.mesh, other.material, other.baseColorTexture, other.metallicRoughnessTexture,
-                        other.emissiveTexture, other.normalTexture, other.occlusionTexture);
+                        other.emissiveTexture, other.normalTexture, other.occlusionTexture, other.tier);
     }
     
     bool operator==(const BatchKey& other) const {
@@ -52,7 +55,8 @@ struct BatchKey {
                metallicRoughnessTexture == other.metallicRoughnessTexture &&
                emissiveTexture == other.emissiveTexture &&
                normalTexture == other.normalTexture &&
-               occlusionTexture == other.occlusionTexture;
+               occlusionTexture == other.occlusionTexture &&
+               tier == other.tier;
     }
 };
 
@@ -75,6 +79,9 @@ struct DrawBatch {
     
     // First object index for gl_InstanceIndex offset
     uint32_t firstInstanceIndex = 0;
+    
+    // Dominant tier for this batch (tier with most objects)
+    InstanceTier dominantTier = InstanceTier::Static;
 };
 
 /**
