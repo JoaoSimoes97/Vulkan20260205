@@ -209,6 +209,8 @@ private:
     std::vector<CullObjectData> m_cullObjectsCache;
     /** Whether GPU culler is enabled and ready. */
     bool m_gpuCullerEnabled = false;
+    /** Whether to use GPU indirect draw (vkCmdDrawIndirect with GPU-written instanceCount). */
+    bool m_gpuIndirectDrawEnabled = false;
     /** Placeholder visible indices SSBO for binding 8 (before indirect draw is active). */
     GPUBuffer m_placeholderVisibleIndicesSSBO;
     

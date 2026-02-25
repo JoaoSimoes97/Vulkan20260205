@@ -31,6 +31,8 @@ bool GPUCuller::Create(VkDevice device,
     m_physicalDevice = physicalDevice;
     m_maxObjects = maxObjects;
     m_maxBatches = maxBatches;
+    // Each batch must be able to hold ALL objects (worst case: all objects in one batch)
+    m_maxObjectsPerBatch = maxObjects;
 
     // Create GPU buffers
     // 1. Frustum UBO (small, host visible, updated per frame)
@@ -57,7 +59,9 @@ bool GPUCuller::Create(VkDevice device,
     }
 
     // 3. Visible indices SSBO (output, GPU writes, host visible for readback)
-    VkDeviceSize visibleIndicesSize = static_cast<VkDeviceSize>(maxObjects) * sizeof(uint32_t);
+    // Per-batch layout: each batch gets maxObjectsPerBatch slots
+    // Total size = maxBatches * maxObjectsPerBatch to prevent overflow
+    VkDeviceSize visibleIndicesSize = static_cast<VkDeviceSize>(m_maxBatches) * static_cast<VkDeviceSize>(m_maxObjectsPerBatch) * sizeof(uint32_t);
     if (!m_visibleIndicesBuffer.Create(device, physicalDevice,
                                         visibleIndicesSize,
                                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -79,14 +83,26 @@ bool GPUCuller::Create(VkDevice device,
         return false;
     }
 
-    // 5. Indirect commands SSBO (one command per batch)
-    VkDeviceSize indirectSize = static_cast<VkDeviceSize>(maxBatches) * sizeof(DrawIndexedIndirectCommand);
+    // 5. Indirect commands SSBO (one command per batch, non-indexed draw)
+    VkDeviceSize indirectSize = static_cast<VkDeviceSize>(maxBatches) * sizeof(DrawIndirectCommand);
     if (!m_indirectBuffer.Create(device, physicalDevice,
                                   indirectSize,
                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                                   true)) {
         VulkanUtils::LogErr("GPUCuller::Create: failed to create indirect buffer");
+        Destroy();
+        return false;
+    }
+
+    // 6. Per-batch atomic counters SSBO (one uint32 per batch)
+    VkDeviceSize batchCountersSize = static_cast<VkDeviceSize>(maxBatches) * sizeof(uint32_t);
+    if (!m_batchCountersBuffer.Create(device, physicalDevice,
+                                       batchCountersSize,
+                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                       true)) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create batch counters buffer");
         Destroy();
         return false;
     }
@@ -148,6 +164,7 @@ void GPUCuller::Destroy() {
     m_visibleIndicesBuffer.Destroy();
     m_atomicCounterBuffer.Destroy();
     m_indirectBuffer.Destroy();
+    m_batchCountersBuffer.Destroy();
 
     m_device = VK_NULL_HANDLE;
     m_physicalDevice = VK_NULL_HANDLE;
@@ -158,7 +175,7 @@ void GPUCuller::Destroy() {
 
 bool GPUCuller::CreateDescriptorSetLayout() {
     // Bindings match gpu_cull.comp
-    VkDescriptorSetLayoutBinding bindings[5] = {};
+    VkDescriptorSetLayoutBinding bindings[6] = {};
 
     // Binding 0: Frustum UBO
     bindings[0].binding = 0;
@@ -181,7 +198,7 @@ bool GPUCuller::CreateDescriptorSetLayout() {
     bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     bindings[2].pImmutableSamplers = nullptr;
 
-    // Binding 3: Atomic counter SSBO (read-write)
+    // Binding 3: Global atomic counter SSBO (read-write, for stats)
     bindings[3].binding = 3;
     bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[3].descriptorCount = 1;
@@ -195,11 +212,18 @@ bool GPUCuller::CreateDescriptorSetLayout() {
     bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     bindings[4].pImmutableSamplers = nullptr;
 
+    // Binding 5: Per-batch atomic counters SSBO (read-write)
+    bindings[5].binding = 5;
+    bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[5].descriptorCount = 1;
+    bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[5].pImmutableSamplers = nullptr;
+
     VkDescriptorSetLayoutCreateInfo layoutInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .bindingCount = 5,
+        .bindingCount = 6,
         .pBindings = bindings,
     };
 
@@ -212,7 +236,7 @@ bool GPUCuller::CreateDescriptorPool() {
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = 4;  // 4 SSBOs
+    poolSizes[1].descriptorCount = 5;  // 5 SSBOs (bindings 1-5)
 
     VkDescriptorPoolCreateInfo poolInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -267,8 +291,13 @@ bool GPUCuller::CreateDescriptorSet() {
         .offset = 0,
         .range = VK_WHOLE_SIZE,
     };
+    VkDescriptorBufferInfo batchCountersInfo = {
+        .buffer = m_batchCountersBuffer.GetBuffer(),
+        .offset = 0,
+        .range = VK_WHOLE_SIZE,
+    };
 
-    VkWriteDescriptorSet writes[5] = {};
+    VkWriteDescriptorSet writes[6] = {};
 
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = m_descriptorSet;
@@ -310,20 +339,30 @@ bool GPUCuller::CreateDescriptorSet() {
     writes[4].descriptorCount = 1;
     writes[4].pBufferInfo = &indirectInfo;
 
-    vkUpdateDescriptorSets(m_device, 5, writes, 0, nullptr);
+    writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[5].dstSet = m_descriptorSet;
+    writes[5].dstBinding = 5;
+    writes[5].dstArrayElement = 0;
+    writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[5].descriptorCount = 1;
+    writes[5].pBufferInfo = &batchCountersInfo;
+
+    vkUpdateDescriptorSets(m_device, 6, writes, 0, nullptr);
     return true;
 }
 
-void GPUCuller::UpdateFrustum(const float planes[6][4], uint32_t objectCount) {
+void GPUCuller::UpdateFrustum(const float planes[6][4], uint32_t objectCount, uint32_t batchCount) {
     m_currentObjectCount = (objectCount <= m_maxObjects) ? objectCount : m_maxObjects;
+    m_currentBatchCount = (batchCount <= m_maxBatches) ? batchCount : m_maxBatches;
+    if (m_currentBatchCount == 0) m_currentBatchCount = 1;
 
     FrustumData* pFrustum = static_cast<FrustumData*>(m_frustumBuffer.GetMappedPtr());
     if (pFrustum) {
         std::memcpy(pFrustum->planes, planes, sizeof(pFrustum->planes));
         pFrustum->objectCount = m_currentObjectCount;
+        pFrustum->batchCount = m_currentBatchCount;
+        pFrustum->maxObjectsPerBatch = m_maxObjectsPerBatch;
         pFrustum->_pad0 = 0;
-        pFrustum->_pad1 = 0;
-        pFrustum->_pad2 = 0;
     }
 }
 
@@ -340,17 +379,27 @@ void GPUCuller::UploadCullObjects(const CullObjectData* pObjects, uint32_t count
 }
 
 void GPUCuller::ResetCounters(VkCommandBuffer cmdBuffer) {
-    // Reset atomic counter to 0
+    // Reset global atomic counter to 0
     uint32_t* pCounter = static_cast<uint32_t*>(m_atomicCounterBuffer.GetMappedPtr());
     if (pCounter) {
         *pCounter = 0;
     }
 
+    // Reset per-batch atomic counters to 0
+    uint32_t* pBatchCounters = static_cast<uint32_t*>(m_batchCountersBuffer.GetMappedPtr());
+    if (pBatchCounters) {
+        for (uint32_t i = 0; i < m_maxBatches; ++i) {
+            pBatchCounters[i] = 0;
+        }
+    }
+
     // Reset indirect command instance counts to 0
-    DrawIndexedIndirectCommand* pCommands = static_cast<DrawIndexedIndirectCommand*>(m_indirectBuffer.GetMappedPtr());
+    // (firstInstance will be set by SetBatchDrawInfo or by GPU)
+    DrawIndirectCommand* pCommands = static_cast<DrawIndirectCommand*>(m_indirectBuffer.GetMappedPtr());
     if (pCommands) {
         for (uint32_t i = 0; i < m_maxBatches; ++i) {
             pCommands[i].instanceCount = 0;
+            pCommands[i].firstInstance = i * m_maxObjectsPerBatch;  // Per-batch section offset
         }
     }
 
@@ -411,4 +460,18 @@ void GPUCuller::BarrierAfterDispatch(VkCommandBuffer cmdBuffer) {
 uint32_t GPUCuller::ReadbackVisibleCount() {
     uint32_t* pCounter = static_cast<uint32_t*>(m_atomicCounterBuffer.GetMappedPtr());
     return pCounter ? *pCounter : 0;
+}
+
+void GPUCuller::SetBatchDrawInfo(uint32_t batchId, uint32_t vertexCount, uint32_t firstVertex) {
+    if (batchId >= m_maxBatches) {
+        return;
+    }
+
+    DrawIndirectCommand* pCommands = static_cast<DrawIndirectCommand*>(m_indirectBuffer.GetMappedPtr());
+    if (pCommands) {
+        pCommands[batchId].vertexCount = vertexCount;
+        pCommands[batchId].instanceCount = 0;  // GPU will write this
+        pCommands[batchId].firstVertex = firstVertex;
+        pCommands[batchId].firstInstance = batchId * m_maxObjectsPerBatch;  // offset into visible indices
+    }
 }

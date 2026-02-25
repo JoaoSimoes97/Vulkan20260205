@@ -452,20 +452,25 @@ void VulkanApp::InitVulkan() {
     /* Initialize GPU culler for compute-based frustum culling.
        Uses max objects count to size culling buffers. */
     if (this->m_config.bEnableGPUCulling) {
+        constexpr uint32_t kMaxBatches = 256;  // Max batches for indirect draw
         if (this->m_gpuCuller.Create(this->m_device.GetDevice(), 
                                       this->m_device.GetPhysicalDevice(),
                                       &this->m_shaderManager,
                                       this->m_config.lMaxObjects,
-                                      1)) {  // 1 batch for now (single indirect draw)
-            VulkanUtils::LogInfo("GPUCuller initialized ({} max objects)", this->m_config.lMaxObjects);
+                                      kMaxBatches)) {
+            VulkanUtils::LogInfo("GPUCuller initialized ({} max objects, {} max batches)", 
+                                 this->m_config.lMaxObjects, kMaxBatches);
             this->m_gpuCullerEnabled = true;
+            this->m_gpuIndirectDrawEnabled = true;  // Enable GPU-driven indirect draw
         } else {
             VulkanUtils::LogWarn("GPUCuller creation failed (using CPU culling fallback)");
             this->m_gpuCullerEnabled = false;
+            this->m_gpuIndirectDrawEnabled = false;
         }
     } else {
         VulkanUtils::LogInfo("GPUCuller disabled via config (using CPU culling)");
         this->m_gpuCullerEnabled = false;
+        this->m_gpuIndirectDrawEnabled = false;
     }
 
     /* Add main/wire to the map only after ring buffer is ready (descriptor writes use ring buffer). */
@@ -1279,45 +1284,89 @@ void VulkanApp::MainLoop() {
             float frustumPlanes[6][4];
             ExtractFrustumPlanesFromViewProj(fViewProj, frustumPlanes);
             
-            // Build CullObjectData from scene objects
+            // Build CullObjectData from batched objects (for per-batch GPU indirect draw)
             const std::vector<Object>& objects = pScene->GetObjects();
-            const size_t objectCount = objects.size();
+            const auto& opaqueBatchesForCull = this->m_batchedDrawList.GetOpaqueBatches();
+            const auto& transparentBatchesForCull = this->m_batchedDrawList.GetTransparentBatches();
+            const uint32_t totalBatches = static_cast<uint32_t>(opaqueBatchesForCull.size() + transparentBatchesForCull.size());
             
-            if (objectCount > 0) {
-                this->m_cullObjectsCache.resize(objectCount);
-                
-                for (size_t i = 0; i < objectCount; ++i) {
-                    const Object& obj = objects[i];
-                    CullObjectData& cullObj = this->m_cullObjectsCache[i];
-                    
-                    // World position from transform matrix (column 3)
-                    cullObj.boundingSphere[0] = obj.localTransform[12];
-                    cullObj.boundingSphere[1] = obj.localTransform[13];
-                    cullObj.boundingSphere[2] = obj.localTransform[14];
-                    
-                    // Approximate radius from scale (max of xyz scale)
-                    float scaleX = std::sqrt(obj.localTransform[0]*obj.localTransform[0] +
-                                            obj.localTransform[1]*obj.localTransform[1] +
-                                            obj.localTransform[2]*obj.localTransform[2]);
-                    float scaleY = std::sqrt(obj.localTransform[4]*obj.localTransform[4] +
-                                            obj.localTransform[5]*obj.localTransform[5] +
-                                            obj.localTransform[6]*obj.localTransform[6]);
-                    float scaleZ = std::sqrt(obj.localTransform[8]*obj.localTransform[8] +
-                                            obj.localTransform[9]*obj.localTransform[9] +
-                                            obj.localTransform[10]*obj.localTransform[10]);
-                    cullObj.boundingSphere[3] = std::max({scaleX, scaleY, scaleZ});
-                    
-                    cullObj.objectIndex = static_cast<uint32_t>(i);
-                    cullObj.batchId = 0;  // Single batch for now
-                    cullObj._pad0 = 0;
-                    cullObj._pad1 = 0;
+            // Count total objects across all batches
+            size_t totalCullObjects = 0;
+            for (const auto& batch : opaqueBatchesForCull) {
+                totalCullObjects += batch.objectIndices.size();
+            }
+            for (const auto& batch : transparentBatchesForCull) {
+                totalCullObjects += batch.objectIndices.size();
+            }
+            
+            // Warn if scene exceeds GPU culler capacity
+            if (totalCullObjects > this->m_config.lMaxObjects) {
+                static bool warnedOnce = false;
+                if (!warnedOnce) {
+                    VulkanUtils::LogWarn("Scene has {} objects but GPU culler limit is {} - some objects will not render! "
+                                         "Increase 'max_objects' in config.", 
+                                         totalCullObjects, this->m_config.lMaxObjects);
+                    warnedOnce = true;
                 }
+            }
+            
+            if (totalCullObjects > 0 && totalBatches > 0) {
+                this->m_cullObjectsCache.resize(totalCullObjects);
                 
-                // Update frustum planes in GPU culler
-                this->m_gpuCuller.UpdateFrustum(frustumPlanes, static_cast<uint32_t>(objectCount));
+                size_t cullIdx = 0;
+                uint32_t batchId = 0;
+                
+                // Helper to process batches and set up GPU culler
+                auto processBatchesForCull = [&](const std::vector<DrawBatch>& batches) {
+                    for (const DrawBatch& batch : batches) {
+                        // Set up draw info for this batch (vertexCount, firstVertex)
+                        this->m_gpuCuller.SetBatchDrawInfo(batchId, batch.vertexCount, batch.firstVertex);
+                        
+                        uint32_t localIdx = 0;
+                        for (uint32_t objIdx : batch.objectIndices) {
+                            if (objIdx >= objects.size()) continue;
+                            
+                            const Object& obj = objects[objIdx];
+                            CullObjectData& cullObj = this->m_cullObjectsCache[cullIdx];
+                            
+                            // World position from transform matrix (column 3)
+                            cullObj.boundingSphere[0] = obj.localTransform[12];
+                            cullObj.boundingSphere[1] = obj.localTransform[13];
+                            cullObj.boundingSphere[2] = obj.localTransform[14];
+                            
+                            // Approximate radius from scale (max of xyz scale)
+                            float scaleX = std::sqrt(obj.localTransform[0]*obj.localTransform[0] +
+                                                    obj.localTransform[1]*obj.localTransform[1] +
+                                                    obj.localTransform[2]*obj.localTransform[2]);
+                            float scaleY = std::sqrt(obj.localTransform[4]*obj.localTransform[4] +
+                                                    obj.localTransform[5]*obj.localTransform[5] +
+                                                    obj.localTransform[6]*obj.localTransform[6]);
+                            float scaleZ = std::sqrt(obj.localTransform[8]*obj.localTransform[8] +
+                                                    obj.localTransform[9]*obj.localTransform[9] +
+                                                    obj.localTransform[10]*obj.localTransform[10]);
+                            cullObj.boundingSphere[3] = std::max({scaleX, scaleY, scaleZ});
+                            
+                            // SSBO offset = batch.firstInstanceIndex + local index within batch
+                            cullObj.objectIndex = batch.firstInstanceIndex + localIdx;
+                            cullObj.batchId = batchId;
+                            cullObj._pad0 = 0;
+                            cullObj._pad1 = 0;
+                            
+                            ++cullIdx;
+                            ++localIdx;
+                        }
+                        ++batchId;
+                    }
+                };
+                
+                processBatchesForCull(opaqueBatchesForCull);
+                processBatchesForCull(transparentBatchesForCull);
+                
+                // Update frustum planes in GPU culler (with batch count)
+                this->m_gpuCuller.UpdateFrustum(frustumPlanes, static_cast<uint32_t>(totalCullObjects), totalBatches);
                 
                 // Upload cull objects to GPU
-                this->m_gpuCuller.UploadCullObjects(this->m_cullObjectsCache.data(), static_cast<uint32_t>(objectCount));
+                this->m_gpuCuller.UploadCullObjects(this->m_cullObjectsCache.data(), static_cast<uint32_t>(totalCullObjects));
             }
         }
         
@@ -1645,6 +1694,10 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
         /* Determine if we need to switch to wireframe pipeline for this viewport */
         const bool bWireframeMode = (vp.config.renderMode == ViewportRenderMode::Wireframe);
         
+        /* Track batch index for GPU indirect draw */
+        uint32_t batchIndex = 0;
+        const bool bUseIndirectDraw = this->m_gpuIndirectDrawEnabled && this->m_gpuCullerEnabled;
+        
         /* Render scene draw calls to this viewport with recomputed MVP */
         for (const auto& dc : *pDrawCalls_ic) {
             /* Select the appropriate pipeline based on viewport render mode */
@@ -1685,8 +1738,14 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
                 std::memcpy(vpPushData + static_cast<size_t>(64), vpCamPos, static_cast<size_t>(12));
                 float camW = static_cast<float>(1.0f);
                 std::memcpy(vpPushData + static_cast<size_t>(76), &camW, static_cast<size_t>(4));
-                std::memcpy(vpPushData + static_cast<size_t>(80), &dc.objectIndex, static_cast<size_t>(4));
-                uint32_t useIndirection = 0;  // Direct indexing (no indirection)
+                
+                /* For indirect draw: batchStartIndex = 0 (offset is in firstInstance)
+                   For direct draw: batchStartIndex = dc.objectIndex (SSBO offset) */
+                uint32_t batchStartIndex = bUseIndirectDraw ? 0 : dc.objectIndex;
+                std::memcpy(vpPushData + static_cast<size_t>(80), &batchStartIndex, static_cast<size_t>(4));
+                
+                /* useIndirection = 1 for GPU indirect draw, 0 for direct indexing */
+                uint32_t useIndirection = bUseIndirectDraw ? 1 : 0;
                 std::memcpy(vpPushData + static_cast<size_t>(84), &useIndirection, static_cast<size_t>(4));
                 std::memset(vpPushData + static_cast<size_t>(88), static_cast<int>(0), static_cast<size_t>(8));
                 
@@ -1699,7 +1758,16 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
             
             VkDeviceSize offset = dc.vertexBufferOffset;
             vkCmdBindVertexBuffers(cmd, static_cast<uint32_t>(0), static_cast<uint32_t>(1), &dc.vertexBuffer, &offset);
-            vkCmdDraw(cmd, dc.vertexCount, dc.instanceCount, dc.firstVertex, dc.firstInstance);
+            
+            if (bUseIndirectDraw) {
+                /* GPU indirect draw: instanceCount written by compute shader */
+                VkDeviceSize indirectOffset = static_cast<VkDeviceSize>(batchIndex) * sizeof(VkDrawIndirectCommand);
+                vkCmdDrawIndirect(cmd, this->m_gpuCuller.GetIndirectBuffer(), indirectOffset, 1, sizeof(VkDrawIndirectCommand));
+                ++batchIndex;
+            } else {
+                /* Direct draw: CPU-specified instanceCount */
+                vkCmdDraw(cmd, dc.vertexCount, dc.instanceCount, dc.firstVertex, dc.firstInstance);
+            }
         }
         
         /* Render light debug visualizations (inside the viewport render pass) */
@@ -1958,6 +2026,9 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
     // Resize push constant buffer to fit all draw calls
     this->m_runtimePushConstantBuffer.resize(vecDrawCalls_ic.size());
     
+    // Check if GPU indirect draw is enabled
+    const bool bRuntimeUseIndirectDraw = this->m_gpuIndirectDrawEnabled && this->m_gpuCullerEnabled;
+    
     // Build push constant data for each draw call using main camera's viewProj
     // Mutable copy of draw calls so we can set pPushConstants
     std::vector<DrawCall> runtimeDrawCalls = vecDrawCalls_ic;
@@ -1970,13 +2041,24 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
         std::memcpy(pcData.data() + 64, rtCamPos, 12);  // camPos xyz at offset 64
         float camW = 1.0f;
         std::memcpy(pcData.data() + 76, &camW, 4);  // camPos.w at offset 76
-        std::memcpy(pcData.data() + 80, &dc.objectIndex, 4);  // batchStartIndex at offset 80
-        uint32_t useIndirection = 0;  // Direct indexing (no indirection)
+        
+        // For indirect draw: batchStartIndex = 0 (offset is in firstInstance)
+        // For direct draw: batchStartIndex = dc.objectIndex (SSBO offset)
+        uint32_t batchStartIndex = bRuntimeUseIndirectDraw ? 0 : dc.objectIndex;
+        std::memcpy(pcData.data() + 80, &batchStartIndex, 4);  // batchStartIndex at offset 80
+        
+        uint32_t useIndirection = bRuntimeUseIndirectDraw ? 1 : 0;
         std::memcpy(pcData.data() + 84, &useIndirection, 4);  // useIndirection at offset 84
         std::memset(pcData.data() + 88, 0, 8);  // Padding at offset 88
         
         dc.pPushConstants = pcData.data();
         dc.pushConstantSize = kInstancedPushConstantSize;
+        
+        /* Set indirect draw buffer for GPU-driven rendering */
+        if (bRuntimeUseIndirectDraw) {
+            dc.indirectBuffer = this->m_gpuCuller.GetIndirectBuffer();
+            dc.indirectOffset = static_cast<VkDeviceSize>(i) * sizeof(VkDrawIndirectCommand);
+        }
         
         /* Set dynamic offset for object data SSBO binding. */
         dc.dynamicOffsets.clear();

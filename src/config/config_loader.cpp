@@ -130,7 +130,7 @@ VulkanConfig GetDefaultConfig() {
     stCfg.fClearColorA = 1.f;
     stCfg.bEnableGPUCulling = true;
     stCfg.bShowLightDebug = true;
-    stCfg.lMaxObjects = 4096;
+    stCfg.lMaxObjects = 100000;  // 100k objects - uses ~400MB for GPU culling buffers
     stCfg.lDescCacheMaxSets = 1000;
     stCfg.lDescCacheUniformBuffers = 500;
     stCfg.lDescCacheSamplers = 500;

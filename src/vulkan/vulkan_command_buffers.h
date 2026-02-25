@@ -27,6 +27,10 @@ struct DrawCall {
     /** Dynamic offsets for descriptor sets (one per dynamic binding). Empty = no dynamic offsets. */
     std::vector<uint32_t> dynamicOffsets;
     
+    /** GPU indirect draw support (instanceCount written by GPU compute). */
+    VkBuffer          indirectBuffer   = VK_NULL_HANDLE;  /**< Indirect buffer for vkCmdDrawIndirect. */
+    VkDeviceSize      indirectOffset   = 0;               /**< Offset into indirect buffer. */
+    
     /** Per-object data for per-viewport MVP recalculation. */
     const float*      pLocalTransform  = nullptr;  /**< Pointer to object's 4x4 model matrix (column-major). */
     float             color[4]         = {1.f, 1.f, 1.f, 1.f}; /**< Object color for push constants. */

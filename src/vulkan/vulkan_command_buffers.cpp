@@ -152,7 +152,14 @@ void VulkanCommandBuffers::Record(uint32_t lIndex_ic, VkRenderPass pRenderPass_i
         }
         if ((stD.pPushConstants != nullptr) && (stD.pushConstantSize > 0))
             vkCmdPushConstants(pCmd, stD.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, stD.pushConstantSize, stD.pPushConstants);
-        vkCmdDraw(pCmd, stD.vertexCount, stD.instanceCount, stD.firstVertex, stD.firstInstance);
+        
+        if (stD.indirectBuffer != VK_NULL_HANDLE) {
+            // GPU indirect draw: instanceCount written by compute shader
+            vkCmdDrawIndirect(pCmd, stD.indirectBuffer, stD.indirectOffset, 1, sizeof(VkDrawIndirectCommand));
+        } else {
+            // Direct draw: CPU-specified instanceCount
+            vkCmdDraw(pCmd, stD.vertexCount, stD.instanceCount, stD.firstVertex, stD.firstInstance);
+        }
     }
 
     /* Post-scene callback for debug rendering (inside render pass). */

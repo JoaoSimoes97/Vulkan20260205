@@ -272,8 +272,9 @@ src/
 | MSAA | 📋 | Multisample anti-aliasing |
 | Animation/Skinning | 📋 | glTF animation support |
 | Instanced Rendering | ✅ | BatchedDrawList with dirty tracking |
-| GPU Frustum Culling | ✅ | GPUCuller compute shader (verification mode) |
-| Occlusion Culling | 📋 | GPU-driven culling |
+| GPU Frustum Culling | ✅ | GPUCuller compute shader with per-batch culling |
+| GPU Indirect Draw | ✅ | vkCmdDrawIndirect with GPU-written instanceCount |
+| Occlusion Culling | 📋 | Hi-Z depth buffer culling |
 | Compute Shaders | ✅ | VulkanComputePipeline class, gpu_cull.comp |
 | Ray Tracing | ❌ | Blocked: No RT pipeline, no acceleration structures |
 | Hybrid Rendering | ❌ | Blocked: No render graph for pass dependencies |

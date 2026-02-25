@@ -30,14 +30,14 @@ static_assert(sizeof(CullObjectData) == 32, "CullObjectData must be 32 bytes");
 /**
  * FrustumData — Camera frustum planes for GPU culling.
  * 
- * Must match gpu_cull.comp FrustumData struct (112 bytes).
+ * Must match gpu_cull.comp FrustumData struct (128 bytes).
  */
 struct FrustumData {
     float planes[6][4];       // 6 planes: left, right, bottom, top, near, far (Ax + By + Cz + D)
     uint32_t objectCount;     // Total objects to cull
+    uint32_t batchCount;      // Number of active batches
+    uint32_t maxObjectsPerBatch; // Max objects per batch (for visible indices sectioning)
     uint32_t _pad0;
-    uint32_t _pad1;
-    uint32_t _pad2;
 };
 static_assert(sizeof(FrustumData) == 112, "FrustumData must be 112 bytes");
 
@@ -52,6 +52,17 @@ struct DrawIndexedIndirectCommand {
     uint32_t firstInstance;
 };
 static_assert(sizeof(DrawIndexedIndirectCommand) == 20, "DrawIndexedIndirectCommand must be 20 bytes");
+
+/**
+ * VkDrawIndirectCommand — For non-indexed draw (matches Vulkan spec).
+ */
+struct DrawIndirectCommand {
+    uint32_t vertexCount;
+    uint32_t instanceCount;
+    uint32_t firstVertex;
+    uint32_t firstInstance;
+};
+static_assert(sizeof(DrawIndirectCommand) == 16, "DrawIndirectCommand must be 16 bytes");
 
 /**
  * GPUCuller — GPU-driven frustum culling using compute shaders.
@@ -109,8 +120,20 @@ public:
      * @param planes 6 frustum planes [left, right, bottom, top, near, far]
      *               Each plane is [A, B, C, D] where Ax + By + Cz + D = 0
      * @param objectCount Number of objects to cull (must <= maxObjects)
+     * @param batchCount Number of active batches
      */
-    void UpdateFrustum(const float planes[6][4], uint32_t objectCount);
+    void UpdateFrustum(const float planes[6][4], uint32_t objectCount, uint32_t batchCount = 1);
+
+    /**
+     * Set batch draw info (must be called before Dispatch).
+     * This initializes the indirect draw commands with mesh data.
+     * 
+     * @param batchId Batch index
+     * @param vertexCount Vertices to draw (or indexCount for indexed draws)
+     * @param firstVertex Starting vertex
+     * @param firstInstance Set by GPU (visible indices offset = batchId * maxObjectsPerBatch)
+     */
+    void SetBatchDrawInfo(uint32_t batchId, uint32_t vertexCount, uint32_t firstVertex);
 
     /**
      * Upload object culling data.
@@ -178,7 +201,9 @@ private:
     
     uint32_t m_maxObjects = 0;
     uint32_t m_maxBatches = 1;
+    uint32_t m_maxObjectsPerBatch = 0;  // Computed as maxObjects / maxBatches (rounded up)
     uint32_t m_currentObjectCount = 0;
+    uint32_t m_currentBatchCount = 0;
 
     // Compute pipeline
     VulkanComputePipeline m_computePipeline;
@@ -192,6 +217,7 @@ private:
     GPUBuffer m_frustumBuffer;        // Set 0, Binding 0: Frustum UBO
     GPUBuffer m_cullInputBuffer;      // Set 0, Binding 1: Cull objects SSBO
     GPUBuffer m_visibleIndicesBuffer; // Set 0, Binding 2: Visible indices SSBO (output)
-    GPUBuffer m_atomicCounterBuffer;  // Set 0, Binding 3: Atomic counter SSBO
+    GPUBuffer m_atomicCounterBuffer;  // Set 0, Binding 3: Global atomic counter (for stats)
     GPUBuffer m_indirectBuffer;       // Set 0, Binding 4: Indirect commands SSBO
+    GPUBuffer m_batchCountersBuffer;  // Set 0, Binding 5: Per-batch atomic counters
 };

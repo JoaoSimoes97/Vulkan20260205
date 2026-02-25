@@ -35,17 +35,16 @@ struct CullObjectData {
 struct FrustumData {
     vec4 planes[6];       // left, right, bottom, top, near, far
     uint objectCount;     // Total objects to cull
+    uint batchCount;      // Number of active batches
+    uint maxObjectsPerBatch; // Max visible objects per batch section
     uint _pad0;
-    uint _pad1;
-    uint _pad2;
 };
 
-// Indirect draw command (VkDrawIndexedIndirectCommand)
+// Indirect draw command (VkDrawIndirectCommand for non-indexed draw)
 struct DrawCommand {
-    uint indexCount;
+    uint vertexCount;
     uint instanceCount;
-    uint firstIndex;
-    int  vertexOffset;
+    uint firstVertex;
     uint firstInstance;
 };
 
@@ -74,9 +73,14 @@ layout(std430, set = 0, binding = 3) buffer AtomicCounterBuffer {
 };
 
 // Set 0, Binding 4: Indirect draw commands (write storage buffer)
-// For now: single draw command. Future: one per batch.
+// One command per batch for multi-draw indirect
 layout(std430, set = 0, binding = 4) buffer IndirectCommandBuffer {
     DrawCommand drawCommands[];
+};
+
+// Set 0, Binding 5: Per-batch atomic counters for visible count
+layout(std430, set = 0, binding = 5) buffer BatchCountersBuffer {
+    uint batchCounters[];
 };
 
 // ============================================================================
@@ -120,13 +124,22 @@ void main() {
     
     // Frustum test
     if (SphereInFrustum(center, radius)) {
-        // Object is visible: atomically append to output
-        uint slot = atomicAdd(visibleCount, 1);
-        visibleIndices[slot] = obj.objectIndex;
+        uint batchId = obj.batchId;
         
-        // Increment instance count in draw command
-        // For single-batch: always command 0
-        // Future: use obj.batchId to select command
-        atomicAdd(drawCommands[0].instanceCount, 1);
+        // Increment global visible count (for debugging/stats)
+        atomicAdd(visibleCount, 1);
+        
+        // Per-batch output: each batch has its own section in visibleIndices
+        // Section for batchId starts at: batchId * maxObjectsPerBatch
+        uint localSlot = atomicAdd(batchCounters[batchId], 1);
+        
+        // Prevent overflow: only write if within batch section
+        if (localSlot < frustum.maxObjectsPerBatch) {
+            uint globalSlot = batchId * frustum.maxObjectsPerBatch + localSlot;
+            visibleIndices[globalSlot] = obj.objectIndex;
+            
+            // Increment instance count in this batch's draw command
+            atomicAdd(drawCommands[batchId].instanceCount, 1);
+        }
     }
 }
