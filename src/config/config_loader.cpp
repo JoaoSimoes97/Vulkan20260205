@@ -75,6 +75,8 @@ void ApplyJsonToConfig(const json& jRoot, VulkanConfig& stConfig) {
             stConfig.fClearColorB = static_cast<float>(jRender["clear_color_b"].get<double>());
         if ((jRender.contains("clear_color_a") == true) && (jRender["clear_color_a"].is_number() == true))
             stConfig.fClearColorA = static_cast<float>(jRender["clear_color_a"].get<double>());
+        if ((jRender.contains("enable_gpu_culling") == true) && (jRender["enable_gpu_culling"].is_boolean() == true))
+            stConfig.bEnableGPUCulling = jRender["enable_gpu_culling"].get<bool>();
     }
     if (jRoot.contains("debug") == true) {
         const json& jDebug = jRoot["debug"];
@@ -126,6 +128,7 @@ VulkanConfig GetDefaultConfig() {
     stCfg.fClearColorG = 0.1f;
     stCfg.fClearColorB = 0.4f;
     stCfg.fClearColorA = 1.f;
+    stCfg.bEnableGPUCulling = true;
     stCfg.bShowLightDebug = true;
     stCfg.lMaxObjects = 4096;
     stCfg.lDescCacheMaxSets = 1000;
@@ -219,7 +222,8 @@ void SaveConfigToFile(const std::string& sPath_ic, const VulkanConfig& stConfig_
             { "clear_color_r", stConfig_ic.fClearColorR },
             { "clear_color_g", stConfig_ic.fClearColorG },
             { "clear_color_b", stConfig_ic.fClearColorB },
-            { "clear_color_a", stConfig_ic.fClearColorA }
+            { "clear_color_a", stConfig_ic.fClearColorA },
+            { "enable_gpu_culling", stConfig_ic.bEnableGPUCulling }
         }},
         { "debug", {
             { "show_light_debug", stConfig_ic.bShowLightDebug }

@@ -1,0 +1,220 @@
+GPU-DRIVEN CULLING IMPLEMENTATION
+==================================
+Date Started: 2026-02-25
+
+GOAL: Implement proper GPU frustum culling with indirect draw commands
+      This replaces the CPU-driven culling with true GPU-driven rendering.
+
+ARCHITECTURE OVERVIEW:
+----------------------
+CPU (once per frame):
+  1. Upload ALL object transforms to SSBO (not just visible)
+  2. Upload frustum planes to UBO
+  3. Dispatch compute shader
+  4. Memory barrier
+  5. Draw using indirect commands
+
+GPU (compute shader):
+  1. Each thread tests one object against frustum
+  2. If visible: atomically append to visible list
+  3. Build indirect draw commands
+
+DATA FLOW:
+----------
+  [All Objects SSBO] ─────────────┐
+                                  ▼
+  [Frustum UBO] ──────────► [gpu_cull.comp] ──► [Visible Indices SSBO]
+                                  │
+                                  ▼
+                           [Indirect Draw Commands Buffer]
+                                  │
+                                  ▼
+                           [vkCmdDrawIndexedIndirect]
+
+PHASE 1: COMPUTE INFRASTRUCTURE
+-------------------------------
+[x] 1.1 Add compute pipeline support to PipelineManager
+    - Created VulkanComputePipeline class (vulkan_compute_pipeline.h/cpp)
+    - Added to CMakeLists.txt sources and headers
+[x] 1.2 Verify compute queue support in VulkanDevice
+    - Graphics queue supports compute (Vulkan spec guarantee)
+    - No changes needed - graphics queue can run compute dispatches
+[x] 1.3 Create gpu_cull.comp shader
+    - Created shaders/source/gpu_cull.comp
+    - Added compilation to CMakeLists.txt (glslc and glslangValidator)
+    - Added copy to exe directory
+[ ] 1.4 Test build compiles
+    - PASSED: Debug build successful
+
+PHASE 2: GPU CULLER CORE
+------------------------
+[x] 2.1 Create gpu_cull.comp shader
+    - Input: CullObjectData (bounds + object index)
+    - Input: FrustumData (6 planes)
+    - Output: Visible indices (compacted list)
+    - Output: Indirect draw commands
+    - Uses atomic append for thread-safe output
+[x] 2.2 Create GPUCuller class (src/render/gpu_culler.h/cpp)
+    - Owns compute pipeline
+    - Owns all GPU buffers (frustum, cull input, visible indices, atomic counter, indirect)
+    - Creates descriptor set layout and pool
+    - UpdateFrustum() / UploadCullObjects() / ResetCounters() / Dispatch() / BarrierAfterDispatch()
+    - ReadbackVisibleCount() for stats
+[x] 2.3 Add to CMakeLists.txt
+    - Added gpu_culler.cpp to SOURCES
+    - Added gpu_culler.h to HEADERS
+[x] 2.4 Test build compiles
+    - PASSED: Debug build successful
+
+PHASE 3: INTEGRATION
+--------------------
+PLAN: Incremental integration - GPU culler runs parallel to CPU culling first,
+      then switch over once verified.
+
+Step 3.1: Add GPUCuller to VulkanApp
+[x] Add GPUCuller member variable (m_gpuCuller)
+[x] Add m_cullObjectsCache vector  
+[x] Add m_gpuCullerEnabled flag
+[x] Create during InitVulkan (after descriptorCache)
+[x] Destroy during Cleanup
+
+Step 3.2: Extract frustum planes from camera
+[x] Added ExtractFrustumPlanesFromViewProj() helper in vulkan_app.cpp
+    - Gribb/Hartmann method for extracting planes from view-projection
+
+Step 3.3: Build CullObjectData from scene
+[x] In main loop, after UpdateVisibility:
+    - Extract frustum planes from viewProj
+    - Build m_cullObjectsCache from pScene->GetObjects()
+    - Upload to GPUCuller via UpdateFrustum() + UploadCullObjects()
+
+Step 3.4: Dispatch in command buffer
+[x] In preSceneCallback (before render pass):
+    - For Editor: Wrap viewport callback with GPU culler dispatch
+    - For Runtime: Create preSceneCallback with GPU culler dispatch
+    - Call ResetCounters(cmd) → Dispatch(cmd) → BarrierAfterDispatch(cmd)
+[x] Build passes
+
+Step 3.5: Verify GPU culler runs
+[x] ReadbackVisibleCount() after vkWaitForFences
+[x] Compare with CPU visible count from BatchedDrawList
+[x] Log mismatch every 60 frames (avoid spam)
+
+Step 3.6: Switch to indirect draw (Phase 4)
+[x] Modify vertex shader to use indirection buffer
+    - Added visibleIndices SSBO at binding 8
+    - Added useIndirection flag to push constants (offset 84)
+    - Vertex shader conditionally reads through visibleIndices when useIndirection=1
+[x] Fragment shader push constant layout updated to match
+[x] C++ push constant constants updated (kInstPushOffset_UseIndirection, etc.)
+[x] Descriptor set layout binding 8 added for visible indices SSBO
+[x] Placeholder visible indices SSBO created for when GPU culler not active
+[x] Descriptor set writes include binding 8 (placeholder or GPU culler buffer)
+[ ] Replace vkCmdDraw with vkCmdDrawIndexedIndirect (deferred to Phase 4.2)
+
+CURRENT STATUS: Phase 5 COMPLETE - Stats readback and ImGui display working
+                Phase 6.1 COMPLETE - Config option controls GPU culler
+                Build PASSES
+
+WHAT'S WORKING:
+- VulkanComputePipeline class for compute shaders
+- gpu_cull.comp compute shader (frustum culling, atomic append)
+- GPUCuller class with all GPU buffers
+- GPU culler integrated into main loop (frustum upload, dispatch in preSceneCallback)
+- Verification readback comparing GPU vs CPU visible counts
+- Vertex shader has useIndirection flag and visibleIndices SSBO (binding 8)
+- Descriptor set layout includes binding 8 for visible indices
+
+COMPLETED PHASES: 1-3, 5, 6.1
+DEFERRED: Phase 4.2 (per-batch indirect draw - requires architecture change)
+
+PHASE 4: BATCHING INTEGRATION
+-----------------------------
+[x] 4.1 Infrastructure for indirect draw
+    - Vertex shader has useIndirection flag (push constant offset 84)
+    - visibleIndices SSBO at binding 8
+    - Descriptor set layout and writes include binding 8
+    - Currently useIndirection=0, CPU batching still drives draw calls
+[ ] 4.2 Per-batch indirect commands (DEFERRED - requires architecture change)
+    ISSUE: Full GPU-driven indirect draw with batching requires per-batch
+           visible lists. Current GPUCuller outputs a flat list of visible
+           indices, not separated by batch/material.
+    SOLUTION OPTIONS:
+    a) Add batchId to CullObjectData, sort in compute shader per-batch
+    b) Multi-phase compute: cull -> bin-by-batch -> compact
+    c) Keep CPU batching, use GPU culler for verification/stats only
+    Current approach: Option (c) - GPU culler runs for verification,
+                      CPU batching continues to drive draws.
+
+PHASE 5: STATS & READBACK
+-------------------------
+[x] 5.1 Added GPUCullStats struct in VulkanApp
+    - gpuVisibleCount, cpuVisibleCount, totalObjectCount
+    - framesSinceLastReadback, mismatchDetected
+[x] 5.2 Readback after vkWaitForFences (in UpdateTransforms)
+    - Non-stalling readback using HOST_VISIBLE counter buffer
+    - Stats updated each frame
+[x] 5.3 ImGui display in RuntimeOverlay
+    - GPU Culling section shows: GPU Visible count, Culled percentage
+    - Shows CPU/GPU match status (warning on mismatch)
+    - Integrated into RenderStats struct
+
+PHASE 6: CLEANUP & OPTIMIZATION
+-------------------------------
+[x] 6.1 Config option for GPU culling
+    - Added bEnableGPUCulling to VulkanConfig
+    - Loaded from config.json "render" section
+    - Saved to config.json
+    - VulkanApp checks config before creating GPUCuller
+[ ] 6.2 Remove CPU culling fallback (keep for now as default path)
+[ ] 6.3 Profile GPU vs CPU culling
+[ ] 6.4 Add compute shader variants for different workloads
+
+CURRENT STATUS:
+---------------
+Phase 5 COMPLETE - GPU culling stats displayed in ImGui overlay
+Phase 6.1 COMPLETE - Config option (enable_gpu_culling) controls GPU culler creation
+
+WHAT'S WORKING:
+- GPU culler runs alongside CPU culling for verification
+- Stats readback shows GPU visible count vs CPU visible count
+- ImGui overlay displays GPU culling status and culled percentage
+- Config file controls whether GPU culler is enabled
+- Full infrastructure in place for future indirect draw
+
+LIMITATIONS:
+- Full GPU-driven indirect draw (Phase 4.2) requires per-batch GPU culling
+- Currently CPU batching drives all draw calls
+- GPU culler serves as verification/stats system
+
+FUTURE WORK:
+- Implement per-batch binning in compute shader for true GPU-driven draws
+- Or accept hybrid approach: GPU culling + CPU batching
+
+DEPENDENCIES:
+-------------
+- VulkanDevice must expose compute queue (or confirm graphics can do compute)
+- PipelineManager needs compute pipeline support
+- Shader compilation must handle .comp files
+
+INSTANCE TIERS (KEPT):
+----------------------
+Tiers control CPU upload frequency. GPU culling is orthogonal.
+
+| Tier        | CPU Upload         | GPU Cull |
+|-------------|--------------------| ---------|
+| Static      | Once at load       | Every frame |
+| SemiStatic  | Only when dirty    | Every frame |
+| Dynamic     | Every frame        | Every frame |
+| Procedural  | Never (GPU gen)    | On GPU      |
+
+TieredInstanceManager already handles per-tier SSBO regions.
+GPU culler will process ALL objects in the SSBO, regardless of tier.
+
+NOTES:
+------
+- Previous gpu_cull.comp was deleted as dead code
+- Previous GPUCuller was never integrated
+- This time: wire it properly from the start
+- Instance tiers REMAIN - they control upload, not culling
+

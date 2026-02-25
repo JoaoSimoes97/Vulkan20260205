@@ -228,14 +228,28 @@ namespace {
         };
     }
     void CubePositions(std::vector<float>& out) {
+        // Unit cube with CCW winding (front faces outward)
+        // Each face has 2 triangles (6 vertices)
         float s = 0.5f;
         out = {
-            -s,-s,-s, s,-s,-s, s,s,-s,  -s,-s,-s, s,s,-s, -s,s,-s,
-            -s,-s, s, s,s, s, s,-s, s,  -s,-s, s, -s,s, s, s,s, s,
-            -s,-s,-s, -s,s,-s, -s,s, s,  -s,-s,-s, -s,s, s, -s,-s, s,
-            s,-s,-s, s,-s, s, s,s, s,   s,-s,-s, s,s, s, s,s,-s,
-            -s,-s, s, s,-s, s, s,-s,-s,  -s,-s, s, s,-s,-s, -s,-s,-s,
-            -s, s, s, s, s,-s, s, s, s,  -s, s, s, -s, s,-s, s, s,-s
+            // Front face (z = +s) - CCW from outside
+            -s, -s,  s,   s, -s,  s,   s,  s,  s,
+            -s, -s,  s,   s,  s,  s,  -s,  s,  s,
+            // Back face (z = -s) - CCW from outside
+             s, -s, -s,  -s, -s, -s,  -s,  s, -s,
+             s, -s, -s,  -s,  s, -s,   s,  s, -s,
+            // Top face (y = +s) - CCW from outside
+            -s,  s,  s,   s,  s,  s,   s,  s, -s,
+            -s,  s,  s,   s,  s, -s,  -s,  s, -s,
+            // Bottom face (y = -s) - CCW from outside
+            -s, -s, -s,   s, -s, -s,   s, -s,  s,
+            -s, -s, -s,   s, -s,  s,  -s, -s,  s,
+            // Right face (x = +s) - CCW from outside
+             s, -s,  s,   s, -s, -s,   s,  s, -s,
+             s, -s,  s,   s,  s, -s,   s,  s,  s,
+            // Left face (x = -s) - CCW from outside
+            -s, -s, -s,  -s, -s,  s,  -s,  s,  s,
+            -s, -s, -s,  -s,  s,  s,  -s,  s, -s
         };
     }
 }

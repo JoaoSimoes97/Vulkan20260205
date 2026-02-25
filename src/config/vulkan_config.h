@@ -60,6 +60,8 @@ struct VulkanConfig {
     float fClearColorG = 0.1f;
     float fClearColorB = 0.4f;
     float fClearColorA = 1.f;
+    /** Enable GPU-driven frustum culling via compute shader. Runs parallel to CPU for verification. */
+    bool bEnableGPUCulling = true;
 
     /* --- Debug --- */
     /** Show light debug visualization (wireframe spheres/cones for lights). */

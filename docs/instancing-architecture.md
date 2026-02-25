@@ -4,19 +4,58 @@
 
 ---
 
-## Implementation Progress
+## Current Implementation Status (2026-02-25)
 
-| Task | Status | Notes |
-|------|--------|-------|
-| Architecture doc | ✅ Done | This document |
-| InstanceTier enum + structs | ✅ Done | `src/render/instance_types.h` |
-| StaticBatchManager | ✅ Done | `src/render/static_batch_manager.h/cpp` |
-| GPU culling compute shader | ✅ Done | `shaders/source/gpu_cull.comp` |
-| GPUCuller class | ✅ Done | `src/render/gpu_culler.h/cpp` |
-| RenderSystem wrapper | ✅ Done | `src/render/render_system.h/cpp` |
-| Demo scene with all tiers | ✅ Done | `levels/demo/level.json` - All 4 tiers demonstrated |
-| Level loader tier support | ⬜ Not Started | Parse `instanceTier` field in level loader |
-| Wire into VulkanApp | ⬜ Not Started | Integrate RenderSystem into main app |
+**UPDATE (2026-02-25):** GPU culling compute shader has been implemented and is running
+alongside CPU culling for verification. The GPU culler is controlled via config option
+`enable_gpu_culling` in `config.json`.
+
+### What's Currently Working
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| InstanceTier enum | ✅ Working | In `src/scene/object.h` |
+| TieredInstanceManager | ✅ Working | `src/render/tiered_instance_manager.h/cpp` |
+| BatchedDrawList | ✅ Working | Per-tier batching via `BatchKey.tier` |
+| Per-object dirty flags | ✅ Working | `mutable bDirty` in Object |
+| Triple-buffer SSBO | ✅ Working | Ring buffer with frames-in-flight tracking |
+| CPU Frustum Culling | ✅ Working | `src/render/render_list_builder.cpp` |
+| GPU Frustum Culling | ✅ Working | `src/render/gpu_culler.h/cpp`, `gpu_cull.comp` |
+| VulkanComputePipeline | ✅ Working | `src/vulkan/vulkan_compute_pipeline.h/cpp` |
+| Culling Stats Readback | ✅ Working | GPU/CPU visible count comparison in ImGui |
+
+### Current Architecture (Hybrid CPU+GPU)
+
+```
+CPU: Build batches → Write ALL to SSBO → GPU: Compute cull (parallel) → Readback stats
+                  ↓                                                          ↓
+         CPU frustum cull → Batched draw (drives rendering)   GPU stats in ImGui overlay
+```
+
+The GPU culler runs in parallel with CPU culling for verification. CPU batching
+still drives the actual draw calls. GPU visible count is displayed in the runtime
+overlay alongside CPU culling stats.
+
+### Tier Update Behavior
+
+| Tier | SSBO Upload | Culling |
+|------|-------------|---------|
+| Static | On scene rebuild + 3 frames | CPU + GPU (parallel) |
+| SemiStatic | On rebuild OR dirty flag | CPU + GPU (parallel) |
+| Dynamic | Every frame | CPU + GPU (parallel) |
+| Procedural | Placeholder (same as Static) | CPU + GPU (parallel) |
+
+### Future GPU-Driven Architecture (Partially Implemented)
+
+The infrastructure for GPU-driven indirect draw is in place:
+- `useIndirection` push constant flag (offset 84) in vertex shader
+- `visibleIndices` SSBO at binding 8
+- Descriptor set layout and writes include binding 8
+
+**Remaining for full GPU-driven draws (Phase 4.2):**
+Per-batch indirect commands require per-batch GPU culling. The current GPUCuller
+outputs a flat visible list, not separated by material batch. See
+[GPU_CULLING_IMPLEMENTATION.txt](../GPU_CULLING_IMPLEMENTATION.txt) for details.
 
 ---
 

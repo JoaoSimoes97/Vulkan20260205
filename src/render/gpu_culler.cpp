@@ -1,33 +1,7 @@
 #include "gpu_culler.h"
-#include "../vulkan/vulkan_utils.h"
-#include <fstream>
+#include "vulkan/vulkan_utils.h"
 #include <cstring>
-#include <cmath>
-
-namespace render {
-
-/* ---- Load SPIR-V shader file ---- */
-static std::vector<char> LoadShaderFile(const std::string& filename) {
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) return {};
-    size_t fileSize = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(fileSize);
-    file.seekg(0);
-    file.read(buffer.data(), static_cast<std::streamsize>(fileSize));
-    return buffer;
-}
-
-/* ---- Create shader module ---- */
-static VkShaderModule CreateShaderModule(VkDevice device, const std::vector<char>& code) {
-    if (code.empty()) return VK_NULL_HANDLE;
-    VkShaderModuleCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    ci.codeSize = code.size();
-    ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
-    VkShaderModule mod = VK_NULL_HANDLE;
-    vkCreateShaderModule(device, &ci, nullptr, &mod);
-    return mod;
-}
+#include <stdexcept>
 
 GPUCuller::~GPUCuller() {
     Destroy();
@@ -35,442 +9,406 @@ GPUCuller::~GPUCuller() {
 
 bool GPUCuller::Create(VkDevice device,
                        VkPhysicalDevice physicalDevice,
-                       uint32_t maxInstances,
-                       uint32_t maxMeshes,
-                       const char* cullShaderPath) {
-    if (device == VK_NULL_HANDLE || maxInstances == 0 || maxMeshes == 0) {
-        VulkanUtils::LogErr("GPUCuller::Create - invalid parameters");
+                       VulkanShaderManager* pShaderManager,
+                       uint32_t maxObjects,
+                       uint32_t maxBatches) {
+    VulkanUtils::LogTrace("GPUCuller::Create: maxObjects={}, maxBatches={}", maxObjects, maxBatches);
+
+    if (device == VK_NULL_HANDLE || physicalDevice == VK_NULL_HANDLE) {
+        VulkanUtils::LogErr("GPUCuller::Create: invalid device");
+        return false;
+    }
+    if (pShaderManager == nullptr || !pShaderManager->IsValid()) {
+        VulkanUtils::LogErr("GPUCuller::Create: invalid shader manager");
+        return false;
+    }
+    if (maxObjects == 0) {
+        VulkanUtils::LogErr("GPUCuller::Create: maxObjects must be > 0");
         return false;
     }
 
     m_device = device;
     m_physicalDevice = physicalDevice;
-    m_maxInstances = maxInstances;
-    m_maxMeshes = maxMeshes;
+    m_maxObjects = maxObjects;
+    m_maxBatches = maxBatches;
 
-    if (!CreateDescriptorSetLayout()) return false;
-    if (!CreatePipelineLayout()) return false;
-    if (!CreatePipeline(cullShaderPath)) return false;
-    if (!CreateOutputBuffers()) return false;
-    if (!CreateDescriptorPool()) return false;
-    if (!CreateDescriptorSet()) return false;
+    // Create GPU buffers
+    // 1. Frustum UBO (small, host visible, updated per frame)
+    if (!m_frustumBuffer.Create(device, physicalDevice,
+                                 sizeof(FrustumData),
+                                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                 true)) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create frustum buffer");
+        Destroy();
+        return false;
+    }
 
-    VulkanUtils::LogInfo("GPUCuller: Created with maxInstances={}, maxMeshes={}", maxInstances, maxMeshes);
+    // 2. Cull input SSBO (all object bounds, host visible for CPU upload)
+    VkDeviceSize cullInputSize = static_cast<VkDeviceSize>(maxObjects) * sizeof(CullObjectData);
+    if (!m_cullInputBuffer.Create(device, physicalDevice,
+                                   cullInputSize,
+                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                   true)) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create cull input buffer");
+        Destroy();
+        return false;
+    }
+
+    // 3. Visible indices SSBO (output, GPU writes, host visible for readback)
+    VkDeviceSize visibleIndicesSize = static_cast<VkDeviceSize>(maxObjects) * sizeof(uint32_t);
+    if (!m_visibleIndicesBuffer.Create(device, physicalDevice,
+                                        visibleIndicesSize,
+                                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                        true)) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create visible indices buffer");
+        Destroy();
+        return false;
+    }
+
+    // 4. Atomic counter SSBO (single uint32, GPU atomics, host visible for readback)
+    if (!m_atomicCounterBuffer.Create(device, physicalDevice,
+                                       sizeof(uint32_t),
+                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                       true)) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create atomic counter buffer");
+        Destroy();
+        return false;
+    }
+
+    // 5. Indirect commands SSBO (one command per batch)
+    VkDeviceSize indirectSize = static_cast<VkDeviceSize>(maxBatches) * sizeof(DrawIndexedIndirectCommand);
+    if (!m_indirectBuffer.Create(device, physicalDevice,
+                                  indirectSize,
+                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                  true)) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create indirect buffer");
+        Destroy();
+        return false;
+    }
+
+    // Create descriptor set layout
+    if (!CreateDescriptorSetLayout()) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create descriptor set layout");
+        Destroy();
+        return false;
+    }
+
+    // Create descriptor pool
+    if (!CreateDescriptorPool()) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create descriptor pool");
+        Destroy();
+        return false;
+    }
+
+    // Create descriptor set
+    if (!CreateDescriptorSet()) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create descriptor set");
+        Destroy();
+        return false;
+    }
+
+    // Create compute pipeline
+    ComputePipelineLayoutDescriptor layoutDesc;
+    layoutDesc.descriptorSetLayouts.push_back(m_descriptorSetLayout);
+    // No push constants for now
+
+    try {
+        m_computePipeline.Create(device, pShaderManager, "shaders/gpu_cull.comp.spv", layoutDesc);
+    } catch (const std::exception& e) {
+        VulkanUtils::LogErr("GPUCuller::Create: failed to create compute pipeline: {}", e.what());
+        Destroy();
+        return false;
+    }
+
+    VulkanUtils::LogInfo("GPUCuller created: maxObjects={}, maxBatches={}", maxObjects, maxBatches);
     return true;
 }
 
 void GPUCuller::Destroy() {
-    if (m_device == VK_NULL_HANDLE) return;
+    m_computePipeline.Destroy();
 
-    vkDestroyPipeline(m_device, m_pipeline, nullptr);
-    vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
-    vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
-    vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+    if (m_descriptorPool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+        m_descriptorPool = VK_NULL_HANDLE;
+    }
+    m_descriptorSet = VK_NULL_HANDLE;  // Freed with pool
 
-    m_cullUniformBuffer.Destroy();
+    if (m_descriptorSetLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
+        m_descriptorSetLayout = VK_NULL_HANDLE;
+    }
+
+    m_frustumBuffer.Destroy();
+    m_cullInputBuffer.Destroy();
     m_visibleIndicesBuffer.Destroy();
-    m_indirectCommandsBuffer.Destroy();
+    m_atomicCounterBuffer.Destroy();
+    m_indirectBuffer.Destroy();
 
-    m_pipeline = VK_NULL_HANDLE;
-    m_pipelineLayout = VK_NULL_HANDLE;
-    m_descriptorSetLayout = VK_NULL_HANDLE;
-    m_descriptorPool = VK_NULL_HANDLE;
-    m_descriptorSet = VK_NULL_HANDLE;
     m_device = VK_NULL_HANDLE;
+    m_physicalDevice = VK_NULL_HANDLE;
+    m_maxObjects = 0;
+    m_maxBatches = 1;
+    m_currentObjectCount = 0;
 }
 
 bool GPUCuller::CreateDescriptorSetLayout() {
-    // Bindings:
-    // 0: CullUniforms (uniform buffer)
-    // 1: Instance transforms (storage buffer, read-only)
-    // 2: Cull data (storage buffer, read-only)
-    // 3: Visible indices output (storage buffer)
-    // 4: Indirect commands output (storage buffer)
-    
+    // Bindings match gpu_cull.comp
     VkDescriptorSetLayoutBinding bindings[5] = {};
-    
-    // Binding 0: Cull uniforms
+
+    // Binding 0: Frustum UBO
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    
-    // Binding 1: Instance data (read-only)
+    bindings[0].pImmutableSamplers = nullptr;
+
+    // Binding 1: Cull input SSBO (read-only)
     bindings[1].binding = 1;
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    
-    // Binding 2: Cull data (read-only)
+    bindings[1].pImmutableSamplers = nullptr;
+
+    // Binding 2: Visible indices SSBO (write)
     bindings[2].binding = 2;
     bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[2].descriptorCount = 1;
     bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    
-    // Binding 3: Visible indices output
+    bindings[2].pImmutableSamplers = nullptr;
+
+    // Binding 3: Atomic counter SSBO (read-write)
     bindings[3].binding = 3;
     bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[3].descriptorCount = 1;
     bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    
-    // Binding 4: Indirect commands output
+    bindings[3].pImmutableSamplers = nullptr;
+
+    // Binding 4: Indirect commands SSBO (write)
     bindings[4].binding = 4;
     bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[4].descriptorCount = 1;
     bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[4].pImmutableSamplers = nullptr;
 
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 5;
-    layoutInfo.pBindings = bindings;
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .bindingCount = 5,
+        .pBindings = bindings,
+    };
 
-    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
-        VulkanUtils::LogErr("GPUCuller: Failed to create descriptor set layout");
-        return false;
-    }
-    return true;
-}
-
-bool GPUCuller::CreatePipelineLayout() {
-    // Push constant for instance count
-    VkPushConstantRange pushRange{};
-    pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pushRange.offset = 0;
-    pushRange.size = sizeof(CullPushConstants);
-
-    VkPipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutInfo.setLayoutCount = 1;
-    layoutInfo.pSetLayouts = &m_descriptorSetLayout;
-    layoutInfo.pushConstantRangeCount = 1;
-    layoutInfo.pPushConstantRanges = &pushRange;
-
-    if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS) {
-        VulkanUtils::LogErr("GPUCuller: Failed to create pipeline layout");
-        return false;
-    }
-    return true;
-}
-
-bool GPUCuller::CreatePipeline(const char* shaderPath) {
-    std::string fullPath = VulkanUtils::GetResourcePath(shaderPath);
-    auto shaderCode = LoadShaderFile(fullPath);
-    if (shaderCode.empty()) {
-        VulkanUtils::LogErr("GPUCuller: Failed to load shader from {}", fullPath);
-        return false;
-    }
-
-    VkShaderModule shaderModule = CreateShaderModule(m_device, shaderCode);
-    if (shaderModule == VK_NULL_HANDLE) {
-        VulkanUtils::LogErr("GPUCuller: Failed to create shader module");
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo stageInfo{};
-    stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stageInfo.module = shaderModule;
-    stageInfo.pName = "main";
-
-    VkComputePipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipelineInfo.stage = stageInfo;
-    pipelineInfo.layout = m_pipelineLayout;
-
-    VkResult result = vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_pipeline);
-    vkDestroyShaderModule(m_device, shaderModule, nullptr);
-
-    if (result != VK_SUCCESS) {
-        VulkanUtils::LogErr("GPUCuller: Failed to create compute pipeline");
-        return false;
-    }
-    return true;
-}
-
-bool GPUCuller::CreateOutputBuffers() {
-    // Uniform buffer for frustum planes (host visible for easy updates)
-    if (!m_cullUniformBuffer.Create(
-            m_device, m_physicalDevice,
-            sizeof(CullUniforms),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            true)) {
-        VulkanUtils::LogErr("GPUCuller: Failed to create uniform buffer");
-        return false;
-    }
-
-    // Visible indices buffer: count (uint32) + indices (uint32 * maxInstances)
-    VkDeviceSize visibleBufferSize = sizeof(uint32_t) + sizeof(uint32_t) * m_maxInstances;
-    if (!m_visibleIndicesBuffer.Create(
-            m_device, m_physicalDevice,
-            visibleBufferSize,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            false)) {
-        VulkanUtils::LogErr("GPUCuller: Failed to create visible indices buffer");
-        return false;
-    }
-
-    // Indirect commands buffer: DrawIndexedIndirectCommand * maxMeshes
-    VkDeviceSize indirectBufferSize = sizeof(GPUDrawIndirectCommand) * m_maxMeshes;
-    if (!m_indirectCommandsBuffer.Create(
-            m_device, m_physicalDevice,
-            indirectBufferSize,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            false)) {
-        VulkanUtils::LogErr("GPUCuller: Failed to create indirect commands buffer");
-        return false;
-    }
-
-    return true;
+    VkResult r = vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_descriptorSetLayout);
+    return r == VK_SUCCESS;
 }
 
 bool GPUCuller::CreateDescriptorPool() {
-    VkDescriptorPoolSize poolSizes[] = {
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 }  // instance, cull, visible, indirect
+    VkDescriptorPoolSize poolSizes[2] = {};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[1].descriptorCount = 4;  // 4 SSBOs
+
+    VkDescriptorPoolCreateInfo poolInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .maxSets = 1,
+        .poolSizeCount = 2,
+        .pPoolSizes = poolSizes,
     };
 
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 2;
-    poolInfo.pPoolSizes = poolSizes;
-    poolInfo.maxSets = 1;
-
-    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
-        VulkanUtils::LogErr("GPUCuller: Failed to create descriptor pool");
-        return false;
-    }
-    return true;
+    VkResult r = vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool);
+    return r == VK_SUCCESS;
 }
 
 bool GPUCuller::CreateDescriptorSet() {
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = m_descriptorPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &m_descriptorSetLayout;
+    VkDescriptorSetAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .descriptorPool = m_descriptorPool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &m_descriptorSetLayout,
+    };
 
-    if (vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet) != VK_SUCCESS) {
-        VulkanUtils::LogErr("GPUCuller: Failed to allocate descriptor set");
+    VkResult r = vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet);
+    if (r != VK_SUCCESS) {
         return false;
     }
 
-    // Update descriptor set with uniform buffer and output buffers
-    // Note: Instance and cull data buffers are bound at dispatch time
-    
-    VkDescriptorBufferInfo uniformBufferInfo{};
-    uniformBufferInfo.buffer = m_cullUniformBuffer.GetBuffer();
-    uniformBufferInfo.offset = 0;
-    uniformBufferInfo.range = sizeof(CullUniforms);
+    // Write descriptor set
+    VkDescriptorBufferInfo frustumInfo = {
+        .buffer = m_frustumBuffer.GetBuffer(),
+        .offset = 0,
+        .range = sizeof(FrustumData),
+    };
+    VkDescriptorBufferInfo cullInputInfo = {
+        .buffer = m_cullInputBuffer.GetBuffer(),
+        .offset = 0,
+        .range = VK_WHOLE_SIZE,
+    };
+    VkDescriptorBufferInfo visibleIndicesInfo = {
+        .buffer = m_visibleIndicesBuffer.GetBuffer(),
+        .offset = 0,
+        .range = VK_WHOLE_SIZE,
+    };
+    VkDescriptorBufferInfo atomicCounterInfo = {
+        .buffer = m_atomicCounterBuffer.GetBuffer(),
+        .offset = 0,
+        .range = sizeof(uint32_t),
+    };
+    VkDescriptorBufferInfo indirectInfo = {
+        .buffer = m_indirectBuffer.GetBuffer(),
+        .offset = 0,
+        .range = VK_WHOLE_SIZE,
+    };
 
-    VkDescriptorBufferInfo visibleBufferInfo{};
-    visibleBufferInfo.buffer = m_visibleIndicesBuffer.GetBuffer();
-    visibleBufferInfo.offset = 0;
-    visibleBufferInfo.range = VK_WHOLE_SIZE;
+    VkWriteDescriptorSet writes[5] = {};
 
-    VkDescriptorBufferInfo indirectBufferInfo{};
-    indirectBufferInfo.buffer = m_indirectCommandsBuffer.GetBuffer();
-    indirectBufferInfo.offset = 0;
-    indirectBufferInfo.range = VK_WHOLE_SIZE;
-
-    VkWriteDescriptorSet writes[3] = {};
-    
-    // Binding 0: Uniform buffer
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = m_descriptorSet;
     writes[0].dstBinding = 0;
-    writes[0].descriptorCount = 1;
+    writes[0].dstArrayElement = 0;
     writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[0].pBufferInfo = &uniformBufferInfo;
+    writes[0].descriptorCount = 1;
+    writes[0].pBufferInfo = &frustumInfo;
 
-    // Binding 3: Visible indices output
     writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[1].dstSet = m_descriptorSet;
-    writes[1].dstBinding = 3;
-    writes[1].descriptorCount = 1;
+    writes[1].dstBinding = 1;
+    writes[1].dstArrayElement = 0;
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[1].pBufferInfo = &visibleBufferInfo;
+    writes[1].descriptorCount = 1;
+    writes[1].pBufferInfo = &cullInputInfo;
 
-    // Binding 4: Indirect commands output
     writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[2].dstSet = m_descriptorSet;
-    writes[2].dstBinding = 4;
-    writes[2].descriptorCount = 1;
+    writes[2].dstBinding = 2;
+    writes[2].dstArrayElement = 0;
     writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[2].pBufferInfo = &indirectBufferInfo;
+    writes[2].descriptorCount = 1;
+    writes[2].pBufferInfo = &visibleIndicesInfo;
 
-    vkUpdateDescriptorSets(m_device, 3, writes, 0, nullptr);
+    writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[3].dstSet = m_descriptorSet;
+    writes[3].dstBinding = 3;
+    writes[3].dstArrayElement = 0;
+    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[3].descriptorCount = 1;
+    writes[3].pBufferInfo = &atomicCounterInfo;
+
+    writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[4].dstSet = m_descriptorSet;
+    writes[4].dstBinding = 4;
+    writes[4].dstArrayElement = 0;
+    writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[4].descriptorCount = 1;
+    writes[4].pBufferInfo = &indirectInfo;
+
+    vkUpdateDescriptorSets(m_device, 5, writes, 0, nullptr);
     return true;
 }
 
-void GPUCuller::UpdateFrustum(const glm::mat4& viewProj) {
-    ExtractFrustumPlanes(viewProj);
-    m_cullUniforms.viewProj = viewProj;
+void GPUCuller::UpdateFrustum(const float planes[6][4], uint32_t objectCount) {
+    m_currentObjectCount = (objectCount <= m_maxObjects) ? objectCount : m_maxObjects;
 
-    // Upload to GPU
-    void* mapped = m_cullUniformBuffer.GetMappedPtr();
-    if (mapped) {
-        memcpy(mapped, &m_cullUniforms, sizeof(CullUniforms));
+    FrustumData* pFrustum = static_cast<FrustumData*>(m_frustumBuffer.GetMappedPtr());
+    if (pFrustum) {
+        std::memcpy(pFrustum->planes, planes, sizeof(pFrustum->planes));
+        pFrustum->objectCount = m_currentObjectCount;
+        pFrustum->_pad0 = 0;
+        pFrustum->_pad1 = 0;
+        pFrustum->_pad2 = 0;
     }
 }
 
-void GPUCuller::ExtractFrustumPlanes(const glm::mat4& vp) {
-    // Extract frustum planes from view-projection matrix
-    // Each plane equation: ax + by + cz + d = 0 where (a,b,c) is normal, d is distance
-    // Plane format: vec4(normal.xyz, distance)
-    
-    // Left: row3 + row0
-    m_cullUniforms.frustumPlanes[0] = glm::vec4(
-        vp[0][3] + vp[0][0],
-        vp[1][3] + vp[1][0],
-        vp[2][3] + vp[2][0],
-        vp[3][3] + vp[3][0]
-    );
-    
-    // Right: row3 - row0
-    m_cullUniforms.frustumPlanes[1] = glm::vec4(
-        vp[0][3] - vp[0][0],
-        vp[1][3] - vp[1][0],
-        vp[2][3] - vp[2][0],
-        vp[3][3] - vp[3][0]
-    );
-    
-    // Bottom: row3 + row1
-    m_cullUniforms.frustumPlanes[2] = glm::vec4(
-        vp[0][3] + vp[0][1],
-        vp[1][3] + vp[1][1],
-        vp[2][3] + vp[2][1],
-        vp[3][3] + vp[3][1]
-    );
-    
-    // Top: row3 - row1
-    m_cullUniforms.frustumPlanes[3] = glm::vec4(
-        vp[0][3] - vp[0][1],
-        vp[1][3] - vp[1][1],
-        vp[2][3] - vp[2][1],
-        vp[3][3] - vp[3][1]
-    );
-    
-    // Near: row3 + row2
-    m_cullUniforms.frustumPlanes[4] = glm::vec4(
-        vp[0][3] + vp[0][2],
-        vp[1][3] + vp[1][2],
-        vp[2][3] + vp[2][2],
-        vp[3][3] + vp[3][2]
-    );
-    
-    // Far: row3 - row2
-    m_cullUniforms.frustumPlanes[5] = glm::vec4(
-        vp[0][3] - vp[0][2],
-        vp[1][3] - vp[1][2],
-        vp[2][3] - vp[2][2],
-        vp[3][3] - vp[3][2]
-    );
+void GPUCuller::UploadCullObjects(const CullObjectData* pObjects, uint32_t count) {
+    if (count == 0 || pObjects == nullptr) {
+        return;
+    }
+    uint32_t uploadCount = (count <= m_maxObjects) ? count : m_maxObjects;
 
-    // Normalize planes
-    for (int i = 0; i < 6; i++) {
-        float len = glm::length(glm::vec3(m_cullUniforms.frustumPlanes[i]));
-        if (len > 0.0001f) {
-            m_cullUniforms.frustumPlanes[i] /= len;
+    void* pDst = m_cullInputBuffer.GetMappedPtr();
+    if (pDst) {
+        std::memcpy(pDst, pObjects, uploadCount * sizeof(CullObjectData));
+    }
+}
+
+void GPUCuller::ResetCounters(VkCommandBuffer cmdBuffer) {
+    // Reset atomic counter to 0
+    uint32_t* pCounter = static_cast<uint32_t*>(m_atomicCounterBuffer.GetMappedPtr());
+    if (pCounter) {
+        *pCounter = 0;
+    }
+
+    // Reset indirect command instance counts to 0
+    DrawIndexedIndirectCommand* pCommands = static_cast<DrawIndexedIndirectCommand*>(m_indirectBuffer.GetMappedPtr());
+    if (pCommands) {
+        for (uint32_t i = 0; i < m_maxBatches; ++i) {
+            pCommands[i].instanceCount = 0;
         }
     }
+
+    // Host writes are visible due to HOST_COHERENT, but we need a memory barrier
+    // to ensure the compute shader sees the reset values
+    VkMemoryBarrier barrier = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_HOST_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+    };
+
+    vkCmdPipelineBarrier(cmdBuffer,
+                         VK_PIPELINE_STAGE_HOST_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         1, &barrier,
+                         0, nullptr,
+                         0, nullptr);
 }
 
-void GPUCuller::ResetCounters(VkCommandBuffer cmd) {
-    // Reset visible count to 0
-    vkCmdFillBuffer(cmd, m_visibleIndicesBuffer.GetBuffer(), 0, sizeof(uint32_t), 0);
-    
-    // Reset all indirect command instance counts to 0
-    // Note: We need to preserve indexCount, firstIndex, vertexOffset values
-    // For simplicity, we zero the instanceCount field only
-    // This is done by zeroing the whole buffer and re-initializing mesh info
-    vkCmdFillBuffer(cmd, m_indirectCommandsBuffer.GetBuffer(), 0, 
-                    m_maxMeshes * sizeof(GPUDrawIndirectCommand), 0);
+void GPUCuller::Dispatch(VkCommandBuffer cmdBuffer) {
+    if (m_currentObjectCount == 0) {
+        return;
+    }
 
-    // Memory barrier to ensure fill completes before compute
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline.Get());
+    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_computePipeline.GetLayout(),
+                            0, 1, &m_descriptorSet,
+                            0, nullptr);
 
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0,
-        1, &barrier,
-        0, nullptr,
-        0, nullptr);
+    // Workgroup size is 256 (defined in gpu_cull.comp)
+    constexpr uint32_t WORKGROUP_SIZE = 256;
+    uint32_t groupCountX = (m_currentObjectCount + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
+    vkCmdDispatch(cmdBuffer, groupCountX, 1, 1);
 }
 
-void GPUCuller::Dispatch(VkCommandBuffer cmd,
-                         VkBuffer instanceBuffer,
-                         VkBuffer cullDataBuffer,
-                         uint32_t instanceCount) {
-    if (instanceCount == 0) return;
+void GPUCuller::BarrierAfterDispatch(VkCommandBuffer cmdBuffer) {
+    // Memory barrier: compute shader writes → vertex/indirect reads
+    VkMemoryBarrier barrier = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_SHADER_READ_BIT,
+    };
 
-    // Update descriptor set with input buffers
-    VkDescriptorBufferInfo instanceBufferInfo{};
-    instanceBufferInfo.buffer = instanceBuffer;
-    instanceBufferInfo.offset = 0;
-    instanceBufferInfo.range = VK_WHOLE_SIZE;
-
-    VkDescriptorBufferInfo cullDataBufferInfo{};
-    cullDataBufferInfo.buffer = cullDataBuffer;
-    cullDataBufferInfo.offset = 0;
-    cullDataBufferInfo.range = VK_WHOLE_SIZE;
-
-    VkWriteDescriptorSet writes[2] = {};
-    
-    // Binding 1: Instance data
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = m_descriptorSet;
-    writes[0].dstBinding = 1;
-    writes[0].descriptorCount = 1;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[0].pBufferInfo = &instanceBufferInfo;
-
-    // Binding 2: Cull data
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = m_descriptorSet;
-    writes[1].dstBinding = 2;
-    writes[1].descriptorCount = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[1].pBufferInfo = &cullDataBufferInfo;
-
-    vkUpdateDescriptorSets(m_device, 2, writes, 0, nullptr);
-
-    // Bind pipeline and descriptor set
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout, 
-                            0, 1, &m_descriptorSet, 0, nullptr);
-
-    // Push constants
-    CullPushConstants pc{};
-    pc.instanceCount = instanceCount;
-    vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 
-                       0, sizeof(CullPushConstants), &pc);
-
-    // Dispatch: 256 threads per workgroup
-    uint32_t workgroupCount = (instanceCount + 255) / 256;
-    vkCmdDispatch(cmd, workgroupCount, 1, 1);
+    vkCmdPipelineBarrier(cmdBuffer,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+                         0,
+                         1, &barrier,
+                         0, nullptr,
+                         0, nullptr);
 }
 
-void GPUCuller::InsertBarrier(VkCommandBuffer cmd) {
-    // Memory barrier: compute write -> indirect draw read
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
-
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-        0,
-        1, &barrier,
-        0, nullptr,
-        0, nullptr);
+uint32_t GPUCuller::ReadbackVisibleCount() {
+    uint32_t* pCounter = static_cast<uint32_t*>(m_atomicCounterBuffer.GetMappedPtr());
+    return pCounter ? *pCounter : 0;
 }
-
-} // namespace render

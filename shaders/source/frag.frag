@@ -25,7 +25,7 @@ layout(push_constant) uniform Push {
     mat4 viewProj;        // View-Projection matrix (64 bytes) - unused in frag
     vec4 camPos;          // Camera world position xyz, w unused (16 bytes)
     uint batchStartIndex; // Start index into SSBO for this batch (4 bytes) - unused in frag
-    uint _pad0;           // Padding (4 bytes)
+    uint useIndirection;  // If 1, use visibleIndices buffer (4 bytes) - unused in frag
     uint _pad1;           // Padding (4 bytes)
     uint _pad2;           // Padding (4 bytes)
     // Total: 96 bytes

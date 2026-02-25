@@ -19,6 +19,8 @@
 #include "managers/texture_manager.h"
 #include "render/batched_draw_list.h"
 #include "render/render_list_builder.h"
+#include "render/tiered_instance_manager.h"
+#include "render/gpu_culler.h"
 #include "render/viewport_manager.h"
 #include "thread/job_queue.h"
 #include "thread/resource_manager_thread.h"
@@ -44,6 +46,7 @@
 #include "editor/editor_layer.h"
 #else
 #include "runtime/runtime_overlay.h"
+#include "scene/level_selector.h"
 #endif
 
 class VulkanShaderManager;
@@ -196,6 +199,27 @@ private:
     VkDeviceSize m_frameSize = 0;
     /** Current frame's dynamic offset for object data SSBO binding. */
     uint32_t m_currentFrameObjectDataOffset = 0;
+    /** Tier-based SSBO manager for selective object data updates. */
+    TieredInstanceManager m_tieredInstanceManager;
+    
+    /* ======== GPU Culling ======== */
+    /** GPU-driven frustum culling via compute shader. */
+    GPUCuller m_gpuCuller;
+    /** Cached cull object data for GPU upload (rebuilt when scene changes). */
+    std::vector<CullObjectData> m_cullObjectsCache;
+    /** Whether GPU culler is enabled and ready. */
+    bool m_gpuCullerEnabled = false;
+    /** Placeholder visible indices SSBO for binding 8 (before indirect draw is active). */
+    GPUBuffer m_placeholderVisibleIndicesSSBO;
+    
+    /** GPU culling stats (updated each frame). */
+    struct GPUCullStats {
+        uint32_t gpuVisibleCount = 0;    // Objects visible according to GPU culler
+        uint32_t cpuVisibleCount = 0;    // Objects visible according to CPU culling
+        uint32_t totalObjectCount = 0;   // Total objects submitted to culling
+        uint32_t framesSinceLastReadback = 0;
+        bool mismatchDetected = false;   // GPU != CPU count
+    } m_gpuCullStats;
 
     /* ======== Lighting ======== */
     LightManager m_lightManager;
@@ -214,6 +238,7 @@ private:
     EditorLayer m_editorLayer;
 #else
     RuntimeOverlay m_runtimeOverlay;
+    LevelSelector m_levelSelector;
 #endif
 
     /* ======== Camera & Frame Timing ======== */

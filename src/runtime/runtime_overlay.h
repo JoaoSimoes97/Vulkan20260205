@@ -6,6 +6,7 @@
  * - Frame time (ms)
  * - Memory usage (optional)
  * - GPU info (optional)
+ * - Level selector
  * 
  * This is the only UI rendered in Release builds.
  * For full editor functionality, use Debug builds.
@@ -13,6 +14,7 @@
 #pragma once
 
 #include "ui/imgui_base.h"
+#include "scene/level_selector.h"
 #include <cstdint>
 #include <string>
 
@@ -31,6 +33,12 @@ struct RenderStats {
     uint32_t batches         = 0;  // Number of batches
     float    cullingRatio    = 0;  // % culled (1.0 = all visible)
     
+    // GPU culling statistics (from compute shader)
+    uint32_t gpuCulledVisible = 0;   // Objects visible per GPU culler
+    uint32_t gpuCulledTotal   = 0;   // Total objects submitted to GPU culler
+    bool     gpuCullerActive  = false;  // Whether GPU culler is running
+    bool     gpuCpuMismatch   = false;  // GPU visible != CPU visible counts
+    
     // Instance tier statistics
     uint32_t instancesStatic     = 0;  // Tier 0: GPU-resident, never moves
     uint32_t instancesSemiStatic = 0;  // Tier 1: Dirty flag updates
@@ -42,6 +50,12 @@ struct RenderStats {
     uint32_t drawCallsSemiStatic = 0;  // Batched semi-static draws
     uint32_t drawCallsDynamic    = 0;  // Batched dynamic draws
     uint32_t drawCallsProcedural = 0;  // Compute-generated draws
+    
+    // SSBO uploads per tier (objects updated this frame)
+    uint32_t uploadsStatic       = 0;  // Tier 0: Uploads on scene rebuild only
+    uint32_t uploadsSemiStatic   = 0;  // Tier 1: Uploads on dirty flag
+    uint32_t uploadsDynamic      = 0;  // Tier 2: Uploads every frame
+    uint32_t uploadsProcedural   = 0;  // Tier 3: Compute-generated uploads
 };
 
 /**
@@ -102,11 +116,17 @@ public:
      */
     void SetRenderStats(const RenderStats& stats) { m_renderStats = stats; }
 
+    /**
+     * Set level selector for level switching UI.
+     */
+    void SetLevelSelector(LevelSelector* pSelector) { m_pLevelSelector = pSelector; }
+
 protected:
     void DrawContent() override;
 
 private:
     void DrawStatsWindow(const Camera* pCamera, const VulkanConfig* pConfig);
+    void DrawLevelSelector();
 
     bool m_bVisible = true;
     int m_corner = 1;  // Top-right by default
@@ -132,4 +152,7 @@ private:
     
     // Render statistics
     RenderStats m_renderStats;  
+    
+    // Level selector (optional, owned externally)
+    LevelSelector* m_pLevelSelector = nullptr;
 };

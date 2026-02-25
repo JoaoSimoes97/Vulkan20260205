@@ -1,0 +1,67 @@
+GPU PIPELINE CLEANUP - Progress Tracking
+========================================
+Date: 2026-02-25
+
+GOAL: Remove dead code (GPU infrastructure never wired into render loop)
+      Keep working code (TieredInstanceManager, BatchedDrawList, CPU culling)
+
+FILES REMOVED:
+--------------
+[x] src/render/gpu_culler.h           - DELETED (never called)
+[x] src/render/gpu_culler.cpp         - DELETED (never called)
+[x] src/render/static_batch_manager.h - DELETED (never called)
+[x] src/render/static_batch_manager.cpp - DELETED (never called)
+[x] src/render/render_system.h        - DELETED (never called)
+[x] src/render/render_system.cpp      - DELETED (never called)
+[x] src/render/instance_types.h       - DELETED (unused structs)
+[x] shaders/source/gpu_cull.comp      - DELETED (compiled but never loaded)
+
+FILES UPDATED:
+--------------
+[x] CMakeLists.txt - Removed gpu_cull shader compilation
+[x] docs/instancing-architecture.md - Added "Current Status" section explaining
+    that the document describes FUTURE GPU-driven architecture, while current
+    implementation is CPU-driven and working correctly.
+
+WORKING CODE (KEPT):
+--------------------
+[x] TieredInstanceManager - Tier-aware SSBO uploads with triple-buffer support
+[x] BatchedDrawList - Per-tier batching via BatchKey.tier
+[x] RenderListBuilder - CPU frustum culling
+[x] InstanceTier enum in object.h - Static/SemiStatic/Dynamic/Procedural
+[x] Object.bDirty - Mutable dirty flag for SemiStatic tier
+[x] SyncTransformsToScene - Marks SemiStatic dirty on transform change
+
+BUILD STATUS:
+-------------
+[x] Release build - PASSED (no warnings except unused parameter)
+[x] Debug build   - PASSED (no warnings except unused parameter)
+
+CURRENT ARCHITECTURE (HONEST):
+------------------------------
+CPU: Frustum cull -> Build batches -> Write visible to SSBO -> GPU: Instanced draw
+
+All statistics are CPU-computable:
+- Objects per tier (from Scene)
+- Draws per tier (from BatchedDrawList)
+- SSBO uploads per tier (from TieredInstanceManager)
+- Culled count (from RenderListBuilder)
+
+NOTES:
+------
+- The deleted files were NEVER in CMakeLists.txt source lists (except shader)
+- They were dead code that was never compiled or linked
+- gpu_cull.comp WAS being compiled but never loaded/used at runtime
+- No GPU culling compute shader is currently active
+- This is CORRECT for current scale (<100K objects)
+
+FUTURE WORK (Phase 7):
+----------------------
+When needed for 100K+ objects:
+1. Re-implement GPU culler with proper integration from start
+2. Upload ALL objects to GPU (not just visible)
+3. Compute shader frustum + occlusion culling
+4. Indirect draw with GPU-written counts
+5. GPU readback for stats (atomic counters)
+
+CLEANUP COMPLETE: 2026-02-25

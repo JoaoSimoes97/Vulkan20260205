@@ -2,6 +2,7 @@
 
 #include "gltf_loader.h"
 #include "scene/scene.h"
+#include "scene/stress_test_generator.h"
 #include "core/scene_new.h"
 #include <nlohmann/json_fwd.hpp>
 #include <memory>
@@ -63,6 +64,14 @@ public:
 
     /** Remove object at index. No-op if index out of range. */
     void RemoveObject(size_t index);
+
+    /**
+     * Generate a stress test scene using a textured glTF model.
+     * @param params Stress test parameters (counts per tier, world size, etc.)
+     * @param modelPath Path to glTF model (e.g., "models/BoxTextured.glb")
+     * @return Number of objects created
+     */
+    uint32_t GenerateStressTestScene(const StressTestParams& params, const std::string& modelPath);
 
     /**
      * Sync transforms from SceneNew GameObjects back to Scene Objects.

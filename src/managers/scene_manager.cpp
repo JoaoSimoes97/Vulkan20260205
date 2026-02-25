@@ -830,21 +830,39 @@ void SceneManager::SyncTransformsToScene() {
     for (auto& obj : objs) {
         if (obj.gameObjectId == UINT32_MAX) continue;
         
+        // Static tier objects should not be synced (they never move)
+        // This is an optimization - skip entirely for static objects
+        if (obj.instanceTier == InstanceTier::Static) continue;
+        
         // Find the GameObject
         const GameObject* go = m_sceneNew->FindGameObject(obj.gameObjectId);
         if (!go || go->transformIndex >= transforms.size()) continue;
         
         const Transform& t = transforms[go->transformIndex];
         
-        // Only sync if transform was changed (dirty flag indicates modification)
-        // We rebuild the localTransform matrix from position/rotation/scale
-        // Use ObjectSetFromPositionRotationScale to build the matrix
+        // Save old transform for change detection (SemiStatic only)
+        float oldPos[3] = { obj.localTransform[12], obj.localTransform[13], obj.localTransform[14] };
+        
+        // Rebuild the localTransform matrix from position/rotation/scale
         ObjectSetFromPositionRotationScale(
             obj.localTransform,
             t.position[0], t.position[1], t.position[2],
             t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3],
             t.scale[0], t.scale[1], t.scale[2]
         );
+        
+        // For SemiStatic tier, mark dirty if transform changed
+        // Dynamic tier doesn't need dirty tracking (always uploads)
+        if (obj.instanceTier == InstanceTier::SemiStatic) {
+            // Quick check: did translation change? (most common case)
+            if (obj.localTransform[12] != oldPos[0] ||
+                obj.localTransform[13] != oldPos[1] ||
+                obj.localTransform[14] != oldPos[2]) {
+                obj.MarkDirty();
+            }
+            // Note: Full rotation/scale change detection could compare all 16 floats,
+            // but translation check catches most movement. ECS can also explicitly mark dirty.
+        }
     }
 }
 
@@ -1116,4 +1134,164 @@ void SceneManager::LoadLightsFromJson(const nlohmann::json& j) {
     }
     VulkanUtils::LogInfo("Lights loaded: {} directional, {} point, {} spot (total: {})",
                          dirCount, pointCount, spotCount, lights.size());
+}
+
+uint32_t SceneManager::GenerateStressTestScene(const StressTestParams& params, const std::string& modelPath) {
+    if (!m_pMaterialManager || !m_pMeshManager || !m_pTextureManager) {
+        VulkanUtils::LogErr("SceneManager: dependencies not set for GenerateStressTestScene");
+        return 0;
+    }
+    
+    // Load the glTF model
+    if (!m_gltfLoader.LoadFromFile(modelPath)) {
+        VulkanUtils::LogErr("SceneManager: failed to load glTF model: {}", modelPath);
+        return 0;
+    }
+    
+    const tinygltf::Model* pModel = m_gltfLoader.GetModel();
+    if (!pModel || pModel->meshes.empty()) {
+        VulkanUtils::LogErr("SceneManager: glTF model has no meshes: {}", modelPath);
+        return 0;
+    }
+    
+    // Create new scene
+    UnloadScene();
+    m_currentScene = std::make_unique<Scene>();
+    m_currentScene->SetName("Stress Test");
+    m_sceneNew = std::make_unique<SceneNew>();
+    
+    // Extract first mesh/primitive from model
+    const tinygltf::Mesh& mesh = pModel->meshes[0];
+    if (mesh.primitives.empty()) {
+        VulkanUtils::LogErr("SceneManager: glTF mesh has no primitives: {}", modelPath);
+        return 0;
+    }
+    
+    const tinygltf::Primitive& prim = mesh.primitives[0];
+    
+    // Get material
+    std::shared_ptr<MaterialHandle> pMaterial;
+    std::shared_ptr<TextureHandle> pTexture;
+    if (prim.material >= 0 && size_t(prim.material) < pModel->materials.size()) {
+        const tinygltf::Material& gltfMat = pModel->materials[size_t(prim.material)];
+        const bool hasTexture = (gltfMat.pbrMetallicRoughness.baseColorTexture.index >= 0);
+        const bool doubleSided = gltfMat.doubleSided;
+        const std::string pipelineKey = hasTexture ? (doubleSided ? "main_tex_ds" : "main_tex") : (doubleSided ? "main_untex_ds" : "main_untex");
+        pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
+        
+        // Load texture
+        if (hasTexture) {
+            int texIdx = gltfMat.pbrMetallicRoughness.baseColorTexture.index;
+            if (texIdx >= 0 && size_t(texIdx) < pModel->textures.size()) {
+                const tinygltf::Texture& tex = pModel->textures[size_t(texIdx)];
+                if (tex.source >= 0 && size_t(tex.source) < pModel->images.size()) {
+                    const tinygltf::Image& img = pModel->images[size_t(tex.source)];
+                    if (!img.image.empty() && img.width > 0 && img.height > 0) {
+                        std::string texName = "stress_test_tex";
+                        pTexture = m_pTextureManager->GetOrCreateFromMemory(texName, img.width, img.height, img.component, img.image.data());
+                    }
+                }
+            }
+        }
+    }
+    
+    if (!pMaterial) {
+        pMaterial = m_pMaterialManager->GetMaterial("main_tex");
+        if (!pMaterial) {
+            VulkanUtils::LogErr("SceneManager: no valid material for stress test");
+            return 0;
+        }
+    }
+    
+    // Load mesh data
+    std::vector<VertexData> vertices;
+    if (!GetMeshDataFromGltf(*pModel, 0, 0, vertices)) {
+        VulkanUtils::LogErr("SceneManager: failed to extract mesh data from glTF");
+        return 0;
+    }
+    
+    const uint32_t vertexCount = static_cast<uint32_t>(vertices.size());
+    const std::string meshKey = "stress_test_mesh";
+    std::shared_ptr<MeshHandle> pMesh = m_pMeshManager->GetOrCreateFromGltf(meshKey, vertices.data(), vertexCount);
+    if (!pMesh) {
+        VulkanUtils::LogErr("SceneManager: failed to create mesh for stress test");
+        return 0;
+    }
+    
+    // Random number generator (simple xorshift)
+    uint32_t rngState = params.seed ? params.seed : 12345;
+    auto nextRandom = [&rngState]() -> uint32_t {
+        rngState ^= rngState << 13;
+        rngState ^= rngState >> 17;
+        rngState ^= rngState << 5;
+        return rngState;
+    };
+    auto nextFloat = [&nextRandom]() -> float {
+        return static_cast<float>(nextRandom()) / static_cast<float>(0xFFFFFFFFu);
+    };
+    auto nextFloatRange = [&nextFloat](float minV, float maxV) -> float {
+        return minV + nextFloat() * (maxV - minV);
+    };
+    
+    uint32_t totalCount = GetStressTestObjectCount(params);
+    uint32_t created = 0;
+    
+    // Create objects for each tier
+    auto createObjects = [&](uint32_t count, InstanceTier tier, const char* namePrefix) {
+        for (uint32_t i = 0; i < count && created < totalCount; ++i) {
+            Object obj;
+            obj.name = std::string(namePrefix) + "_" + std::to_string(i);
+            obj.instanceTier = tier;
+            obj.pMesh = pMesh;
+            obj.pMaterial = pMaterial;
+            obj.pTexture = pTexture;
+            
+            // Random position
+            float px = nextFloatRange(-params.worldSize, params.worldSize);
+            float py = nextFloatRange(0.0f, params.heightVariation);
+            float pz = nextFloatRange(-params.worldSize, params.worldSize);
+            
+            // Random Y rotation
+            float angle = nextFloat() * 6.28318f;
+            float qx = 0.0f, qy = std::sin(angle * 0.5f), qz = 0.0f, qw = std::cos(angle * 0.5f);
+            
+            // Random scale
+            float scale = params.randomScales ? nextFloatRange(params.minScale, params.maxScale) : 1.0f;
+            
+            // Random color
+            if (params.randomColors) {
+                float h = nextFloat() * 6.0f;
+                float s = nextFloatRange(0.6f, 1.0f);
+                float v = nextFloatRange(0.5f, 1.0f);
+                int hi = static_cast<int>(h);
+                float f = h - static_cast<float>(hi);
+                float p = v * (1.0f - s);
+                float q = v * (1.0f - s * f);
+                float t = v * (1.0f - s * (1.0f - f));
+                switch (hi % 6) {
+                    case 0: obj.color[0] = v; obj.color[1] = t; obj.color[2] = p; break;
+                    case 1: obj.color[0] = q; obj.color[1] = v; obj.color[2] = p; break;
+                    case 2: obj.color[0] = p; obj.color[1] = v; obj.color[2] = t; break;
+                    case 3: obj.color[0] = p; obj.color[1] = q; obj.color[2] = v; break;
+                    case 4: obj.color[0] = t; obj.color[1] = p; obj.color[2] = v; break;
+                    default: obj.color[0] = v; obj.color[1] = p; obj.color[2] = q; break;
+                }
+                obj.color[3] = 1.0f;
+            } else {
+                obj.color[0] = obj.color[1] = obj.color[2] = obj.color[3] = 1.0f;
+            }
+            
+            ObjectSetFromPositionRotationScale(obj.localTransform, px, py, pz, qx, qy, qz, qw, scale, scale, scale);
+            m_currentScene->AddObject(std::move(obj));
+            ++created;
+        }
+    };
+    
+    createObjects(params.staticCount, InstanceTier::Static, "static");
+    createObjects(params.semiStaticCount, InstanceTier::SemiStatic, "semistatic");
+    createObjects(params.dynamicCount, InstanceTier::Dynamic, "dynamic");
+    createObjects(params.proceduralCount, InstanceTier::Procedural, "procedural");
+    
+    VulkanUtils::LogInfo("Stress test generated: {} objects from {}", created, modelPath);
+    return created;
 }

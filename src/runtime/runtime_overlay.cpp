@@ -145,6 +145,36 @@ void RuntimeOverlay::DrawStatsWindow(const Camera* pCamera, const VulkanConfig* 
                 const float efficiency = static_cast<float>(totalInstances) / static_cast<float>(totalDraws);
                 ImGui::Text("Efficiency:  %.1fx", efficiency);
             }
+            
+            // SSBO uploads per tier this frame
+            const uint32_t totalUploads = m_renderStats.uploadsStatic + m_renderStats.uploadsSemiStatic +
+                                          m_renderStats.uploadsDynamic + m_renderStats.uploadsProcedural;
+            if (totalUploads > 0 || totalInstances > 0) {
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.7f, 1.0f), "SSBO Uploads (this frame)");
+                ImGui::Text("Static:      %3u", m_renderStats.uploadsStatic);
+                ImGui::Text("Semi-Static: %3u", m_renderStats.uploadsSemiStatic);
+                ImGui::Text("Dynamic:     %3u", m_renderStats.uploadsDynamic);
+                ImGui::Text("Procedural:  %3u", m_renderStats.uploadsProcedural);
+                ImGui::Text("Total:       %3u / %u", totalUploads, totalInstances);
+            }
+        }
+        
+        // GPU culling statistics
+        if (m_renderStats.gpuCullerActive) {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "GPU Culling");
+            ImGui::Text("GPU Visible: %u / %u", m_renderStats.gpuCulledVisible, m_renderStats.gpuCulledTotal);
+            if (m_renderStats.gpuCulledTotal > 0) {
+                const float gpuCullPct = (1.0f - static_cast<float>(m_renderStats.gpuCulledVisible) / 
+                                         static_cast<float>(m_renderStats.gpuCulledTotal)) * 100.0f;
+                ImGui::Text("GPU Culled: %.1f%%", gpuCullPct);
+            }
+            if (m_renderStats.gpuCpuMismatch) {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "CPU/GPU MISMATCH!");
+            } else {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "CPU/GPU Match OK");
+            }
         }
         
         // Camera info (if available)
@@ -163,6 +193,137 @@ void RuntimeOverlay::DrawStatsWindow(const Camera* pCamera, const VulkanConfig* 
         // Controls hint
         ImGui::Separator();
         ImGui::TextDisabled("F3: Toggle overlay");
+    }
+    ImGui::End();
+    
+    // Draw level selector as separate window
+    DrawLevelSelector();
+}
+
+void RuntimeOverlay::DrawLevelSelector() {
+    if (!m_pLevelSelector) return;
+    
+    const auto& levels = m_pLevelSelector->GetLevels();
+    if (levels.empty()) return;
+    
+    ImGuiWindowFlags windowFlags = 
+        ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings;
+    
+    // Position at bottom-right
+    const float padding = 10.0f;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 workPos = viewport->WorkPos;
+    ImVec2 workSize = viewport->WorkSize;
+    ImVec2 windowPos(workPos.x + workSize.x - padding, workPos.y + workSize.y - padding);
+    
+    ImGui::SetNextWindowPos(windowPos, ImGuiCond_FirstUseEver, ImVec2(1.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.8f);
+    
+    if (ImGui::Begin("Level Selector", nullptr, windowFlags)) {
+        ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "Scene Selection");
+        ImGui::Separator();
+        
+        // Current level
+        const std::string& currentPath = m_pLevelSelector->GetCurrentLevelPath();
+        if (!currentPath.empty()) {
+            ImGui::TextDisabled("Current: %s", currentPath.c_str());
+        }
+        
+        // Level combo box
+        int selectedIdx = m_pLevelSelector->GetSelectedIndex();
+        const char* previewName = (selectedIdx >= 0 && selectedIdx < static_cast<int>(levels.size())) 
+            ? levels[selectedIdx].name.c_str() 
+            : "Select a level...";
+        
+        ImGui::SetNextItemWidth(200.0f);
+        if (ImGui::BeginCombo("##LevelCombo", previewName)) {
+            for (int i = 0; i < static_cast<int>(levels.size()); ++i) {
+                const LevelInfo& level = levels[i];
+                
+                // Separator items are not selectable
+                if (level.isSpecial && level.specialId == 0) {
+                    ImGui::TextDisabled("%s", level.name.c_str());
+                    continue;
+                }
+                
+                bool isSelected = (selectedIdx == i);
+                
+                // Color stress tests differently
+                if (level.isSpecial) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.3f, 1.0f));
+                }
+                
+                if (ImGui::Selectable(level.name.c_str(), isSelected)) {
+                    m_pLevelSelector->SetSelectedIndex(i);
+                }
+                
+                if (level.isSpecial) {
+                    ImGui::PopStyleColor();
+                }
+                
+                // Tooltip with description
+                if (!level.description.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", level.description.c_str());
+                }
+                
+                if (isSelected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+        
+        // Load button
+        ImGui::SameLine();
+        if (ImGui::Button("Load")) {
+            m_pLevelSelector->RequestLoad();
+        }
+        
+        // Show custom stress test sliders when selected (specialId == 5)
+        const LevelInfo* selected = m_pLevelSelector->GetSelectedLevel();
+        if (selected && selected->isSpecial && selected->specialId == 5) {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 1.0f), "Custom Parameters");
+            
+            StressTestParams& params = m_pLevelSelector->GetCustomParams();
+            
+            // Slider width
+            ImGui::PushItemWidth(150.0f);
+            
+            // Static tier
+            int staticCount = static_cast<int>(params.staticCount);
+            if (ImGui::SliderInt("Static", &staticCount, 0, 100000, "%d")) {
+                params.staticCount = static_cast<uint32_t>(staticCount);
+            }
+            
+            // Semi-static tier
+            int semiCount = static_cast<int>(params.semiStaticCount);
+            if (ImGui::SliderInt("Semi-Static", &semiCount, 0, 10000, "%d")) {
+                params.semiStaticCount = static_cast<uint32_t>(semiCount);
+            }
+            
+            // Dynamic tier
+            int dynCount = static_cast<int>(params.dynamicCount);
+            if (ImGui::SliderInt("Dynamic", &dynCount, 0, 10000, "%d")) {
+                params.dynamicCount = static_cast<uint32_t>(dynCount);
+            }
+            
+            // Procedural tier
+            int procCount = static_cast<int>(params.proceduralCount);
+            if (ImGui::SliderInt("Procedural", &procCount, 0, 20000, "%d")) {
+                params.proceduralCount = static_cast<uint32_t>(procCount);
+            }
+            
+            ImGui::PopItemWidth();
+            
+            // Show total
+            uint32_t total = GetStressTestObjectCount(params);
+            ImGui::TextDisabled("Total: %u objects", total);
+        } else if (selected && !selected->description.empty()) {
+            // Show selected level description for non-custom levels
+            ImGui::TextWrapped("%s", selected->description.c_str());
+        }
     }
     ImGui::End();
 }

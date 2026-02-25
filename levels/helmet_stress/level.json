@@ -1,0 +1,519 @@
+{
+  "name": "Helmet Stress Test - GPU Heavy",
+  "version": "1.0",
+  "description": "Stress test using high-poly DamagedHelmet models with PBR textures",
+  "lights": [
+    {
+      "name": "Sun",
+      "type": "directional",
+      "position": [0.0, 50.0, 0.0],
+      "rotation": [-0.383, 0.0, 0.0, 0.924],
+      "color": [1.0, 0.98, 0.95],
+      "intensity": 1.5
+    },
+    {
+      "name": "FillLight",
+      "type": "directional",
+      "position": [0.0, 50.0, 0.0],
+      "rotation": [0.2, 0.5, 0.0, 0.84],
+      "color": [0.6, 0.7, 1.0],
+      "intensity": 0.5
+    }
+  ],
+  "instances": [
+    {
+      "name": "Floor",
+      "source": "procedural:rectangle",
+      "position": [0.0, -1.0, 0.0],
+      "rotation": [-0.707, 0.0, 0.0, 0.707],
+      "scale": [100.0, 100.0, 1.0],
+      "color": [0.2, 0.2, 0.25, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "static"
+    },
+    {
+      "_comment": "=== ROW 1: Z = -12 ===",
+      "name": "Helmet_R1_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-18.0, 0.0, -12.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-14.0, 0.0, -12.0], "rotation": [0.0, 0.195, 0.0, 0.981], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-10.0, 0.0, -12.0], "rotation": [0.0, 0.383, 0.0, 0.924], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-6.0, 0.0, -12.0], "rotation": [0.0, 0.556, 0.0, 0.831], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [-2.0, 0.0, -12.0], "rotation": [0.0, 0.707, 0.0, 0.707], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [2.0, 0.0, -12.0], "rotation": [0.0, 0.831, 0.0, 0.556], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [6.0, 0.0, -12.0], "rotation": [0.0, 0.924, 0.0, 0.383], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [10.0, 0.0, -12.0], "rotation": [0.0, 0.981, 0.0, 0.195], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [14.0, 0.0, -12.0], "rotation": [0.0, 1.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R1_10", "source": "../../models/DamagedHelmet.glb",
+      "position": [18.0, 0.0, -12.0], "rotation": [0.0, 0.924, 0.0, -0.383], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== ROW 2: Z = -8 ===",
+      "name": "Helmet_R2_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-18.0, 0.0, -8.0], "rotation": [0.0, 0.1, 0.0, 0.995], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-14.0, 0.0, -8.0], "rotation": [0.0, 0.3, 0.0, 0.954], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-10.0, 0.0, -8.0], "rotation": [0.0, 0.5, 0.0, 0.866], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-6.0, 0.0, -8.0], "rotation": [0.0, 0.65, 0.0, 0.76], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [-2.0, 0.0, -8.0], "rotation": [0.0, 0.8, 0.0, 0.6], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [2.0, 0.0, -8.0], "rotation": [0.0, 0.9, 0.0, 0.436], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [6.0, 0.0, -8.0], "rotation": [0.0, 0.95, 0.0, 0.312], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [10.0, 0.0, -8.0], "rotation": [0.0, 0.98, 0.0, 0.2], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [14.0, 0.0, -8.0], "rotation": [0.0, 0.99, 0.0, 0.141], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R2_10", "source": "../../models/DamagedHelmet.glb",
+      "position": [18.0, 0.0, -8.0], "rotation": [0.0, 0.995, 0.0, 0.1], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== ROW 3: Z = -4 ===",
+      "name": "Helmet_R3_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-18.0, 0.0, -4.0], "rotation": [0.0, 0.05, 0.0, 0.999], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-14.0, 0.0, -4.0], "rotation": [0.0, 0.15, 0.0, 0.989], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-10.0, 0.0, -4.0], "rotation": [0.0, 0.25, 0.0, 0.968], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-6.0, 0.0, -4.0], "rotation": [0.0, 0.35, 0.0, 0.937], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [-2.0, 0.0, -4.0], "rotation": [0.0, 0.45, 0.0, 0.893], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [2.0, 0.0, -4.0], "rotation": [0.0, 0.55, 0.0, 0.835], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [6.0, 0.0, -4.0], "rotation": [0.0, 0.65, 0.0, 0.76], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [10.0, 0.0, -4.0], "rotation": [0.0, 0.75, 0.0, 0.661], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [14.0, 0.0, -4.0], "rotation": [0.0, 0.85, 0.0, 0.527], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R3_10", "source": "../../models/DamagedHelmet.glb",
+      "position": [18.0, 0.0, -4.0], "rotation": [0.0, 0.95, 0.0, 0.312], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== ROW 4: Z = 0 ===",
+      "name": "Helmet_R4_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-18.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-14.0, 0.0, 0.0], "rotation": [0.0, 0.2, 0.0, 0.98], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-10.0, 0.0, 0.0], "rotation": [0.0, 0.4, 0.0, 0.917], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-6.0, 0.0, 0.0], "rotation": [0.0, 0.6, 0.0, 0.8], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [-2.0, 0.0, 0.0], "rotation": [0.0, 0.707, 0.0, 0.707], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [2.0, 0.0, 0.0], "rotation": [0.0, 0.8, 0.0, 0.6], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [6.0, 0.0, 0.0], "rotation": [0.0, 0.866, 0.0, 0.5], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [10.0, 0.0, 0.0], "rotation": [0.0, 0.924, 0.0, 0.383], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [14.0, 0.0, 0.0], "rotation": [0.0, 0.966, 0.0, 0.259], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R4_10", "source": "../../models/DamagedHelmet.glb",
+      "position": [18.0, 0.0, 0.0], "rotation": [0.0, 0.991, 0.0, 0.131], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== ROW 5: Z = 4 ===",
+      "name": "Helmet_R5_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-18.0, 0.0, 4.0], "rotation": [0.0, 0.1, 0.0, 0.995], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-14.0, 0.0, 4.0], "rotation": [0.0, 0.3, 0.0, 0.954], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-10.0, 0.0, 4.0], "rotation": [0.0, 0.5, 0.0, 0.866], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-6.0, 0.0, 4.0], "rotation": [0.0, 0.65, 0.0, 0.76], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [-2.0, 0.0, 4.0], "rotation": [0.0, 0.8, 0.0, 0.6], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [2.0, 0.0, 4.0], "rotation": [0.0, 0.9, 0.0, 0.436], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [6.0, 0.0, 4.0], "rotation": [0.0, 0.95, 0.0, 0.312], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [10.0, 0.0, 4.0], "rotation": [0.0, 0.98, 0.0, 0.2], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [14.0, 0.0, 4.0], "rotation": [0.0, 0.99, 0.0, 0.141], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R5_10", "source": "../../models/DamagedHelmet.glb",
+      "position": [18.0, 0.0, 4.0], "rotation": [0.0, 0.995, 0.0, 0.1], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== ROW 6: Z = 8 ===",
+      "name": "Helmet_R6_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-18.0, 0.0, 8.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-14.0, 0.0, 8.0], "rotation": [0.0, 0.195, 0.0, 0.981], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-10.0, 0.0, 8.0], "rotation": [0.0, 0.383, 0.0, 0.924], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-6.0, 0.0, 8.0], "rotation": [0.0, 0.556, 0.0, 0.831], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [-2.0, 0.0, 8.0], "rotation": [0.0, 0.707, 0.0, 0.707], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [2.0, 0.0, 8.0], "rotation": [0.0, 0.831, 0.0, 0.556], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [6.0, 0.0, 8.0], "rotation": [0.0, 0.924, 0.0, 0.383], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [10.0, 0.0, 8.0], "rotation": [0.0, 0.981, 0.0, 0.195], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [14.0, 0.0, 8.0], "rotation": [0.0, 1.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R6_10", "source": "../../models/DamagedHelmet.glb",
+      "position": [18.0, 0.0, 8.0], "rotation": [0.0, 0.924, 0.0, -0.383], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== ROW 7: Z = 12 ===",
+      "name": "Helmet_R7_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-18.0, 0.0, 12.0], "rotation": [0.0, 0.05, 0.0, 0.999], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-14.0, 0.0, 12.0], "rotation": [0.0, 0.15, 0.0, 0.989], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-10.0, 0.0, 12.0], "rotation": [0.0, 0.25, 0.0, 0.968], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-6.0, 0.0, 12.0], "rotation": [0.0, 0.35, 0.0, 0.937], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [-2.0, 0.0, 12.0], "rotation": [0.0, 0.45, 0.0, 0.893], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [2.0, 0.0, 12.0], "rotation": [0.0, 0.55, 0.0, 0.835], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [6.0, 0.0, 12.0], "rotation": [0.0, 0.65, 0.0, 0.76], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [10.0, 0.0, 12.0], "rotation": [0.0, 0.75, 0.0, 0.661], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [14.0, 0.0, 12.0], "rotation": [0.0, 0.85, 0.0, 0.527], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_R7_10", "source": "../../models/DamagedHelmet.glb",
+      "position": [18.0, 0.0, 12.0], "rotation": [0.0, 0.95, 0.0, 0.312], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== ELEVATED ROW 8: Y = 3, Z = -10 ===",
+      "name": "Helmet_E1_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-16.0, 3.0, -10.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E1_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-12.0, 3.0, -10.0], "rotation": [0.0, 0.25, 0.0, 0.968], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E1_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-8.0, 3.0, -10.0], "rotation": [0.0, 0.5, 0.0, 0.866], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E1_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-4.0, 3.0, -10.0], "rotation": [0.0, 0.707, 0.0, 0.707], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E1_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [0.0, 3.0, -10.0], "rotation": [0.0, 0.866, 0.0, 0.5], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E1_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [4.0, 3.0, -10.0], "rotation": [0.0, 0.966, 0.0, 0.259], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E1_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [8.0, 3.0, -10.0], "rotation": [0.0, 1.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E1_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [12.0, 3.0, -10.0], "rotation": [0.0, 0.966, 0.0, -0.259], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E1_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [16.0, 3.0, -10.0], "rotation": [0.0, 0.866, 0.0, -0.5], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== ELEVATED ROW 9: Y = 3, Z = 10 ===",
+      "name": "Helmet_E2_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-16.0, 3.0, 10.0], "rotation": [0.0, 0.1, 0.0, 0.995], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E2_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-12.0, 3.0, 10.0], "rotation": [0.0, 0.3, 0.0, 0.954], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E2_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [-8.0, 3.0, 10.0], "rotation": [0.0, 0.5, 0.0, 0.866], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E2_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [-4.0, 3.0, 10.0], "rotation": [0.0, 0.7, 0.0, 0.714], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E2_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [0.0, 3.0, 10.0], "rotation": [0.0, 0.85, 0.0, 0.527], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E2_06", "source": "../../models/DamagedHelmet.glb",
+      "position": [4.0, 3.0, 10.0], "rotation": [0.0, 0.95, 0.0, 0.312], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E2_07", "source": "../../models/DamagedHelmet.glb",
+      "position": [8.0, 3.0, 10.0], "rotation": [0.0, 0.99, 0.0, 0.141], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E2_08", "source": "../../models/DamagedHelmet.glb",
+      "position": [12.0, 3.0, 10.0], "rotation": [0.0, 0.98, 0.0, -0.2], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_E2_09", "source": "../../models/DamagedHelmet.glb",
+      "position": [16.0, 3.0, 10.0], "rotation": [0.0, 0.9, 0.0, -0.436], "scale": [1.0, 1.0, 1.0],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+
+    {
+      "_comment": "=== TOP ROW: Y = 6 ===",
+      "name": "Helmet_T_01", "source": "../../models/DamagedHelmet.glb",
+      "position": [-12.0, 6.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.2, 1.2, 1.2],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_T_02", "source": "../../models/DamagedHelmet.glb",
+      "position": [-6.0, 6.0, 0.0], "rotation": [0.0, 0.383, 0.0, 0.924], "scale": [1.2, 1.2, 1.2],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_T_03", "source": "../../models/DamagedHelmet.glb",
+      "position": [0.0, 6.0, 0.0], "rotation": [0.0, 0.707, 0.0, 0.707], "scale": [1.2, 1.2, 1.2],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_T_04", "source": "../../models/DamagedHelmet.glb",
+      "position": [6.0, 6.0, 0.0], "rotation": [0.0, 0.924, 0.0, 0.383], "scale": [1.2, 1.2, 1.2],
+      "renderMode": "auto", "instanceTier": "static"
+    },
+    {
+      "name": "Helmet_T_05", "source": "../../models/DamagedHelmet.glb",
+      "position": [12.0, 6.0, 0.0], "rotation": [0.0, 1.0, 0.0, 0.0], "scale": [1.2, 1.2, 1.2],
+      "renderMode": "auto", "instanceTier": "static"
+    }
+  ]
+}

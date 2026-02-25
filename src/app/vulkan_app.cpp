@@ -10,6 +10,7 @@
 #include "camera/camera_controller.h"
 #include "scene/object.h"
 #include "scene/scene.h"
+#include "scene/stress_test_generator.h"
 #include "vulkan/vulkan_utils.h"
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_stdinc.h>
@@ -48,6 +49,58 @@ namespace {
         if (solidKey == "mask_untex") return "wire_untex";
         // Already a wire pipeline or unknown
         return solidKey;
+    }
+    
+    /** Extract 6 frustum planes from view-projection matrix (Gribb/Hartmann method). */
+    void ExtractFrustumPlanesFromViewProj(const float* viewProj, float planes[6][4]) {
+        // Left plane: row 3 + row 0
+        planes[0][0] = viewProj[3]  + viewProj[0];
+        planes[0][1] = viewProj[7]  + viewProj[4];
+        planes[0][2] = viewProj[11] + viewProj[8];
+        planes[0][3] = viewProj[15] + viewProj[12];
+        
+        // Right plane: row 3 - row 0
+        planes[1][0] = viewProj[3]  - viewProj[0];
+        planes[1][1] = viewProj[7]  - viewProj[4];
+        planes[1][2] = viewProj[11] - viewProj[8];
+        planes[1][3] = viewProj[15] - viewProj[12];
+        
+        // Bottom plane: row 3 + row 1
+        planes[2][0] = viewProj[3]  + viewProj[1];
+        planes[2][1] = viewProj[7]  + viewProj[5];
+        planes[2][2] = viewProj[11] + viewProj[9];
+        planes[2][3] = viewProj[15] + viewProj[13];
+        
+        // Top plane: row 3 - row 1
+        planes[3][0] = viewProj[3]  - viewProj[1];
+        planes[3][1] = viewProj[7]  - viewProj[5];
+        planes[3][2] = viewProj[11] - viewProj[9];
+        planes[3][3] = viewProj[15] - viewProj[13];
+        
+        // Near plane: row 3 + row 2 (Vulkan: depth 0 at near)
+        planes[4][0] = viewProj[3]  + viewProj[2];
+        planes[4][1] = viewProj[7]  + viewProj[6];
+        planes[4][2] = viewProj[11] + viewProj[10];
+        planes[4][3] = viewProj[15] + viewProj[14];
+        
+        // Far plane: row 3 - row 2
+        planes[5][0] = viewProj[3]  - viewProj[2];
+        planes[5][1] = viewProj[7]  - viewProj[6];
+        planes[5][2] = viewProj[11] - viewProj[10];
+        planes[5][3] = viewProj[15] - viewProj[14];
+        
+        // Normalize planes
+        for (int i = 0; i < 6; ++i) {
+            float len = std::sqrt(planes[i][0]*planes[i][0] + 
+                                 planes[i][1]*planes[i][1] + 
+                                 planes[i][2]*planes[i][2]);
+            if (len > 0.0001f) {
+                planes[i][0] /= len;
+                planes[i][1] /= len;
+                planes[i][2] /= len;
+                planes[i][3] /= len;
+            }
+        }
     }
 }
 
@@ -194,6 +247,14 @@ void VulkanApp::InitVulkan() {
                 .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount    = 1u,
                 .stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
+            },
+            {
+                /* Visible indices SSBO for GPU-driven indirect draw (from GPUCuller). */
+                .binding            = 8u,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount    = 1u,
+                .stageFlags         = VK_SHADER_STAGE_VERTEX_BIT,
                 .pImmutableSamplers = nullptr,
             }
         };
@@ -354,6 +415,27 @@ void VulkanApp::InitVulkan() {
         throw std::runtime_error("VulkanApp::InitVulkan: ring buffer creation failed");
     }
 
+    /* Create placeholder visible indices SSBO for binding 8 (used until indirect draw is active).
+       Small buffer with identity mapping (0,1,2,...) for when useIndirection=0 prevents actual reads. */
+    constexpr VkDeviceSize kPlaceholderVisibleIndicesSize = 256 * sizeof(uint32_t);  // 1KB
+    if (this->m_placeholderVisibleIndicesSSBO.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(),
+                                                      kPlaceholderVisibleIndicesSize,
+                                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                                      true /* persistentMap */)) {
+        // Initialize with identity mapping (optional, not strictly needed if useIndirection=0)
+        void* pData = this->m_placeholderVisibleIndicesSSBO.GetMappedPtr();
+        if (pData != nullptr) {
+            for (uint32_t i = 0; i < 256; ++i) {
+                static_cast<uint32_t*>(pData)[i] = i;
+            }
+        }
+        VulkanUtils::LogInfo("Placeholder visible indices SSBO created");
+    } else {
+        VulkanUtils::LogErr("Failed to create placeholder visible indices SSBO");
+        throw std::runtime_error("VulkanApp::InitVulkan: placeholder visible indices SSBO creation failed");
+    }
+
     /* Initialize descriptor cache for transient per-frame allocations. */
     DescriptorPoolConfig descCacheConfig{};
     descCacheConfig.maxSets = this->m_config.lDescCacheMaxSets;
@@ -365,6 +447,25 @@ void VulkanApp::InitVulkan() {
     } else {
         VulkanUtils::LogErr("DescriptorCache creation failed");
         throw std::runtime_error("VulkanApp::InitVulkan: descriptor cache creation failed");
+    }
+
+    /* Initialize GPU culler for compute-based frustum culling.
+       Uses max objects count to size culling buffers. */
+    if (this->m_config.bEnableGPUCulling) {
+        if (this->m_gpuCuller.Create(this->m_device.GetDevice(), 
+                                      this->m_device.GetPhysicalDevice(),
+                                      &this->m_shaderManager,
+                                      this->m_config.lMaxObjects,
+                                      1)) {  // 1 batch for now (single indirect draw)
+            VulkanUtils::LogInfo("GPUCuller initialized ({} max objects)", this->m_config.lMaxObjects);
+            this->m_gpuCullerEnabled = true;
+        } else {
+            VulkanUtils::LogWarn("GPUCuller creation failed (using CPU culling fallback)");
+            this->m_gpuCullerEnabled = false;
+        }
+    } else {
+        VulkanUtils::LogInfo("GPUCuller disabled via config (using CPU culling)");
+        this->m_gpuCullerEnabled = false;
     }
 
     /* Add main/wire to the map only after ring buffer is ready (descriptor writes use ring buffer). */
@@ -403,6 +504,11 @@ void VulkanApp::InitVulkan() {
         this->m_renderPass.Get(),
         this->m_swapchain.GetImageCount()
     );
+    
+    /* Initialize level selector - scan levels folder and wire to overlay. */
+    this->m_levelSelector.ScanLevels("levels");
+    this->m_levelSelector.SetCurrentLevelPath(this->m_config.sLevelPath);
+    this->m_runtimeOverlay.SetLevelSelector(&this->m_levelSelector);
 #endif
 
     /* Initialize multi-viewport manager. */
@@ -725,6 +831,17 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
         .range  = VK_WHOLE_SIZE,
     };
     
+    /* Visible indices SSBO for GPU-driven indirect draw (binding 8).
+       Uses placeholder buffer until GPU culler's actual buffer is swapped in. */
+    VkBuffer visibleIndicesBuffer = this->m_gpuCullerEnabled && this->m_gpuCuller.IsValid()
+        ? this->m_gpuCuller.GetVisibleIndicesBuffer()
+        : this->m_placeholderVisibleIndicesSSBO.GetBuffer();
+    VkDescriptorBufferInfo visibleIndicesBufferInfo = {
+        .buffer = visibleIndicesBuffer,
+        .offset = 0,
+        .range  = VK_WHOLE_SIZE,
+    };
+    
     VkDescriptorImageInfo mrImageInfo = {
         .sampler     = pMRToUse->GetSampler(),
         .imageView   = pMRToUse->GetView(),
@@ -749,7 +866,7 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
     
-    std::array<VkWriteDescriptorSet, 7> writes = {{
+    std::array<VkWriteDescriptorSet, 8> writes = {{
         {
             .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext            = nullptr,
@@ -832,6 +949,18 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
             .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .pImageInfo       = &occlusionImageInfo,
             .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 8,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &visibleIndicesBufferInfo,
             .pTexelBufferView = nullptr,
         }
     }};
@@ -1054,11 +1183,8 @@ void VulkanApp::MainLoop() {
             /* Update all objects with delta time (frame-rate independent). */
             pScene->UpdateAllObjects(this->m_avgFrameTimeSec);
             
-            const auto& objects = pScene->GetObjects();
-            for (size_t i = 0; i < objects.size(); ++i) {
-                Object& obj = const_cast<Object&>(objects[i]);
-                ObjectFillPushData(obj, fViewProj, static_cast<uint32_t>(i), fCamPos);
-            }
+            /* NOTE: Per-object pushData loop removed - instanced rendering uses SSBO for transforms.
+               The shader computes MVP as viewProj * model, where model is fetched from SSBO. */
         }
 
         /* SSBO write moved below after RebuildIfDirty so batches are valid */
@@ -1117,63 +1243,83 @@ void VulkanApp::MainLoop() {
         VkRenderPass renderPassForBatching = this->m_renderPass.Get();
         bool batchRenderPassHasDepth = this->m_renderPass.HasDepthAttachment();
 #endif
-        this->m_batchedDrawList.RebuildIfDirty(pScene,
+        bool bSceneRebuilt = this->m_batchedDrawList.RebuildIfDirty(pScene,
                                   this->m_device.GetDevice(), renderPassForBatching, batchRenderPassHasDepth,
                                   &this->m_pipelineManager, &this->m_materialManager, &this->m_shaderManager,
                                   &this->m_pipelineDescriptorSets, getTextureDescriptorSet);
         
-        /* Update object data SSBO using ring buffer with persistent mapping.
-           Objects are written in BATCH ORDER so that batchStartIndex + gl_InstanceIndex works.
-           Each batch's objects are contiguous: batch0[obj0,obj1,...], batch1[obj0,obj1,...], etc.
+        /* Update object data SSBO using TieredInstanceManager.
+           - Static: Only when scene rebuilds
+           - SemiStatic: When scene rebuilds OR object dirty flag set
+           - Dynamic: Every frame
+           - Procedural: Compute shader (future) - placeholder for now
            Must happen AFTER RebuildIfDirty so batches are valid. */
         {
             uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
             ObjectData* pObjectData = this->m_objectDataRingBuffer.GetFrameData(lFrameIndex);
             
             if (pObjectData != nullptr && pScene != nullptr) {
-                const auto& objects = pScene->GetObjects();
-                const auto& opaqueBatchesSSBO = this->m_batchedDrawList.GetOpaqueBatches();
-                const auto& transparentBatchesSSBO = this->m_batchedDrawList.GetTransparentBatches();
-                
-                auto writeObjectToSSBO = [&](uint32_t ssboIndex, const Object& obj) {
-                    if (ssboIndex >= this->m_config.lMaxObjects) return;
-                    ObjectData* pObjData = &pObjectData[ssboIndex];
-                    
-                    pObjData->model = glm::mat4(
-                        obj.localTransform[0],  obj.localTransform[1],  obj.localTransform[2],  obj.localTransform[3],
-                        obj.localTransform[4],  obj.localTransform[5],  obj.localTransform[6],  obj.localTransform[7],
-                        obj.localTransform[8],  obj.localTransform[9],  obj.localTransform[10], obj.localTransform[11],
-                        obj.localTransform[12], obj.localTransform[13], obj.localTransform[14], obj.localTransform[15]
-                    );
-                    pObjData->emissive = glm::vec4(obj.emissive[0], obj.emissive[1], obj.emissive[2], obj.emissive[3]);
-                    pObjData->matProps = glm::vec4(obj.metallicFactor, obj.roughnessFactor, obj.normalScale, obj.occlusionStrength);
-                    pObjData->baseColor = glm::vec4(obj.color[0], obj.color[1], obj.color[2], obj.color[3]);
-                    pObjData->reserved0 = pObjData->reserved1 = pObjData->reserved2 = pObjData->reserved3 = glm::vec4(0.f);
-                    pObjData->reserved4 = pObjData->reserved5 = pObjData->reserved6 = pObjData->reserved7 = pObjData->reserved8 = glm::vec4(0.f);
-                };
-                
-                /* Write objects in batch order: opaque first, then transparent */
-                for (const auto& batch : opaqueBatchesSSBO) {
-                    uint32_t ssboOffset = batch.firstInstanceIndex;
-                    for (uint32_t objIdx : batch.objectIndices) {
-                        if (objIdx < objects.size()) {
-                            writeObjectToSSBO(ssboOffset++, objects[objIdx]);
-                        }
-                    }
-                }
-                for (const auto& batch : transparentBatchesSSBO) {
-                    uint32_t ssboOffset = batch.firstInstanceIndex;
-                    for (uint32_t objIdx : batch.objectIndices) {
-                        if (objIdx < objects.size()) {
-                            writeObjectToSSBO(ssboOffset++, objects[objIdx]);
-                        }
-                    }
-                }
+                this->m_tieredInstanceManager.UpdateSSBO(
+                    pObjectData,
+                    this->m_config.lMaxObjects,
+                    pScene,
+                    this->m_batchedDrawList.GetOpaqueBatches(),
+                    this->m_batchedDrawList.GetTransparentBatches(),
+                    bSceneRebuilt);
             }
         }
         
         /* Update visibility (frustum culling) each frame - fast operation on existing batches */
         this->m_batchedDrawList.UpdateVisibility(fViewProj, pScene);
+        
+        /* Update GPU culler with frustum and object bounds (parallel to CPU culling for verification).
+           GPU culler will be used for indirect draw in Phase 4. */
+        if (this->m_gpuCullerEnabled && pScene != nullptr) {
+            // Extract frustum planes from view-projection matrix
+            float frustumPlanes[6][4];
+            ExtractFrustumPlanesFromViewProj(fViewProj, frustumPlanes);
+            
+            // Build CullObjectData from scene objects
+            const std::vector<Object>& objects = pScene->GetObjects();
+            const size_t objectCount = objects.size();
+            
+            if (objectCount > 0) {
+                this->m_cullObjectsCache.resize(objectCount);
+                
+                for (size_t i = 0; i < objectCount; ++i) {
+                    const Object& obj = objects[i];
+                    CullObjectData& cullObj = this->m_cullObjectsCache[i];
+                    
+                    // World position from transform matrix (column 3)
+                    cullObj.boundingSphere[0] = obj.localTransform[12];
+                    cullObj.boundingSphere[1] = obj.localTransform[13];
+                    cullObj.boundingSphere[2] = obj.localTransform[14];
+                    
+                    // Approximate radius from scale (max of xyz scale)
+                    float scaleX = std::sqrt(obj.localTransform[0]*obj.localTransform[0] +
+                                            obj.localTransform[1]*obj.localTransform[1] +
+                                            obj.localTransform[2]*obj.localTransform[2]);
+                    float scaleY = std::sqrt(obj.localTransform[4]*obj.localTransform[4] +
+                                            obj.localTransform[5]*obj.localTransform[5] +
+                                            obj.localTransform[6]*obj.localTransform[6]);
+                    float scaleZ = std::sqrt(obj.localTransform[8]*obj.localTransform[8] +
+                                            obj.localTransform[9]*obj.localTransform[9] +
+                                            obj.localTransform[10]*obj.localTransform[10]);
+                    cullObj.boundingSphere[3] = std::max({scaleX, scaleY, scaleZ});
+                    
+                    cullObj.objectIndex = static_cast<uint32_t>(i);
+                    cullObj.batchId = 0;  // Single batch for now
+                    cullObj._pad0 = 0;
+                    cullObj._pad1 = 0;
+                }
+                
+                // Update frustum planes in GPU culler
+                this->m_gpuCuller.UpdateFrustum(frustumPlanes, static_cast<uint32_t>(objectCount));
+                
+                // Upload cull objects to GPU
+                this->m_gpuCuller.UploadCullObjects(this->m_cullObjectsCache.data(), static_cast<uint32_t>(objectCount));
+            }
+        }
         
         /* Convert batches to DrawCall format.
            Each batch = 1 draw call with instanceCount = number of objects in batch.
@@ -1277,12 +1423,71 @@ void VulkanApp::MainLoop() {
                 }
             }
             
+            // Get SSBO uploads per tier from TieredInstanceManager
+            const TierUpdateStats& tierStats = this->m_tieredInstanceManager.GetLastStats();
+            stats.uploadsStatic     = tierStats.staticUploaded;
+            stats.uploadsSemiStatic = tierStats.semiStaticUploaded;
+            stats.uploadsDynamic    = tierStats.dynamicUploaded;
+            stats.uploadsProcedural = tierStats.proceduralUploaded;
+            
+            // GPU culling statistics
+            stats.gpuCullerActive   = this->m_gpuCullerEnabled && this->m_gpuCuller.IsValid();
+            stats.gpuCulledVisible  = this->m_gpuCullStats.gpuVisibleCount;
+            stats.gpuCulledTotal    = this->m_gpuCullStats.totalObjectCount;
+            stats.gpuCpuMismatch    = this->m_gpuCullStats.mismatchDetected;
+            
             this->m_runtimeOverlay.SetRenderStats(stats);
         }
         
         /* Update and draw runtime overlay (FPS, frame time, etc.). */
         this->m_runtimeOverlay.Update(this->m_avgFrameTimeSec);
         this->m_runtimeOverlay.Draw(&this->m_camera, &this->m_config);
+        
+        /* Handle level loading requests from level selector */
+        if (this->m_levelSelector.ConsumeLoadRequest()) {
+            const LevelInfo* pLevel = this->m_levelSelector.GetSelectedLevel();
+            if (pLevel) {
+                // Wait for GPU to finish before unloading
+                vkDeviceWaitIdle(this->m_device.GetDevice());
+                
+                if (pLevel->isSpecial && pLevel->specialId > 0) {
+                    // Stress test - generate procedural scene using textured glTF model
+                    StressTestParams params;
+                    switch (pLevel->specialId) {
+                        case 1: params = StressTestParams::Light(); break;
+                        case 2: params = StressTestParams::Medium(); break;
+                        case 3: params = StressTestParams::Heavy(); break;
+                        case 4: params = StressTestParams::Extreme(); break;
+                        case 5: params = this->m_levelSelector.GetCustomParams(); break;  // Custom sliders
+                        default: params = StressTestParams::Medium(); break;
+                    }
+                    
+                    VulkanUtils::LogInfo("Generating stress test: {} objects...", GetStressTestObjectCount(params));
+                    uint32_t created = this->m_sceneManager.GenerateStressTestScene(params, "models/BoxTextured.glb");
+                    VulkanUtils::LogInfo("Stress test generated: {} objects", created);
+                    
+                    this->m_levelSelector.SetCurrentLevelPath(pLevel->name);
+                } else {
+                    // Regular level - load from JSON
+                    VulkanUtils::LogInfo("Loading level: {}", pLevel->path);
+                    this->m_sceneManager.UnloadScene();
+                    
+                    if (this->m_sceneManager.LoadLevelFromFile(pLevel->path)) {
+                        VulkanUtils::LogInfo("Level loaded successfully: {}", pLevel->name);
+                        this->m_levelSelector.SetCurrentLevelPath(pLevel->path);
+                    } else {
+                        VulkanUtils::LogErr("Failed to load level: {}", pLevel->path);
+                    }
+                }
+                
+                // Force draw list rebuild
+                this->m_batchedDrawList.SetDirty();
+                
+                // Trim unused resources
+                this->m_meshManager.TrimUnused();
+                this->m_textureManager.TrimUnused();
+            }
+        }
 #endif
 
         /* Always present (empty draw list = clear only) so swapchain and frame advance stay valid. */
@@ -1481,7 +1686,9 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
                 float camW = static_cast<float>(1.0f);
                 std::memcpy(vpPushData + static_cast<size_t>(76), &camW, static_cast<size_t>(4));
                 std::memcpy(vpPushData + static_cast<size_t>(80), &dc.objectIndex, static_cast<size_t>(4));
-                std::memset(vpPushData + static_cast<size_t>(84), static_cast<int>(0), static_cast<size_t>(12));
+                uint32_t useIndirection = 0;  // Direct indexing (no indirection)
+                std::memcpy(vpPushData + static_cast<size_t>(84), &useIndirection, static_cast<size_t>(4));
+                std::memset(vpPushData + static_cast<size_t>(88), static_cast<int>(0), static_cast<size_t>(8));
                 
                 vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                     static_cast<uint32_t>(0), kInstancedPushConstantSize, vpPushData);
@@ -1551,8 +1758,12 @@ void VulkanApp::Cleanup() {
     
     /* Clean up ring buffer and frame context manager. */
     this->m_objectDataRingBuffer.Destroy();
+    this->m_placeholderVisibleIndicesSSBO.Destroy();
     this->m_frameContextManager.Destroy();
     this->m_descriptorCache.Destroy();
+    
+    /* Clean up GPU culler. */
+    this->m_gpuCuller.Destroy();
     
     /* Clean up light manager (owns the light SSBO). */
     this->m_lightManager.Destroy();
@@ -1603,6 +1814,25 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
     /* Safe to destroy pipelines and mesh buffers that were trimmed (all in-flight work finished). */
     this->m_pipelineManager.ProcessPendingDestroys();
     this->m_meshManager.ProcessPendingDestroys();
+
+    /* GPU culler stats: readback visible count and update stats struct.
+       Readback every frame (GPU work already finished, no stall). */
+    if (this->m_gpuCullerEnabled && this->m_gpuCuller.IsValid()) {
+        this->m_gpuCullStats.gpuVisibleCount = this->m_gpuCuller.ReadbackVisibleCount();
+        this->m_gpuCullStats.cpuVisibleCount = static_cast<uint32_t>(this->m_batchedDrawList.GetVisibleObjectIndices().size());
+        this->m_gpuCullStats.totalObjectCount = static_cast<uint32_t>(this->m_cullObjectsCache.size());
+        this->m_gpuCullStats.mismatchDetected = (this->m_gpuCullStats.gpuVisibleCount != this->m_gpuCullStats.cpuVisibleCount);
+        this->m_gpuCullStats.framesSinceLastReadback = 0;
+        
+        // Log mismatch periodically (every 60 frames) to avoid spam
+        static uint32_t s_logCounter = 0;
+        if ((++s_logCounter % 60) == 0 && this->m_gpuCullStats.mismatchDetected) {
+            VulkanUtils::LogErr("[GPU Culler] Mismatch: GPU={} vs CPU={}", 
+                                this->m_gpuCullStats.gpuVisibleCount, this->m_gpuCullStats.cpuVisibleCount);
+        }
+    } else {
+        this->m_gpuCullStats.framesSinceLastReadback++;
+    }
 
     uint32_t lImageIndex = static_cast<uint32_t>(0);
     r = vkAcquireNextImageKHR(pDevice, this->m_swapchain.GetSwapchain(), uTimeout,
@@ -1671,9 +1901,20 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
                                    (pViewProjMat16_ic != nullptr);
     SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
     
-    std::function<void(VkCommandBuffer)> preSceneCallback = std::bind(
+    /* Wrap viewport rendering with GPU culler dispatch */
+    auto viewportCallback = std::bind(
         &VulkanApp::RenderViewports, this, std::placeholders::_1,
         &vecDrawCalls_ic, pViewProjMat16_ic, bRenderLightDebug, pSceneNew);
+    
+    /* GPU culler dispatch happens before any render passes */
+    std::function<void(VkCommandBuffer)> preSceneCallback = [this, viewportCallback](VkCommandBuffer cmd) {
+        if (this->m_gpuCullerEnabled && this->m_gpuCuller.IsValid()) {
+            this->m_gpuCuller.ResetCounters(cmd);
+            this->m_gpuCuller.Dispatch(cmd);
+            this->m_gpuCuller.BarrierAfterDispatch(cmd);
+        }
+        viewportCallback(cmd);
+    };
     
     /* Editor mode: Scene renders to offscreen viewports via preSceneCallback.
        Main render pass only renders ImGui which displays the viewport textures. */
@@ -1724,13 +1965,15 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
         auto& dc = runtimeDrawCalls[i];
         auto& pcData = this->m_runtimePushConstantBuffer[i];
         
-        // Instanced layout: viewProj (64) + camPos (16) + batchStartIndex (4) + padding (12) = 96 bytes
+        // Instanced layout: viewProj (64) + camPos (16) + batchStartIndex (4) + useIndirection (4) + padding (8) = 96 bytes
         std::memcpy(pcData.data(), rtViewProj, 64);  // viewProj at offset 0
         std::memcpy(pcData.data() + 64, rtCamPos, 12);  // camPos xyz at offset 64
         float camW = 1.0f;
         std::memcpy(pcData.data() + 76, &camW, 4);  // camPos.w at offset 76
         std::memcpy(pcData.data() + 80, &dc.objectIndex, 4);  // batchStartIndex at offset 80
-        std::memset(pcData.data() + 84, 0, 12);  // Padding at offset 84
+        uint32_t useIndirection = 0;  // Direct indexing (no indirection)
+        std::memcpy(pcData.data() + 84, &useIndirection, 4);  // useIndirection at offset 84
+        std::memset(pcData.data() + 88, 0, 8);  // Padding at offset 88
         
         dc.pPushConstants = pcData.data();
         dc.pushConstantSize = kInstancedPushConstantSize;
@@ -1740,8 +1983,14 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
         dc.dynamicOffsets.push_back(this->m_currentFrameObjectDataOffset);
     }
     
-    /* Runtime: No preSceneCallback - scene renders directly in main pass */
-    std::function<void(VkCommandBuffer)> preSceneCallback = nullptr;
+    /* Runtime: GPU culler dispatch before render pass */
+    std::function<void(VkCommandBuffer)> preSceneCallback = [this](VkCommandBuffer cmd) {
+        if (this->m_gpuCullerEnabled && this->m_gpuCuller.IsValid()) {
+            this->m_gpuCuller.ResetCounters(cmd);
+            this->m_gpuCuller.Dispatch(cmd);
+            this->m_gpuCuller.BarrierAfterDispatch(cmd);
+        }
+    };
     
     /* Runtime: Pass actual draw calls to render scene directly to swapchain */
     this->m_commandBuffers.Record(lImageIndex, this->m_renderPass.Get(),

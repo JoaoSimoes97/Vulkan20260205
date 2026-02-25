@@ -89,14 +89,18 @@ public:
     
     /** Call when object's material/mesh/textures change (requires draw list rebuild). */
     void MarkObjectDirty(size_t index) {
-        (void)index;
+        if (index < m_objects.size()) {
+            m_objects[index].MarkDirty();  // Per-object dirty for SSBO
+        }
         MarkDirty();
         ++m_version;
     }
     
     /** Call when only transform/color changed (no draw list rebuild, just SSBO update). */
     void MarkObjectTransformDirty(size_t index) {
-        (void)index;
+        if (index < m_objects.size()) {
+            m_objects[index].MarkDirty();  // Per-object dirty for SSBO
+        }
         m_bTransformsDirty = true;
     }
     

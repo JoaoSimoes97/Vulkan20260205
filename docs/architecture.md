@@ -388,8 +388,9 @@ For detailed architecture and implementation, see [instancing-architecture.md](i
 ### Immediate
 
 - [ ] Implement Multi-Tier Instance System
-- [ ] GPU culling compute pipeline
-- [ ] Indirect drawing infrastructure
+- [x] GPU culling compute pipeline (GPUCuller class, gpu_cull.comp shader)
+- [x] Indirect drawing infrastructure (binding 8, useIndirection flag)
+- [ ] Per-batch indirect draw commands (requires per-batch GPU culling)
 
 ### Phase 2
 

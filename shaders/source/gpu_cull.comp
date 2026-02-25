@@ -1,125 +1,132 @@
 #version 450
-/**
+
+/*
  * GPU Frustum Culling Compute Shader
  * 
- * Input: Per-instance cull data + instance transforms
- * Output: Visible instance indices + indirect draw commands
- * 
- * Each workgroup processes 256 instances.
- * Uses atomics to build compact visible instance list.
+ * Input:
+ *   - All objects with transforms and bounding spheres
+ *   - Camera frustum planes (6 planes)
+ *   
+ * Output:
+ *   - Compacted visible instance indices
+ *   - Indirect draw command with instance count
+ *
+ * Each workgroup thread tests one object against the frustum.
+ * Visible objects atomically append their index to the output buffer.
  */
 
+// Workgroup size: 256 threads (good balance for most GPUs)
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-/* ---- Push Constants ---- */
-layout(push_constant) uniform CullPushConstants {
-    uint instanceCount;  // Total instances to cull
+// ============================================================================
+// Structures (must match C++ side)
+// ============================================================================
+
+// Per-object culling data (separate from render ObjectData for efficiency)
+struct CullObjectData {
+    vec4 boundingSphere;  // xyz = center (world space), w = radius
+    uint objectIndex;     // Index into ObjectData SSBO for rendering
+    uint batchId;         // Which batch this object belongs to (for multi-batch indirect)
+    uint _pad0;
+    uint _pad1;
+};
+
+// Frustum planes (Ax + By + Cz + D = 0, normal pointing inward)
+struct FrustumData {
+    vec4 planes[6];       // left, right, bottom, top, near, far
+    uint objectCount;     // Total objects to cull
     uint _pad0;
     uint _pad1;
     uint _pad2;
-} pc;
-
-/* ---- Cull Uniforms (binding 0) ---- */
-layout(std140, set = 0, binding = 0) uniform CullUniforms {
-    vec4 frustumPlanes[6];  // 6 planes: left, right, bottom, top, near, far
-                            // Each plane: xyz = normal, w = distance
-    mat4 viewProj;          // View-projection matrix (for debug/future use)
-} cull;
-
-/* ---- Instance Transforms (binding 1) ---- */
-struct GPUInstanceData {
-    mat4 model;  // 64 bytes
 };
 
-layout(std430, set = 0, binding = 1) readonly buffer InstanceDataIn {
-    GPUInstanceData instances[];
-} instanceData;
-
-/* ---- Cull Data (binding 2) ---- */
-struct GPUCullData {
-    vec4 boundingSphere;  // xyz = center (object space), w = radius
-    uint meshIndex;
-    uint materialIndex;
-    uint instanceIndex;
-    uint _pad;
-};
-
-layout(std430, set = 0, binding = 2) readonly buffer CullDataIn {
-    GPUCullData cullData[];
-} cullDataIn;
-
-/* ---- Output: Visible Instance Indices (binding 3) ---- */
-layout(std430, set = 0, binding = 3) buffer VisibleIndicesOut {
-    uint count;        // Atomic counter for visible instances
-    uint indices[];    // Compacted list of visible instance indices
-} visibleOut;
-
-/* ---- Output: Indirect Draw Commands (binding 4) ---- */
-struct DrawIndexedIndirectCommand {
+// Indirect draw command (VkDrawIndexedIndirectCommand)
+struct DrawCommand {
     uint indexCount;
-    uint instanceCount;  // We increment this atomically
+    uint instanceCount;
     uint firstIndex;
     int  vertexOffset;
     uint firstInstance;
 };
 
-layout(std430, set = 0, binding = 4) buffer IndirectCommandsOut {
-    DrawIndexedIndirectCommand commands[];
-} indirectOut;
+// ============================================================================
+// Descriptor Set Bindings
+// ============================================================================
 
-/* ---- Frustum Culling ---- */
-/**
- * Test if a bounding sphere is inside the frustum.
- * @param center World-space sphere center
- * @param radius Sphere radius (scaled by model matrix)
- * @return true if visible (inside or intersecting frustum)
- */
-bool FrustumCullSphere(vec3 center, float radius) {
-    // Test against all 6 frustum planes
-    for (int i = 0; i < 6; i++) {
-        // Distance from center to plane (positive = inside, negative = outside)
-        float dist = dot(cull.frustumPlanes[i].xyz, center) + cull.frustumPlanes[i].w;
-        
-        // If center is more than radius outside the plane, sphere is culled
-        if (dist < -radius) {
-            return false;
+// Set 0, Binding 0: Frustum data (uniform buffer, updated per-frame)
+layout(std140, set = 0, binding = 0) uniform FrustumBuffer {
+    FrustumData frustum;
+};
+
+// Set 0, Binding 1: All objects to cull (read-only storage buffer)
+layout(std430, set = 0, binding = 1) readonly buffer CullInputBuffer {
+    CullObjectData cullObjects[];
+};
+
+// Set 0, Binding 2: Visible instance indices output (write storage buffer)
+layout(std430, set = 0, binding = 2) writeonly buffer VisibleIndicesBuffer {
+    uint visibleIndices[];
+};
+
+// Set 0, Binding 3: Atomic counter for visible count (read-write storage buffer)
+layout(std430, set = 0, binding = 3) buffer AtomicCounterBuffer {
+    uint visibleCount;
+};
+
+// Set 0, Binding 4: Indirect draw commands (write storage buffer)
+// For now: single draw command. Future: one per batch.
+layout(std430, set = 0, binding = 4) buffer IndirectCommandBuffer {
+    DrawCommand drawCommands[];
+};
+
+// ============================================================================
+// Frustum Test
+// ============================================================================
+
+// Test sphere against frustum planes
+// Returns true if sphere is at least partially inside frustum
+bool SphereInFrustum(vec3 center, float radius) {
+    for (int i = 0; i < 6; ++i) {
+        vec4 plane = frustum.planes[i];
+        float distance = dot(plane.xyz, center) + plane.w;
+        if (distance < -radius) {
+            return false;  // Fully outside this plane
         }
     }
-    return true;
+    return true;  // Inside or intersecting all planes
 }
 
+// ============================================================================
+// Main
+// ============================================================================
+
 void main() {
-    uint idx = gl_GlobalInvocationID.x;
+    uint gid = gl_GlobalInvocationID.x;
     
     // Bounds check
-    if (idx >= pc.instanceCount) {
+    if (gid >= frustum.objectCount) {
         return;
     }
     
-    // Load cull data for this instance
-    GPUCullData cd = cullDataIn.cullData[idx];
+    // Load object culling data
+    CullObjectData obj = cullObjects[gid];
+    vec3 center = obj.boundingSphere.xyz;
+    float radius = obj.boundingSphere.w;
     
-    // Load instance transform
-    mat4 model = instanceData.instances[cd.instanceIndex].model;
-    
-    // Transform bounding sphere center to world space
-    vec3 worldCenter = (model * vec4(cd.boundingSphere.xyz, 1.0)).xyz;
-    
-    // Approximate scale for radius (use max scale component)
-    // This is conservative - could be more accurate with SVD
-    float scaleX = length(model[0].xyz);
-    float scaleY = length(model[1].xyz);
-    float scaleZ = length(model[2].xyz);
-    float maxScale = max(max(scaleX, scaleY), scaleZ);
-    float worldRadius = cd.boundingSphere.w * maxScale;
+    // Skip objects with zero radius (invalid bounds)
+    if (radius <= 0.0) {
+        return;
+    }
     
     // Frustum test
-    if (FrustumCullSphere(worldCenter, worldRadius)) {
-        // Visible! Add to output list
-        uint visIdx = atomicAdd(visibleOut.count, 1);
-        visibleOut.indices[visIdx] = cd.instanceIndex;
+    if (SphereInFrustum(center, radius)) {
+        // Object is visible: atomically append to output
+        uint slot = atomicAdd(visibleCount, 1);
+        visibleIndices[slot] = obj.objectIndex;
         
-        // Increment instance count for this mesh's draw command
-        atomicAdd(indirectOut.commands[cd.meshIndex].instanceCount, 1);
+        // Increment instance count in draw command
+        // For single-batch: always command 0
+        // Future: use obj.batchId to select command
+        atomicAdd(drawCommands[0].instanceCount, 1);
     }
 }

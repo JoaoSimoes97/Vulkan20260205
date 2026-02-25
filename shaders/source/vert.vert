@@ -5,8 +5,8 @@
 layout(push_constant) uniform Push {
     mat4 viewProj;        // View-Projection matrix (64 bytes)
     vec4 camPos;          // Camera world position xyz, w unused (16 bytes)
-    uint batchStartIndex; // Start index into SSBO for this batch (4 bytes)
-    uint _pad0;           // Padding (4 bytes)
+    uint batchStartIndex; // Start index into SSBO/visibleIndices for this batch (4 bytes)
+    uint useIndirection;  // If 1, use visibleIndices buffer for object lookup (4 bytes)
     uint _pad1;           // Padding (4 bytes)
     uint _pad2;           // Padding (4 bytes)
     // Total: 96 bytes
@@ -35,6 +35,12 @@ layout(std430, set = 0, binding = 2) readonly buffer ObjectDataBlock {
     ObjectData objects[];
 } objectData;
 
+/* ---- Visible Indices SSBO (binding 8) ---- */
+/* GPU culler outputs visible object indices here for indirect draw */
+layout(std430, set = 0, binding = 8) readonly buffer VisibleIndicesBlock {
+    uint indices[];
+} visibleIndices;
+
 /* ---- Vertex Inputs ---- */
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec2 inUV;
@@ -47,8 +53,15 @@ layout(location = 2) out vec3 outWorldPos;
 layout(location = 3) flat out uint outObjectIndex;
 
 void main() {
-    // Calculate object index using instancing: batch start + instance ID
-    uint objIdx = pc.batchStartIndex + gl_InstanceIndex;
+    // Calculate object index using instancing
+    // If useIndirection: read through GPU culler's visible indices buffer
+    // Otherwise: direct index using batch start + instance ID
+    uint objIdx;
+    if (pc.useIndirection != 0) {
+        objIdx = visibleIndices.indices[pc.batchStartIndex + gl_InstanceIndex];
+    } else {
+        objIdx = pc.batchStartIndex + gl_InstanceIndex;
+    }
     
     // Get model matrix from SSBO
     mat4 model = objectData.objects[objIdx].model;

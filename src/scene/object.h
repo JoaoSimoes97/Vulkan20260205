@@ -5,6 +5,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 struct MaterialHandle;
@@ -142,6 +143,20 @@ struct Object {
     uint32_t                 gameObjectId  = UINT32_MAX;
     /** Instance tier for GPU buffer management. Determines update frequency and culling strategy. */
     InstanceTier             instanceTier  = InstanceTier::Static;
+    
+    /* ---- Tier-Based Dirty Tracking ---- */
+    /** True if transform/material data has changed since last SSBO update. Used by SemiStatic tier.
+        Mutable because dirty flag is cache state, not logical object state. */
+    mutable bool             bDirty        = true;   // Start dirty so first frame uploads
+    /** SSBO slot assigned to this object (-1 = not assigned). Set by TieredInstanceManager. */
+    int32_t                  ssboSlot      = -1;
+    
+    /** Mark object as dirty (needs SSBO update). Call after modifying transform/color/material. */
+    void MarkDirty() const { bDirty = true; }
+    /** Clear dirty flag after SSBO upload. Called by TieredInstanceManager. */
+    void ClearDirty() const { bDirty = false; }
+    /** Check if object needs SSBO update. */
+    bool IsDirty() const { return bDirty; }
 };
 
 #ifdef _MSC_VER
@@ -264,27 +279,33 @@ static_assert(kObjectPushConstantSize == 112, "Total push constant size must be 
  * - mat4 viewProj (64 bytes) at offset 0
  * - vec4 camPos (16 bytes) at offset 64
  * - uint batchStartIndex (4 bytes) at offset 80
- * - padding (12 bytes) at offset 84
+ * - uint useIndirection (4 bytes) at offset 84 (0=direct, 1=use visibleIndices buffer)
+ * - padding (8 bytes) at offset 88
  * Total: 96 bytes
  *
- * Objects are indexed via: batchStartIndex + gl_InstanceIndex
+ * Objects are indexed via: 
+ *   if (useIndirection) visibleIndices[batchStartIndex + gl_InstanceIndex]
+ *   else                batchStartIndex + gl_InstanceIndex
  */
 constexpr uint32_t kInstancedViewProjBytes     = 64u;
 constexpr uint32_t kInstancedCamPosBytes       = 16u;
 constexpr uint32_t kInstancedBatchIndexBytes   = 4u;
-constexpr uint32_t kInstancedPaddingBytes      = 12u;
-constexpr uint32_t kInstancedPushConstantSize  = kInstancedViewProjBytes + kInstancedCamPosBytes + kInstancedBatchIndexBytes + kInstancedPaddingBytes;
+constexpr uint32_t kInstancedUseIndirectionBytes = 4u;
+constexpr uint32_t kInstancedPaddingBytes      = 8u;
+constexpr uint32_t kInstancedPushConstantSize  = kInstancedViewProjBytes + kInstancedCamPosBytes + kInstancedBatchIndexBytes + kInstancedUseIndirectionBytes + kInstancedPaddingBytes;
 
 // Instanced push constant offset validations (MUST match GLSL layout)
 constexpr uint32_t kInstPushOffset_ViewProj      = 0u;                                                    // mat4 at offset 0
 constexpr uint32_t kInstPushOffset_CamPos        = kInstancedViewProjBytes;                               // vec4 at offset 64
 constexpr uint32_t kInstPushOffset_BatchIndex    = kInstPushOffset_CamPos + kInstancedCamPosBytes;        // uint at offset 80
-constexpr uint32_t kInstPushOffset_Padding       = kInstPushOffset_BatchIndex + kInstancedBatchIndexBytes; // padding at offset 84
+constexpr uint32_t kInstPushOffset_UseIndirection = kInstPushOffset_BatchIndex + kInstancedBatchIndexBytes; // uint at offset 84
+constexpr uint32_t kInstPushOffset_Padding       = kInstPushOffset_UseIndirection + kInstancedUseIndirectionBytes; // padding at offset 88
 
 // Static validations for instanced layout correctness
 static_assert(kInstPushOffset_ViewProj == 0, "ViewProj must be at offset 0");
 static_assert(kInstPushOffset_CamPos == 64, "CamPos must be at offset 64");
 static_assert(kInstPushOffset_BatchIndex == 80, "BatchIndex must be at offset 80");
+static_assert(kInstPushOffset_UseIndirection == 84, "UseIndirection must be at offset 84");
 static_assert(kInstancedPushConstantSize == 96, "Instanced push constant size must be 96 bytes");
 
 /** DEPRECATED: Use ObjectFillInstancedPushData for instanced rendering.

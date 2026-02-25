@@ -181,6 +181,7 @@ set(SOURCES
     src/vulkan/vulkan_command_buffers.cpp
     src/vulkan/vulkan_sync.cpp
     src/vulkan/vulkan_shader_manager.cpp
+    src/vulkan/vulkan_compute_pipeline.cpp
     src/managers/descriptor_set_layout_manager.cpp
     src/managers/descriptor_pool_manager.cpp
     src/managers/pipeline_manager.cpp
@@ -198,12 +199,16 @@ set(SOURCES
     src/render/gpu_buffer.cpp
     src/render/renderer.cpp
     src/render/descriptor_cache.cpp
+    src/render/tiered_instance_manager.cpp
+    src/render/gpu_culler.cpp
     src/core/light_manager.cpp
     src/core/light_debug_renderer.cpp
     src/core/scene_new.cpp
     src/core/frame_context.cpp
     src/core/engine.cpp
     src/scene/scene_unified.cpp
+    src/scene/stress_test_generator.cpp
+    src/scene/level_selector.cpp
     src/ui/imgui_base.cpp
     src/runtime/runtime_overlay.cpp
     src/app/runtime_app.cpp
@@ -242,6 +247,8 @@ set(HEADERS
     src/thread/job_queue.h
     src/window/window.h
     src/scene/object.h
+    src/scene/stress_test_generator.h
+    src/scene/level_selector.h
     src/vulkan/vulkan_types.h
     src/vulkan/vulkan_utils.h
     src/vulkan/vulkan_instance.h
@@ -254,6 +261,7 @@ set(HEADERS
     src/vulkan/vulkan_command_buffers.h
     src/vulkan/vulkan_sync.h
     src/vulkan/vulkan_shader_manager.h
+    src/vulkan/vulkan_compute_pipeline.h
     src/core/camera_component.h
     src/core/component.h
     src/core/core.h
@@ -273,6 +281,8 @@ set(HEADERS
     src/render/render_context.h
     src/render/renderer.h
     src/render/descriptor_cache.h
+    src/render/tiered_instance_manager.h
+    src/render/gpu_culler.h
     src/ui/imgui_base.h
     src/runtime/runtime_overlay.h
 )
@@ -401,10 +411,10 @@ if(GLSLC)
         COMMENT "Compiling debug line fragment shader"
     )
     add_custom_command(
-        OUTPUT ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
-        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/gpu_cull.comp -o ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
+        OUTPUT ${SHADERS_OUTPUT_DIR}/gpu_cull.comp.spv
+        COMMAND ${GLSLC} ${SHADERS_SOURCE_DIR}/gpu_cull.comp -o ${SHADERS_OUTPUT_DIR}/gpu_cull.comp.spv
         DEPENDS ${SHADERS_SOURCE_DIR}/gpu_cull.comp
-        COMMENT "Compiling GPU culling compute shader"
+        COMMENT "Compiling GPU cull compute shader"
     )
 elseif(GLSLANGVALIDATOR)
     message(STATUS "Found glslangValidator, will auto-compile shaders (source: shaders/source/ -> build/shaders/)")
@@ -433,10 +443,10 @@ elseif(GLSLANGVALIDATOR)
         COMMENT "Compiling debug line fragment shader"
     )
     add_custom_command(
-        OUTPUT ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
-        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/gpu_cull.comp -o ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
+        OUTPUT ${SHADERS_OUTPUT_DIR}/gpu_cull.comp.spv
+        COMMAND ${GLSLANGVALIDATOR} -V ${SHADERS_SOURCE_DIR}/gpu_cull.comp -o ${SHADERS_OUTPUT_DIR}/gpu_cull.comp.spv
         DEPENDS ${SHADERS_SOURCE_DIR}/gpu_cull.comp
-        COMMENT "Compiling GPU culling compute shader"
+        COMMENT "Compiling GPU cull compute shader"
     )
 else()
     message(WARNING "No shader compiler found (glslc or glslangValidator). Shaders must be compiled manually.")
@@ -446,7 +456,7 @@ endif()
 file(MAKE_DIRECTORY ${SHADERS_OUTPUT_DIR})
 
 add_custom_target(compile_shaders ALL
-    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv ${SHADERS_OUTPUT_DIR}/gpu_cull.spv
+    DEPENDS ${SHADERS_OUTPUT_DIR}/vert.spv ${SHADERS_OUTPUT_DIR}/frag.spv ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv ${SHADERS_OUTPUT_DIR}/gpu_cull.comp.spv
 )
 
 # Ensure shaders are built before the app. Shaders are copied to exe dir (compiled artifacts).
@@ -458,7 +468,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.vert.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/debug_line.frag.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
-    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/gpu_cull.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy ${SHADERS_OUTPUT_DIR}/gpu_cull.comp.spv $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders/
     COMMENT "Copying compiled shaders next to executable"
 )
 
