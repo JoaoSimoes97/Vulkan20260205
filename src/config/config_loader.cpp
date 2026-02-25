@@ -115,7 +115,7 @@ VulkanConfig GetDefaultConfig() {
     stCfg.bUsePerspective = true;
     stCfg.fCameraFovYRad = 0.8f;
     stCfg.fCameraNearZ = 0.1f;
-    stCfg.fCameraFarZ = 100.f;
+    stCfg.fCameraFarZ = 100000.f;
     stCfg.fOrthoHalfExtent = 8.f;
     stCfg.fOrthoNear = -10.f;
     stCfg.fOrthoFar = 10.f;
@@ -123,7 +123,7 @@ VulkanConfig GetDefaultConfig() {
     stCfg.fInitialCameraX = 0.f;
     stCfg.fInitialCameraY = 0.f;
     stCfg.fInitialCameraZ = 8.f;
-    stCfg.bCullBackFaces = false;
+    stCfg.bCullBackFaces = true;
     stCfg.fClearColorR = 0.1f;
     stCfg.fClearColorG = 0.1f;
     stCfg.fClearColorB = 0.4f;

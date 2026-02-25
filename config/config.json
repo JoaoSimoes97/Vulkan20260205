@@ -15,12 +15,20 @@
   "debug": {
     "show_light_debug": true
   },
+  "gpu_resources": {
+    "desc_cache_max_sets": 1000,
+    "desc_cache_samplers": 500,
+    "desc_cache_storage_buffers": 100,
+    "desc_cache_uniform_buffers": 500,
+    "max_objects": 100000
+  },
   "render": {
     "clear_color_a": 1.0,
     "clear_color_b": 0.4000000059604645,
     "clear_color_g": 0.10000000149011612,
     "clear_color_r": 0.10000000149011612,
-    "cull_back_faces": true
+    "cull_back_faces": true,
+    "enable_gpu_culling": true
   },
   "swapchain": {
     "image_count": 3,
