@@ -2,6 +2,7 @@
 
 #include "vulkan_config.h"
 #include <string>
+#include <vulkan/vulkan.h>
 
 /*
  * Two-file config: default (immutable) + user (mutable).
@@ -12,6 +13,12 @@
  * Validation layers are not persisted. See docs/architecture.md.
  */
 VulkanConfig GetDefaultConfig();
+
+/** Validate config values and clamp out-of-range values. Returns true if all values were valid. */
+bool ValidateConfig(VulkanConfig& stConfig);
+
+/** Validate config against GPU device limits. Call after device creation. Returns true if all values valid. */
+bool ValidateConfigGPULimits(VulkanConfig& stConfig, const VkPhysicalDeviceLimits& limits);
 
 /** Ensure default config file exists; create from GetDefaultConfig() only if missing. Never overwrites. */
 void EnsureDefaultConfigFile(const std::string& sDefaultPath_ic);

@@ -61,6 +61,7 @@ public:
     /**
      * Initialize ImGui with Vulkan and SDL3.
      * Call after Vulkan device and window are created.
+     * @param layoutPath Path to ImGui layout ini file (from config).
      */
     void Init(
         SDL_Window* pWindow,
@@ -70,7 +71,8 @@ public:
         uint32_t graphicsQueueFamily,
         VkQueue graphicsQueue,
         VkRenderPass renderPass,
-        uint32_t imageCount
+        uint32_t imageCount,
+        const std::string& layoutPath = "config/imgui_layout.ini"
     );
 
     /**
@@ -163,12 +165,24 @@ private:
     void DrawGizmo(SceneNew* pScene, Camera* pCamera);
     void DrawToolbar();
     void DrawMenuBar();
+    void DrawFileMenu();
+    void DrawEditMenu();
+    void DrawSelectionMenu(SceneNew* pScene);
+    void DrawViewMenu();
+    void DrawLayoutMenu();
+    void DrawHelpMenu();
+    
+    /** Helper to draw a placeholder menu item in red (not yet implemented). */
+    bool PlaceholderMenuItem(const char* label, const char* shortcut = nullptr);
 
     /** Create descriptor pool for ImGui. */
     void CreateDescriptorPool();
 
     /** Save modified scene/level to disk. */
     void SaveCurrentLevel(SceneNew* pScene);
+    
+    /** Reset layout to default. */
+    void ResetLayoutToDefault();
 
     bool m_bInitialized = false;
     bool m_bEnabled = true;
@@ -189,6 +203,9 @@ private:
     // Level path for saving
     std::string m_currentLevelPath;
     
+    // Editor layout ini file path
+    std::string m_layoutFilePath = "config/imgui_layout.ini";
+    
     // Track if main viewport is hovered (for camera input bypass)
     bool m_bViewportHovered = false;
     
@@ -200,6 +217,15 @@ private:
     
     // Render Scene for emissive light editing (Objects with emitsLight)
     Scene* m_pRenderScene = nullptr;
+    
+    // Panel visibility toggles
+    bool m_bShowHierarchy = true;
+    bool m_bShowInspector = true;
+    bool m_bShowToolbar = true;
+    bool m_bShowViewport = true;
+    bool m_bShowViewports = true;
+    bool m_bShowCameras = true;
+    bool m_bShowDemo = false;  // ImGui demo window
 };
 
 #endif // EDITOR_BUILD

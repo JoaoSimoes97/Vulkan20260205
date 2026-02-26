@@ -144,6 +144,9 @@ void VulkanApp::InitVulkan() {
     this->m_instance.Create(vecExtensions.data(), static_cast<uint32_t>(vecExtensions.size()));
     this->m_pWindow->CreateSurface(this->m_instance.Get());
     this->m_device.Create(this->m_instance.Get(), this->m_pWindow->GetSurface());
+    
+    /* Validate config against GPU device limits. May clamp values if exceeding limits. */
+    ValidateConfigGPULimits(this->m_config, this->m_device.GetLimits());
 
     /* Use window drawable size for swapchain so extent always matches what we display (no aspect mismatch). */
     this->m_pWindow->GetDrawableSize(&this->m_config.lWidth, &this->m_config.lHeight);
@@ -493,7 +496,8 @@ void VulkanApp::InitVulkan() {
         this->m_device.GetQueueFamilyIndices().graphicsFamily,
         this->m_device.GetGraphicsQueue(),
         this->m_renderPass.Get(),
-        this->m_swapchain.GetImageCount()
+        this->m_swapchain.GetImageCount(),
+        this->m_config.sEditorLayoutPath
     );
     /* Set level path for editor save functionality. */
     this->m_editorLayer.SetLevelPath(VulkanUtils::GetResourcePath(this->m_config.sLevelPath));

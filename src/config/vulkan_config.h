@@ -67,6 +67,10 @@ struct VulkanConfig {
     /** Show light debug visualization (wireframe spheres/cones for lights). */
     bool bShowLightDebug = true;
 
+    /* --- Editor --- */
+    /** Path to ImGui layout ini file (docking, window positions). */
+    std::string sEditorLayoutPath = "config/imgui_layout.ini";
+
     /* --- GPU Resources --- */
     /** Maximum objects per frame in SSBO. Memory = lMaxObjects × 256 × lMaxFramesInFlight. */
     uint32_t lMaxObjects = 4096;

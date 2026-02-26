@@ -8,10 +8,67 @@
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <cmath>
 
 using json = nlohmann::json;
 
 namespace {
+
+// Validation ranges for config values
+struct ConfigLimits {
+    // Window
+    static constexpr uint32_t kMinWidth = 320;
+    static constexpr uint32_t kMaxWidth = 7680;  // 8K
+    static constexpr uint32_t kMinHeight = 240;
+    static constexpr uint32_t kMaxHeight = 4320; // 8K
+    
+    // Swapchain
+    static constexpr uint32_t kMinImageCount = 2;
+    static constexpr uint32_t kMaxImageCount = 8;
+    static constexpr uint32_t kMinFramesInFlight = 1;
+    static constexpr uint32_t kMaxFramesInFlight = 4;
+    
+    // Camera
+    static constexpr float kMinFov = 0.1f;        // ~6 degrees
+    static constexpr float kMaxFov = 3.14159f;    // ~180 degrees
+    static constexpr float kMinNearZ = 0.0001f;
+    static constexpr float kMaxFarZ = 1000000.0f;
+    static constexpr float kMinPanSpeed = 0.1f;
+    static constexpr float kMaxPanSpeed = 100.0f;
+    
+    // GPU resources
+    static constexpr uint32_t kMinMaxObjects = 1;
+    static constexpr uint32_t kMaxMaxObjects = 10000000;  // 10M
+    static constexpr uint32_t kMinDescSets = 1;
+    static constexpr uint32_t kMaxDescSets = 100000;
+};
+
+bool ValidateAndClamp(uint32_t& value, uint32_t minVal, uint32_t maxVal, const char* fieldName) {
+    if (value < minVal || value > maxVal) {
+        uint32_t original = value;
+        value = std::clamp(value, minVal, maxVal);
+        VulkanUtils::LogWarn("Config '{}': {} out of range [{}, {}], clamped to {}",
+                             fieldName, original, minVal, maxVal, value);
+        return false;
+    }
+    return true;
+}
+
+bool ValidateAndClampFloat(float& value, float minVal, float maxVal, const char* fieldName) {
+    if (!std::isfinite(value) || value < minVal || value > maxVal) {
+        float original = value;
+        value = std::clamp(value, minVal, maxVal);
+        VulkanUtils::LogWarn("Config '{}': {} out of range [{:.6f}, {:.6f}], clamped to {:.6f}",
+                             fieldName, original, minVal, maxVal, value);
+        return false;
+    }
+    return true;
+}
+
+bool ValidateAndClampColor(float& value, const char* fieldName) {
+    return ValidateAndClampFloat(value, 0.0f, 1.0f, fieldName);
+}
 
 void ApplyJsonToConfig(const json& jRoot, VulkanConfig& stConfig) {
     if (jRoot.contains("window") == true) {
@@ -96,10 +153,110 @@ void ApplyJsonToConfig(const json& jRoot, VulkanConfig& stConfig) {
         if ((jGpu.contains("desc_cache_storage_buffers") == true) && (jGpu["desc_cache_storage_buffers"].is_number_unsigned() == true))
             stConfig.lDescCacheStorageBuffers = jGpu["desc_cache_storage_buffers"].get<uint32_t>();
     }
+    if (jRoot.contains("editor") == true) {
+        const json& jEditor = jRoot["editor"];
+        if ((jEditor.contains("layout_file") == true) && (jEditor["layout_file"].is_string() == true))
+            stConfig.sEditorLayoutPath = jEditor["layout_file"].get<std::string>();
+    }
     /* validation_layers not loaded from config — dev/debug only, set from build type or env. */
 }
 
 } // namespace
+
+bool ValidateConfig(VulkanConfig& stConfig) {
+    bool bAllValid = true;
+    
+    // Window validation
+    bAllValid &= ValidateAndClamp(stConfig.lWidth, ConfigLimits::kMinWidth, ConfigLimits::kMaxWidth, "window.width");
+    bAllValid &= ValidateAndClamp(stConfig.lHeight, ConfigLimits::kMinHeight, ConfigLimits::kMaxHeight, "window.height");
+    
+    // Swapchain validation
+    bAllValid &= ValidateAndClamp(stConfig.lImageCount, ConfigLimits::kMinImageCount, ConfigLimits::kMaxImageCount, "swapchain.image_count");
+    bAllValid &= ValidateAndClamp(stConfig.lMaxFramesInFlight, ConfigLimits::kMinFramesInFlight, ConfigLimits::kMaxFramesInFlight, "swapchain.max_frames_in_flight");
+    
+    // Camera validation
+    bAllValid &= ValidateAndClampFloat(stConfig.fCameraFovYRad, ConfigLimits::kMinFov, ConfigLimits::kMaxFov, "camera.fov_y_rad");
+    bAllValid &= ValidateAndClampFloat(stConfig.fCameraNearZ, ConfigLimits::kMinNearZ, stConfig.fCameraFarZ, "camera.near_z");
+    bAllValid &= ValidateAndClampFloat(stConfig.fCameraFarZ, stConfig.fCameraNearZ, ConfigLimits::kMaxFarZ, "camera.far_z");
+    bAllValid &= ValidateAndClampFloat(stConfig.fPanSpeed, ConfigLimits::kMinPanSpeed, ConfigLimits::kMaxPanSpeed, "camera.pan_speed");
+    
+    // Ortho validation: ortho_near < ortho_far
+    if (stConfig.fOrthoNear >= stConfig.fOrthoFar) {
+        VulkanUtils::LogWarn("Config 'camera.ortho_near' ({}) >= 'camera.ortho_far' ({}), swapping",
+                             stConfig.fOrthoNear, stConfig.fOrthoFar);
+        std::swap(stConfig.fOrthoNear, stConfig.fOrthoFar);
+        bAllValid = false;
+    }
+    bAllValid &= ValidateAndClampFloat(stConfig.fOrthoHalfExtent, 0.001f, 10000.0f, "camera.ortho_half_extent");
+    
+    // Render validation (clear colors 0-1)
+    bAllValid &= ValidateAndClampColor(stConfig.fClearColorR, "render.clear_color_r");
+    bAllValid &= ValidateAndClampColor(stConfig.fClearColorG, "render.clear_color_g");
+    bAllValid &= ValidateAndClampColor(stConfig.fClearColorB, "render.clear_color_b");
+    bAllValid &= ValidateAndClampColor(stConfig.fClearColorA, "render.clear_color_a");
+    
+    // GPU resources validation
+    bAllValid &= ValidateAndClamp(stConfig.lMaxObjects, ConfigLimits::kMinMaxObjects, ConfigLimits::kMaxMaxObjects, "gpu_resources.max_objects");
+    bAllValid &= ValidateAndClamp(stConfig.lDescCacheMaxSets, ConfigLimits::kMinDescSets, ConfigLimits::kMaxDescSets, "gpu_resources.desc_cache_max_sets");
+    bAllValid &= ValidateAndClamp(stConfig.lDescCacheUniformBuffers, ConfigLimits::kMinDescSets, ConfigLimits::kMaxDescSets, "gpu_resources.desc_cache_uniform_buffers");
+    bAllValid &= ValidateAndClamp(stConfig.lDescCacheSamplers, ConfigLimits::kMinDescSets, ConfigLimits::kMaxDescSets, "gpu_resources.desc_cache_samplers");
+    bAllValid &= ValidateAndClamp(stConfig.lDescCacheStorageBuffers, ConfigLimits::kMinDescSets, ConfigLimits::kMaxDescSets, "gpu_resources.desc_cache_storage_buffers");
+    
+    return bAllValid;
+}
+
+bool ValidateConfigGPULimits(VulkanConfig& stConfig, const VkPhysicalDeviceLimits& limits) {
+    bool bAllValid = true;
+    
+    // Calculate required buffer size for ObjectData SSBO (per frame)
+    // ObjectData is typically 256 bytes (see vulkan_types.h)
+    constexpr VkDeviceSize kObjectDataSize = 256;  // sizeof(ObjectData)
+    VkDeviceSize requiredStorageSize = static_cast<VkDeviceSize>(stConfig.lMaxObjects) * kObjectDataSize;
+    
+    // Check against maxStorageBufferRange
+    if (requiredStorageSize > limits.maxStorageBufferRange) {
+        uint32_t maxAllowed = static_cast<uint32_t>(limits.maxStorageBufferRange / kObjectDataSize);
+        VulkanUtils::LogWarn("gpu_resources.max_objects {} exceeds GPU maxStorageBufferRange ({} bytes = {} objects), clamping to {}",
+                             stConfig.lMaxObjects, limits.maxStorageBufferRange, maxAllowed, maxAllowed);
+        stConfig.lMaxObjects = maxAllowed;
+        bAllValid = false;
+    }
+    
+    // Check descriptor pool sizes against GPU limits
+    if (stConfig.lDescCacheMaxSets > limits.maxDescriptorSetUniformBuffers) {
+        VulkanUtils::LogWarn("gpu_resources.desc_cache_max_sets {} > GPU maxDescriptorSetUniformBuffers {}, clamping",
+                             stConfig.lDescCacheMaxSets, limits.maxDescriptorSetUniformBuffers);
+        stConfig.lDescCacheMaxSets = limits.maxDescriptorSetUniformBuffers;
+        bAllValid = false;
+    }
+    
+    if (stConfig.lDescCacheUniformBuffers > limits.maxDescriptorSetUniformBuffers) {
+        VulkanUtils::LogWarn("gpu_resources.desc_cache_uniform_buffers {} > GPU maxDescriptorSetUniformBuffers {}, clamping",
+                             stConfig.lDescCacheUniformBuffers, limits.maxDescriptorSetUniformBuffers);
+        stConfig.lDescCacheUniformBuffers = limits.maxDescriptorSetUniformBuffers;
+        bAllValid = false;
+    }
+    
+    if (stConfig.lDescCacheSamplers > limits.maxDescriptorSetSamplers) {
+        VulkanUtils::LogWarn("gpu_resources.desc_cache_samplers {} > GPU maxDescriptorSetSamplers {}, clamping",
+                             stConfig.lDescCacheSamplers, limits.maxDescriptorSetSamplers);
+        stConfig.lDescCacheSamplers = limits.maxDescriptorSetSamplers;
+        bAllValid = false;
+    }
+    
+    if (stConfig.lDescCacheStorageBuffers > limits.maxDescriptorSetStorageBuffers) {
+        VulkanUtils::LogWarn("gpu_resources.desc_cache_storage_buffers {} > GPU maxDescriptorSetStorageBuffers {}, clamping",
+                             stConfig.lDescCacheStorageBuffers, limits.maxDescriptorSetStorageBuffers);
+        stConfig.lDescCacheStorageBuffers = limits.maxDescriptorSetStorageBuffers;
+        bAllValid = false;
+    }
+    
+    // Log GPU limits for debugging
+    VulkanUtils::LogInfo("GPU limits: maxStorageBufferRange={}, maxDescriptorSetSamplers={}, maxDescriptorSetStorageBuffers={}",
+                         limits.maxStorageBufferRange, limits.maxDescriptorSetSamplers, limits.maxDescriptorSetStorageBuffers);
+    
+    return bAllValid;
+}
 
 VulkanConfig GetDefaultConfig() {
     VulkanConfig stCfg;
@@ -135,6 +292,7 @@ VulkanConfig GetDefaultConfig() {
     stCfg.lDescCacheUniformBuffers = 500;
     stCfg.lDescCacheSamplers = 500;
     stCfg.lDescCacheStorageBuffers = 100;
+    stCfg.sEditorLayoutPath = "config/imgui_layout.ini";
     stCfg.bValidationLayers = static_cast<bool>(false);
     stCfg.bSwapchainDirty = static_cast<bool>(false);
     return stCfg;
@@ -157,30 +315,57 @@ VulkanConfig LoadConfigFromFileOrCreate(const std::string& sUserPath_ic, const s
 
     std::ifstream stmUser(sUserPath_ic);
     if (stmUser.is_open() == false) {
+        ValidateConfig(stResult);  // Validate before saving
         SaveConfigToFile(sUserPath_ic, stResult);
         VulkanUtils::LogInfo("User config not found at \"{}\"; created from default. Edit the file and restart to change settings.", sUserPath_ic);
         return stResult;
     }
+    
+    bool bNeedRewrite = false;
     try {
         json jUser = json::parse(stmUser);
+        stmUser.close();
+        
+        // Check for missing required sections (if any section is missing, we'll rewrite)
+        const char* requiredSections[] = {"window", "swapchain", "camera", "render", "debug", "gpu_resources", "editor"};
+        for (const char* section : requiredSections) {
+            if (!jUser.contains(section)) {
+                VulkanUtils::LogWarn("Config missing section '{}', will regenerate config file with defaults", section);
+                bNeedRewrite = true;
+            }
+        }
+        
         ApplyJsonToConfig(jUser, stResult);
-    } catch (const json::exception&) {
-        /* On parse error, keep default-based result (stResult already has default). */
+    } catch (const json::exception& e) {
+        VulkanUtils::LogWarn("Failed to parse user config \"{}\": {}. Using defaults.", sUserPath_ic, e.what());
+        bNeedRewrite = true;
     }
+    
+    ValidateConfig(stResult);  // Validate merged config
+    
+    // If config was missing fields, regenerate it with all fields populated
+    if (bNeedRewrite) {
+        SaveConfigToFile(sUserPath_ic, stResult);
+        VulkanUtils::LogInfo("Config file regenerated with all fields: {}", sUserPath_ic);
+    }
+    
     return stResult;
 }
 
 VulkanConfig LoadConfigFromFile(const std::string& sPath_ic) {
     VulkanConfig stConfig;
     std::ifstream stmIn(sPath_ic);
-    if (stmIn.is_open() == false)
+    if (stmIn.is_open() == false) {
+        VulkanUtils::LogWarn("Config file not found: {}", sPath_ic);
         return stConfig;
+    }
     try {
         json jRoot = json::parse(stmIn);
         ApplyJsonToConfig(jRoot, stConfig);
-    } catch (const json::exception&) {
-        /* Return defaults on parse error */
+    } catch (const json::exception& e) {
+        VulkanUtils::LogWarn("Failed to parse config \"{}\": {}. Using defaults.", sPath_ic, e.what());
     }
+    ValidateConfig(stConfig);
     return stConfig;
 }
 
@@ -234,6 +419,9 @@ void SaveConfigToFile(const std::string& sPath_ic, const VulkanConfig& stConfig_
             { "desc_cache_uniform_buffers", stConfig_ic.lDescCacheUniformBuffers },
             { "desc_cache_samplers", stConfig_ic.lDescCacheSamplers },
             { "desc_cache_storage_buffers", stConfig_ic.lDescCacheStorageBuffers }
+        }},
+        { "editor", {
+            { "layout_file", stConfig_ic.sEditorLayoutPath }
         }}
     };
     std::ofstream stmOut(sPath_ic);

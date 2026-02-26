@@ -80,12 +80,22 @@ void TieredInstanceManager::ProcessBatch(
         
         switch (tier) {
             case InstanceTier::Static:
-                // Only upload on full upload (scene rebuilt + all frames-in-flight)
+#if EDITOR_BUILD
+                // In editor: Static acts like SemiStatic (upload when dirty or full upload)
+                // This allows editing any object's transform in the editor
+                needsUpload = bFullUpload || obj.IsDirty();
+                if (needsUpload) {
+                    ++stats.staticUploaded;
+                    obj.ClearDirty();
+                }
+#else
+                // Runtime: Only upload on full upload (scene rebuilt + all frames-in-flight)
                 needsUpload = bFullUpload;
                 if (needsUpload) {
                     ++stats.staticUploaded;
                     obj.ClearDirty();
                 }
+#endif
                 break;
                 
             case InstanceTier::SemiStatic:
@@ -104,11 +114,21 @@ void TieredInstanceManager::ProcessBatch(
                 break;
                 
             case InstanceTier::Procedural:
-                // Compute shader handles this - placeholder upload on full upload only
+#if EDITOR_BUILD
+                // In editor: Procedural acts like SemiStatic (upload when dirty or full upload)
+                // This allows editing procedural object transforms in the editor
+                needsUpload = bFullUpload || obj.IsDirty();
+                if (needsUpload) {
+                    ++stats.proceduralUploaded;
+                    obj.ClearDirty();
+                }
+#else
+                // Runtime: Compute shader handles this - placeholder upload on full upload only
                 needsUpload = bFullUpload;
                 if (needsUpload) {
                     ++stats.proceduralUploaded;
                 }
+#endif
                 break;
         }
         

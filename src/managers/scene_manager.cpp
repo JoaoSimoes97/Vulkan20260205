@@ -830,9 +830,11 @@ void SceneManager::SyncTransformsToScene() {
     for (auto& obj : objs) {
         if (obj.gameObjectId == UINT32_MAX) continue;
         
-        // Static tier objects should not be synced (they never move)
-        // This is an optimization - skip entirely for static objects
+#if !EDITOR_BUILD
+        // Runtime optimization: Static tier objects never move, skip sync
+        // In editor builds, always sync (user may move any object)
         if (obj.instanceTier == InstanceTier::Static) continue;
+#endif
         
         // Find the GameObject
         const GameObject* go = m_sceneNew->FindGameObject(obj.gameObjectId);
@@ -840,8 +842,9 @@ void SceneManager::SyncTransformsToScene() {
         
         const Transform& t = transforms[go->transformIndex];
         
-        // Save old transform for change detection (SemiStatic only)
-        float oldPos[3] = { obj.localTransform[12], obj.localTransform[13], obj.localTransform[14] };
+        // Save old matrix for change detection
+        float oldMatrix[16];
+        std::memcpy(oldMatrix, obj.localTransform, sizeof(oldMatrix));
         
         // Rebuild the localTransform matrix from position/rotation/scale
         ObjectSetFromPositionRotationScale(
@@ -851,18 +854,30 @@ void SceneManager::SyncTransformsToScene() {
             t.scale[0], t.scale[1], t.scale[2]
         );
         
-        // For SemiStatic tier, mark dirty if transform changed
+#if EDITOR_BUILD
+        // In editor: mark dirty if ANY matrix element changed (position, rotation, or scale)
+        // This ensures gizmo rotation/scale operations update the GPU buffer
+        bool changed = false;
+        for (int i = 0; i < 16 && !changed; ++i) {
+            if (obj.localTransform[i] != oldMatrix[i]) changed = true;
+        }
+        if (changed) {
+            obj.MarkDirty();
+        }
+#else
+        // Runtime: For SemiStatic tier, mark dirty if transform changed
         // Dynamic tier doesn't need dirty tracking (always uploads)
         if (obj.instanceTier == InstanceTier::SemiStatic) {
             // Quick check: did translation change? (most common case)
-            if (obj.localTransform[12] != oldPos[0] ||
-                obj.localTransform[13] != oldPos[1] ||
-                obj.localTransform[14] != oldPos[2]) {
+            if (obj.localTransform[12] != oldMatrix[12] ||
+                obj.localTransform[13] != oldMatrix[13] ||
+                obj.localTransform[14] != oldMatrix[14]) {
                 obj.MarkDirty();
             }
             // Note: Full rotation/scale change detection could compare all 16 floats,
             // but translation check catches most movement. ECS can also explicitly mark dirty.
         }
+#endif
     }
 }
 

@@ -145,18 +145,21 @@ struct Object {
     InstanceTier             instanceTier  = InstanceTier::Static;
     
     /* ---- Tier-Based Dirty Tracking ---- */
-    /** True if transform/material data has changed since last SSBO update. Used by SemiStatic tier.
+    /** Dirty frame counter: number of frames remaining to upload.
+        When object changes, set to framesInFlight (e.g., 2).
+        Each frame that uploads decrements by 1. When 0, no upload needed.
+        This ensures all frame buffers get the update (prevents flicker).
         Mutable because dirty flag is cache state, not logical object state. */
-    mutable bool             bDirty        = true;   // Start dirty so first frame uploads
+    mutable uint8_t          dirtyFrames   = 2;   // Start dirty for 2 frames so all buffers get initial upload
     /** SSBO slot assigned to this object (-1 = not assigned). Set by TieredInstanceManager. */
     int32_t                  ssboSlot      = -1;
     
-    /** Mark object as dirty (needs SSBO update). Call after modifying transform/color/material. */
-    void MarkDirty() const { bDirty = true; }
-    /** Clear dirty flag after SSBO upload. Called by TieredInstanceManager. */
-    void ClearDirty() const { bDirty = false; }
-    /** Check if object needs SSBO update. */
-    bool IsDirty() const { return bDirty; }
+    /** Mark object as dirty for N frames (default 2 = typical framesInFlight). */
+    void MarkDirty(uint8_t framesInFlight = 2) const { dirtyFrames = framesInFlight; }
+    /** Decrement dirty counter after SSBO upload. Called by TieredInstanceManager. */
+    void ClearDirty() const { if (dirtyFrames > 0) --dirtyFrames; }
+    /** Check if object needs SSBO update (dirty counter > 0). */
+    bool IsDirty() const { return dirtyFrames > 0; }
 };
 
 #ifdef _MSC_VER

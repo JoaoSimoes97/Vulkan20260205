@@ -55,7 +55,8 @@ void EditorLayer::Init(
     uint32_t graphicsQueueFamily,
     VkQueue graphicsQueue,
     VkRenderPass renderPass,
-    uint32_t imageCount
+    uint32_t imageCount,
+    const std::string& layoutPath
 ) {
     if (m_bInitialized) {
         VulkanUtils::LogWarn("EditorLayer already initialized");
@@ -63,6 +64,7 @@ void EditorLayer::Init(
     }
 
     m_device = device;
+    m_layoutFilePath = layoutPath;
 
     // Create descriptor pool for ImGui
     CreateDescriptorPool();
@@ -74,6 +76,15 @@ void EditorLayer::Init(
     
     // Enable docking (works on all platforms)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    
+    // Disable ImGui auto-save (user controls save via Layout menu)
+    io.IniFilename = nullptr;
+    
+    // Try to load saved layout if it exists
+    if (!m_layoutFilePath.empty()) {
+        ImGui::LoadIniSettingsFromDisk(m_layoutFilePath.c_str());
+        VulkanUtils::LogInfo("Editor layout path: {}", m_layoutFilePath);
+    }
     
     // Style
     ImGui::StyleColorsDark();
@@ -134,6 +145,8 @@ void EditorLayer::Init(
 void EditorLayer::Shutdown() {
     if (!m_bInitialized) return;
 
+    // Note: Auto-save disabled. User saves layout via Layout menu.
+    
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
@@ -275,42 +288,189 @@ void EditorLayer::DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConf
 
     ImGui::End();
 
-    // Draw panels
-    DrawToolbar();
-    DrawHierarchyPanel(pScene);
-    DrawInspectorPanel(pScene);
-    DrawCamerasPanel(pScene);
-    DrawViewportPanel(pScene, pCamera, config, pViewportManager);
-    DrawViewportsPanel(pViewportManager, pScene);
+    // Draw panels (based on visibility toggles)
+    if (m_bShowToolbar) DrawToolbar();
+    if (m_bShowHierarchy) DrawHierarchyPanel(pScene);
+    if (m_bShowInspector) DrawInspectorPanel(pScene);
+    if (m_bShowCameras) DrawCamerasPanel(pScene);
+    if (m_bShowViewport) DrawViewportPanel(pScene, pCamera, config, pViewportManager);
+    if (m_bShowViewports) DrawViewportsPanel(pViewportManager, pScene);
+    if (m_bShowDemo) ImGui::ShowDemoWindow(&m_bShowDemo);
+}
+
+// Helper to draw a placeholder menu item in red (not yet implemented)
+bool EditorLayer::PlaceholderMenuItem(const char* label, const char* shortcut) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));  // Red text
+    bool clicked = ImGui::MenuItem(label, shortcut);
+    ImGui::PopStyleColor();
+    return clicked;
+}
+
+void EditorLayer::ResetLayoutToDefault() {
+    // Clear current docking layout by loading empty settings
+    // This will cause ImGui to rebuild default undocked layout on next frame
+    ImGui::LoadIniSettingsFromMemory("");
+    
+    VulkanUtils::LogInfo("Layout reset to default - panels undocked");
 }
 
 void EditorLayer::DrawMenuBar() {
     if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Save", "Ctrl+S")) {
-                // Will implement save later
+        DrawFileMenu();
+        DrawEditMenu();
+        DrawSelectionMenu(nullptr);  // TODO: pass scene
+        DrawViewMenu();
+        DrawLayoutMenu();
+        DrawHelpMenu();
+        ImGui::EndMenuBar();
+    }
+}
+
+void EditorLayer::DrawFileMenu() {
+    if (ImGui::BeginMenu("File")) {
+        PlaceholderMenuItem("New Level", "Ctrl+N");
+        PlaceholderMenuItem("Open Level...", "Ctrl+O");
+        PlaceholderMenuItem("Open Recent");
+        ImGui::Separator();
+        if (ImGui::MenuItem("Save Level", "Ctrl+S")) {
+            // SaveCurrentLevel will be called - already partially implemented
+        }
+        PlaceholderMenuItem("Save Level As...", "Ctrl+Shift+S");
+        ImGui::Separator();
+        PlaceholderMenuItem("Import...");
+        PlaceholderMenuItem("Export...");
+        ImGui::Separator();
+        PlaceholderMenuItem("Project Settings...");
+        ImGui::Separator();
+        if (ImGui::MenuItem("Exit", "Alt+F4")) {
+            // Request window close - placeholder for now
+        }
+        ImGui::EndMenu();
+    }
+}
+
+void EditorLayer::DrawEditMenu() {
+    if (ImGui::BeginMenu("Edit")) {
+        PlaceholderMenuItem("Undo", "Ctrl+Z");
+        PlaceholderMenuItem("Redo", "Ctrl+Y");
+        ImGui::Separator();
+        PlaceholderMenuItem("Cut", "Ctrl+X");
+        PlaceholderMenuItem("Copy", "Ctrl+C");
+        PlaceholderMenuItem("Paste", "Ctrl+V");
+        PlaceholderMenuItem("Duplicate", "Ctrl+D");
+        PlaceholderMenuItem("Delete", "Del");
+        ImGui::Separator();
+        PlaceholderMenuItem("Select All", "Ctrl+A");
+        PlaceholderMenuItem("Deselect All", "Ctrl+Shift+A");
+        ImGui::Separator();
+        PlaceholderMenuItem("Preferences...");
+        ImGui::EndMenu();
+    }
+}
+
+void EditorLayer::DrawSelectionMenu(SceneNew* pScene) {
+    (void)pScene;  // TODO: use for operations
+    if (ImGui::BeginMenu("Selection")) {
+        PlaceholderMenuItem("Select All", "Ctrl+A");
+        PlaceholderMenuItem("Deselect All", "Ctrl+Shift+A");
+        PlaceholderMenuItem("Invert Selection");
+        ImGui::Separator();
+        PlaceholderMenuItem("Select Parent");
+        PlaceholderMenuItem("Select Children");
+        ImGui::Separator();
+        PlaceholderMenuItem("Select by Type...");
+        PlaceholderMenuItem("Select by Name...");
+        ImGui::EndMenu();
+    }
+}
+
+void EditorLayer::DrawViewMenu() {
+    if (ImGui::BeginMenu("View")) {
+        ImGui::Text("Panels:");
+        ImGui::Separator();
+        ImGui::MenuItem("Toolbar", nullptr, &m_bShowToolbar);
+        ImGui::MenuItem("Hierarchy", nullptr, &m_bShowHierarchy);
+        ImGui::MenuItem("Inspector", nullptr, &m_bShowInspector);
+        ImGui::MenuItem("Viewport", nullptr, &m_bShowViewport);
+        ImGui::MenuItem("Viewports Manager", nullptr, &m_bShowViewports);
+        ImGui::MenuItem("Cameras", nullptr, &m_bShowCameras);
+        ImGui::Separator();
+        ImGui::MenuItem("ImGui Demo", nullptr, &m_bShowDemo);
+        ImGui::Separator();
+        PlaceholderMenuItem("Console");
+        PlaceholderMenuItem("Profiler");
+        PlaceholderMenuItem("Asset Browser");
+        ImGui::Separator();
+        
+        if (ImGui::BeginMenu("Gizmo")) {
+            if (ImGui::MenuItem("Translate", "W", m_gizmoOperation == GizmoOperation::Translate)) {
+                m_gizmoOperation = GizmoOperation::Translate;
             }
-            if (ImGui::MenuItem("Save As...")) {
-                // Will implement save as later
+            if (ImGui::MenuItem("Rotate", "E", m_gizmoOperation == GizmoOperation::Rotate)) {
+                m_gizmoOperation = GizmoOperation::Rotate;
+            }
+            if (ImGui::MenuItem("Scale", "R", m_gizmoOperation == GizmoOperation::Scale)) {
+                m_gizmoOperation = GizmoOperation::Scale;
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) {
-                // Handle exit
+            if (ImGui::MenuItem("World Space", nullptr, m_gizmoSpace == GizmoSpace::World)) {
+                m_gizmoSpace = GizmoSpace::World;
+            }
+            if (ImGui::MenuItem("Local Space", nullptr, m_gizmoSpace == GizmoSpace::Local)) {
+                m_gizmoSpace = GizmoSpace::Local;
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {}
-            if (ImGui::MenuItem("Redo", "Ctrl+Y")) {}
-            ImGui::EndMenu();
+        
+        ImGui::Separator();
+        PlaceholderMenuItem("Fullscreen", "F11");
+        ImGui::EndMenu();
+    }
+}
+
+void EditorLayer::DrawLayoutMenu() {
+    if (ImGui::BeginMenu("Layout")) {
+        if (ImGui::MenuItem("Save Layout")) {
+            if (!m_layoutFilePath.empty()) {
+                ImGui::SaveIniSettingsToDisk(m_layoutFilePath.c_str());
+                VulkanUtils::LogInfo("Layout saved to {}", m_layoutFilePath);
+            }
         }
-        if (ImGui::BeginMenu("View")) {
-            ImGui::MenuItem("Hierarchy", nullptr, true);
-            ImGui::MenuItem("Inspector", nullptr, true);
-            ImGui::MenuItem("Viewport", nullptr, true);
-            ImGui::EndMenu();
+        if (ImGui::MenuItem("Load Layout")) {
+            if (!m_layoutFilePath.empty()) {
+                ImGui::LoadIniSettingsFromDisk(m_layoutFilePath.c_str());
+                VulkanUtils::LogInfo("Layout loaded from {}", m_layoutFilePath);
+            }
         }
-        ImGui::EndMenuBar();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Reset to Default")) {
+            ResetLayoutToDefault();
+        }
+        ImGui::Separator();
+        PlaceholderMenuItem("Save Layout As...");
+        PlaceholderMenuItem("Load Layout from File...");
+        ImGui::Separator();
+        ImGui::Text("Presets:");
+        PlaceholderMenuItem("  Default");
+        PlaceholderMenuItem("  Wide");
+        PlaceholderMenuItem("  Tall");
+        PlaceholderMenuItem("  Dual Monitor");
+        ImGui::EndMenu();
+    }
+}
+
+void EditorLayer::DrawHelpMenu() {
+    if (ImGui::BeginMenu("Help")) {
+        PlaceholderMenuItem("Documentation");
+        PlaceholderMenuItem("Keyboard Shortcuts");
+        ImGui::Separator();
+        PlaceholderMenuItem("Report a Bug...");
+        PlaceholderMenuItem("Check for Updates");
+        ImGui::Separator();
+        if (ImGui::MenuItem("About")) {
+            // Could show a popup with version info
+        }
+        ImGui::EndMenu();
     }
 }
 
@@ -640,10 +800,40 @@ void EditorLayer::DrawGizmo(SceneNew* pScene, Camera* pCamera) {
     // ImGuizmo expects standard OpenGL projection (Y-up), but we use Vulkan Y-flip.
     // Undo the Y-flip for proper gizmo behavior.
     proj[1][1] = -proj[1][1];
+    
+    // Fix aspect ratio: the camera projection may use the render target's aspect ratio,
+    // which can differ from the ImGui viewport's aspect ratio (especially during resize).
+    // Recompute the horizontal scale to match the viewport's actual aspect ratio.
+    if (m_viewportW > 0.f && m_viewportH > 0.f) {
+        float viewportAspect = m_viewportW / m_viewportH;
+        // proj[0][0] = 1 / (aspect * tan(fov/2)), proj[1][1] = 1 / tan(fov/2)
+        // So proj[0][0] = proj[1][1] / aspect
+        proj[0][0] = proj[1][1] / viewportAspect;
+    }
 
-    // Get object model matrix
-    TransformBuildModelMatrix(*pTransform);
-    glm::mat4 model = glm::make_mat4(pTransform->modelMatrix);
+    // Get object model matrix from the RENDER scene (Object.localTransform)
+    // This ensures the gizmo is positioned exactly where the object is rendered.
+    // The ECS Transform may be out of sync initially - we use the actual render transform.
+    glm::mat4 model = glm::mat4(1.0f);
+    if (m_pRenderScene) {
+        auto& objs = m_pRenderScene->GetObjects();
+        for (const auto& obj : objs) {
+            if (obj.gameObjectId == m_selectedObjectId) {
+                const float* m = obj.localTransform;
+                model = glm::mat4(
+                    m[0], m[1], m[2], m[3],
+                    m[4], m[5], m[6], m[7],
+                    m[8], m[9], m[10], m[11],
+                    m[12], m[13], m[14], m[15]
+                );
+                break;
+            }
+        }
+    } else {
+        // Fallback to ECS transform if render scene not available
+        TransformBuildModelMatrix(*pTransform);
+        model = glm::make_mat4(pTransform->modelMatrix);
+    }
 
     // Convert gizmo operation
     ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
