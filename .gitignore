@@ -57,3 +57,9 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+
+# User config (keep defaults in version control as templates)
+config/config.json
+config/default.json
+imgui.ini
+config/imgui_layout.ini
