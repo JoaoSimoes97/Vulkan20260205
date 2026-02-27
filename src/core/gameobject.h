@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 /** Invalid component index sentinel. */
 constexpr uint32_t INVALID_COMPONENT_INDEX = UINT32_MAX;
@@ -15,6 +16,10 @@ constexpr uint32_t INVALID_COMPONENT_INDEX = UINT32_MAX;
  * GameObject — Lightweight entity container.
  * Stores indices into component pools rather than component data directly.
  * This enables cache-friendly iteration over components of the same type.
+ * 
+ * Hierarchy: Objects can have a parent and children.
+ * Transform's parentId stores the actual parent relationship.
+ * Children vector is cached for efficient UI traversal.
  */
 struct GameObject {
     /** Unique identifier for this GameObject. */
@@ -44,6 +49,9 @@ struct GameObject {
     /** Script component index (INVALID_COMPONENT_INDEX if none). Future. */
     uint32_t scriptIndex = INVALID_COMPONENT_INDEX;
 
+    /** Cached list of child GameObject IDs (for UI traversal). */
+    std::vector<uint32_t> children;
+
     /** Check if this GameObject has a renderer component. */
     bool HasRenderer() const { return rendererIndex != INVALID_COMPONENT_INDEX; }
 
@@ -58,5 +66,8 @@ struct GameObject {
 
     /** Check if this GameObject has a script component. Future. */
     bool HasScript() const { return scriptIndex != INVALID_COMPONENT_INDEX; }
+
+    /** Check if this GameObject has any children. */
+    bool HasChildren() const { return !children.empty(); }
 };
 

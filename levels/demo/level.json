@@ -99,12 +99,33 @@
     
     {
       "_comment": "=== TIER 1: SEMI-STATIC - Doors, switches, occasional updates ===",
+      "name": "DoorFrame_Left",
+      "source": "procedural:cube",
+      "position": [-5.0, 1.5, -10.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [2.0, 0.2, 0.3],
+      "color": [0.4, 0.25, 0.1, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "semi-static"
+    },
+    {
       "name": "Door Left (Semi-Static)",
       "source": "procedural:cube",
       "position": [-5.0, 1.0, -10.0],
       "rotation": [0.0, 0.0, 0.0, 1.0],
       "scale": [1.5, 2.0, 0.2],
       "color": [0.5, 0.3, 0.15, 1.0],
+      "renderMode": "solid",
+      "instanceTier": "semi-static",
+      "parent": "DoorFrame_Left"
+    },
+    {
+      "name": "DoorFrame_Right",
+      "source": "procedural:cube",
+      "position": [5.0, 1.5, -10.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [2.0, 0.2, 0.3],
+      "color": [0.4, 0.25, 0.1, 1.0],
       "renderMode": "solid",
       "instanceTier": "semi-static"
     },
@@ -116,7 +137,8 @@
       "scale": [1.5, 2.0, 0.2],
       "color": [0.5, 0.3, 0.15, 1.0],
       "renderMode": "solid",
-      "instanceTier": "semi-static"
+      "instanceTier": "semi-static",
+      "parent": "DoorFrame_Right"
     },
     {
       "name": "Lever (Semi-Static)",

@@ -7,13 +7,20 @@
 #include <cmath>
 #include <cstring>
 
+/** Invalid parent ID sentinel - indicates no parent (root object). */
+constexpr uint32_t NO_PARENT = UINT32_MAX;
+
 /**
  * Transform component data.
  * Uses raw floats for compatibility with existing object.h math functions.
  * Can be used with glm if available.
+ * 
+ * Hierarchy: Objects can have parents. Local transform is relative to parent.
+ * - localMatrix: T * R * S from position/rotation/scale (relative to parent)
+ * - worldMatrix: parent.worldMatrix * localMatrix (or localMatrix if no parent)
  */
 struct Transform {
-    /** World position (x, y, z). */
+    /** Local position (x, y, z) - relative to parent. */
     float position[3] = {0.f, 0.f, 0.f};
 
     /** Rotation quaternion (x, y, z, w). Identity = (0, 0, 0, 1). */
@@ -22,16 +29,30 @@ struct Transform {
     /** Scale (x, y, z). Uniform scale = (1, 1, 1). */
     float scale[3] = {1.f, 1.f, 1.f};
 
-    /** Dirty flag for caching model matrix. */
+    /** Parent GameObject ID. NO_PARENT (UINT32_MAX) = root object (no parent). */
+    uint32_t parentId = NO_PARENT;
+
+    /** Dirty flag for caching matrices. */
     bool bDirty = true;
 
-    /** Cached model matrix (column-major 4x4). Recomputed when dirty. */
+    /** Cached local model matrix (column-major 4x4). T * R * S from position/rotation/scale. */
     float modelMatrix[16] = {
         1.f, 0.f, 0.f, 0.f,
         0.f, 1.f, 0.f, 0.f,
         0.f, 0.f, 1.f, 0.f,
         0.f, 0.f, 0.f, 1.f
     };
+
+    /** Cached world matrix (column-major 4x4). parent.worldMatrix * localMatrix. */
+    float worldMatrix[16] = {
+        1.f, 0.f, 0.f, 0.f,
+        0.f, 1.f, 0.f, 0.f,
+        0.f, 0.f, 1.f, 0.f,
+        0.f, 0.f, 0.f, 1.f
+    };
+
+    /** Check if this transform has a parent. */
+    bool HasParent() const { return parentId != NO_PARENT; }
 };
 
 /** Set transform position. Marks dirty. */
@@ -97,6 +118,53 @@ inline void TransformBuildModelMatrix(Transform& t) {
     m[15] = 1.f;
 
     t.bDirty = false;
+}
+
+/**
+ * Multiply two 4x4 column-major matrices: out = a * b.
+ * @param a Left matrix (column-major, 16 floats).
+ * @param b Right matrix (column-major, 16 floats).
+ * @param out Output matrix (column-major, 16 floats). Can alias a or b.
+ */
+inline void TransformMultiplyMatrices(const float* a, const float* b, float* out) {
+    float result[16];
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            result[col * 4 + row] =
+                a[0 * 4 + row] * b[col * 4 + 0] +
+                a[1 * 4 + row] * b[col * 4 + 1] +
+                a[2 * 4 + row] * b[col * 4 + 2] +
+                a[3 * 4 + row] * b[col * 4 + 3];
+        }
+    }
+    std::memcpy(out, result, sizeof(result));
+}
+
+/**
+ * Compute world matrix from local matrix and parent's world matrix.
+ * worldMatrix = parentWorldMatrix * localMatrix
+ * If no parent, worldMatrix = localMatrix.
+ * @param t Transform to update.
+ * @param parentWorldMatrix Parent's world matrix (nullptr if no parent).
+ */
+inline void TransformComputeWorldMatrix(Transform& t, const float* parentWorldMatrix) {
+    // First ensure local matrix is up to date
+    TransformBuildModelMatrix(t);
+    
+    if (parentWorldMatrix) {
+        TransformMultiplyMatrices(parentWorldMatrix, t.modelMatrix, t.worldMatrix);
+    } else {
+        std::memcpy(t.worldMatrix, t.modelMatrix, sizeof(t.worldMatrix));
+    }
+}
+
+/**
+ * Get world position from the world matrix.
+ */
+inline void TransformGetWorldPosition(const Transform& t, float& x, float& y, float& z) {
+    x = t.worldMatrix[12];
+    y = t.worldMatrix[13];
+    z = t.worldMatrix[14];
 }
 
 /** Get forward direction (-Z in local space) transformed by rotation. */

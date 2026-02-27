@@ -4,6 +4,12 @@
 #include "scene_new.h"
 #include <algorithm>
 #include <cstring>
+#include <functional>
+
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 uint32_t SceneNew::CreateGameObject(const std::string& name) {
     uint32_t id = m_nextId++;
@@ -198,5 +204,177 @@ void SceneNew::FillPushDataForAllObjects(const float* viewProj) {
     // In the current system, the RenderListBuilder works directly with Scene Objects.
     // SceneNew handles ECS components, Scene handles render-ready Object data.
     (void)viewProj;
+}
+
+/* ---- Hierarchy Management ---- */
+
+bool SceneNew::SetParent(uint32_t childId, uint32_t parentId, bool preserveWorldPosition) {
+    if (childId == parentId) return false;
+    
+    GameObject* pChild = FindGameObject(childId);
+    if (!pChild) return false;
+    
+    Transform* pChildTransform = GetTransform(childId);
+    if (!pChildTransform) return false;
+    
+    if (parentId != NO_PARENT) {
+        GameObject* pParent = FindGameObject(parentId);
+        if (!pParent) return false;
+        if (WouldCreateCycle(childId, parentId)) return false;
+    }
+    
+    // Save child's current world matrix before any changes
+    float savedWorldMatrix[16];
+    float parentWorldMatrix[16];
+    float parentWorldInverse[16];
+    bool hasNewParent = (parentId != NO_PARENT);
+    
+    if (preserveWorldPosition) {
+        ComputeWorldMatrixForObject(childId);
+        std::memcpy(savedWorldMatrix, pChildTransform->worldMatrix, sizeof(savedWorldMatrix));
+        
+        if (hasNewParent) {
+            ComputeWorldMatrixForObject(parentId);
+            Transform* pParentTransform = GetTransform(parentId);
+            if (pParentTransform) {
+                std::memcpy(parentWorldMatrix, pParentTransform->worldMatrix, sizeof(parentWorldMatrix));
+                glm::mat4 parentMat = glm::make_mat4(parentWorldMatrix);
+                glm::mat4 invMat = glm::inverse(parentMat);
+                std::memcpy(parentWorldInverse, glm::value_ptr(invMat), sizeof(parentWorldInverse));
+            }
+        }
+    }
+    
+    // Update hierarchy links
+    uint32_t oldParentId = pChildTransform->parentId;
+    if (oldParentId != NO_PARENT) {
+        GameObject* pOldParent = FindGameObject(oldParentId);
+        if (pOldParent) {
+            auto& siblings = pOldParent->children;
+            siblings.erase(std::remove(siblings.begin(), siblings.end(), childId), siblings.end());
+        }
+    }
+    
+    pChildTransform->parentId = parentId;
+    
+    if (hasNewParent) {
+        GameObject* pNewParent = FindGameObject(parentId);
+        if (pNewParent) {
+            pNewParent->children.push_back(childId);
+        }
+    }
+    
+    // Compute new local transform to preserve world position
+    if (preserveWorldPosition) {
+        float newLocalMatrix[16];
+        
+        if (hasNewParent) {
+            // newLocal = inverse(parentWorld) * savedWorld
+            TransformMultiplyMatrices(parentWorldInverse, savedWorldMatrix, newLocalMatrix);
+        } else {
+            std::memcpy(newLocalMatrix, savedWorldMatrix, sizeof(newLocalMatrix));
+        }
+        
+        // Decompose for Inspector display (position/rotation/scale values)
+        TransformFromMatrix(newLocalMatrix, *pChildTransform);
+        
+        // Directly set matrices to avoid decompose→rebuild numerical drift
+        std::memcpy(pChildTransform->modelMatrix, newLocalMatrix, sizeof(pChildTransform->modelMatrix));
+        std::memcpy(pChildTransform->worldMatrix, savedWorldMatrix, sizeof(pChildTransform->worldMatrix));
+        pChildTransform->bDirty = false;
+    } else {
+        pChildTransform->bDirty = true;
+    }
+    
+    return true;
+}
+
+uint32_t SceneNew::GetParent(uint32_t gameObjectId) const {
+    const Transform* pTransform = GetTransform(gameObjectId);
+    if (!pTransform) return NO_PARENT;
+    return pTransform->parentId;
+}
+
+std::vector<uint32_t> SceneNew::GetRootObjects() const {
+    std::vector<uint32_t> roots;
+    for (const auto& go : m_gameObjects) {
+        if (!go.bActive) continue;
+        const Transform* pTransform = GetTransform(go.id);
+        if (pTransform && pTransform->parentId == NO_PARENT) {
+            roots.push_back(go.id);
+        }
+    }
+    return roots;
+}
+
+const std::vector<uint32_t>* SceneNew::GetChildren(uint32_t gameObjectId) const {
+    const GameObject* pGO = FindGameObject(gameObjectId);
+    if (!pGO) return nullptr;
+    return &pGO->children;
+}
+
+bool SceneNew::WouldCreateCycle(uint32_t childId, uint32_t parentId) const {
+    // Walk up from parentId; if we ever reach childId, there's a cycle
+    uint32_t current = parentId;
+    while (current != NO_PARENT) {
+        if (current == childId) return true;
+        const Transform* pTransform = GetTransform(current);
+        if (!pTransform) break;
+        current = pTransform->parentId;
+    }
+    return false;
+}
+
+void SceneNew::ComputeWorldMatrixForObject(uint32_t gameObjectId) {
+    Transform* pTransform = GetTransform(gameObjectId);
+    if (!pTransform) return;
+    
+    // Build local matrix from position/rotation/scale
+    TransformBuildModelMatrix(*pTransform);
+    
+    // Walk up the parent chain to compute world matrix
+    if (pTransform->parentId == NO_PARENT) {
+        // No parent, world = local
+        std::memcpy(pTransform->worldMatrix, pTransform->modelMatrix, sizeof(pTransform->worldMatrix));
+    } else {
+        // Recursively ensure parent's world matrix is computed
+        ComputeWorldMatrixForObject(pTransform->parentId);
+        
+        Transform* pParentTransform = GetTransform(pTransform->parentId);
+        if (pParentTransform) {
+            TransformMultiplyMatrices(pParentTransform->worldMatrix, pTransform->modelMatrix, pTransform->worldMatrix);
+        } else {
+            std::memcpy(pTransform->worldMatrix, pTransform->modelMatrix, sizeof(pTransform->worldMatrix));
+        }
+    }
+}
+
+void SceneNew::UpdateWorldMatrices() {
+    // First update all local matrices
+    UpdateAllTransforms();
+    
+    // Get root objects and recursively update world matrices
+    std::vector<uint32_t> roots = GetRootObjects();
+    
+    // Recursive lambda to update world matrix
+    std::function<void(uint32_t, const float*)> updateRecursive = 
+        [this, &updateRecursive](uint32_t goId, const float* parentWorld) {
+            Transform* pTransform = GetTransform(goId);
+            if (!pTransform) return;
+            
+            TransformComputeWorldMatrix(*pTransform, parentWorld);
+            
+            const GameObject* pGO = FindGameObject(goId);
+            if (pGO) {
+                for (uint32_t childId : pGO->children) {
+                    updateRecursive(childId, pTransform->worldMatrix);
+                }
+            }
+        };
+    
+    // Process all root objects
+    for (uint32_t rootId : roots) {
+        updateRecursive(rootId, nullptr);
+    }
 }
 

@@ -101,6 +101,52 @@ public:
     /** Update all dirty transform model matrices. Call before rendering. */
     void UpdateAllTransforms();
 
+    /* ---- Hierarchy Management ---- */
+
+    /**
+     * Set parent for a GameObject. Updates children lists.
+     * @param childId The child GameObject ID.
+     * @param parentId The new parent GameObject ID (NO_PARENT to unparent).
+     * @param preserveWorldPosition If true, recalculates local transform to keep world position.
+     * @return true if parent was set successfully, false if circular dependency or invalid IDs.
+     */
+    bool SetParent(uint32_t childId, uint32_t parentId, bool preserveWorldPosition = true);
+
+    /**
+     * Get parent ID for a GameObject.
+     * @return Parent ID or NO_PARENT if root object.
+     */
+    uint32_t GetParent(uint32_t gameObjectId) const;
+
+    /**
+     * Get all root GameObjects (those without parents).
+     */
+    std::vector<uint32_t> GetRootObjects() const;
+
+    /**
+     * Get children of a GameObject.
+     * @return Vector of child GameObject IDs.
+     */
+    const std::vector<uint32_t>* GetChildren(uint32_t gameObjectId) const;
+
+    /**
+     * Check if setting parentId as parent of childId would create a cycle.
+     * @return true if cycle would be created.
+     */
+    bool WouldCreateCycle(uint32_t childId, uint32_t parentId) const;
+
+    /**
+     * Compute the current world matrix for a single object by walking up
+     * the parent hierarchy. Updates the transform's modelMatrix and worldMatrix.
+     */
+    void ComputeWorldMatrixForObject(uint32_t gameObjectId);
+
+    /**
+     * Update world matrices for all transforms respecting hierarchy.
+     * Traverses from roots down, computing world = parent.world * local.
+     */
+    void UpdateWorldMatrices();
+
     /* ---- Scene Lifecycle ---- */
 
     /** Clear all GameObjects and components. */

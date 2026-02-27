@@ -30,6 +30,7 @@
 
 #include <SDL3/SDL.h>
 #include <fstream>
+#include <functional>
 #include <nlohmann/json.hpp>
 
 namespace {
@@ -520,24 +521,84 @@ void EditorLayer::DrawHierarchyPanel(SceneNew* pScene) {
     ImGui::Begin("Hierarchy");
 
     if (pScene) {
-        const auto& gameObjects = pScene->GetGameObjects();
-        for (const auto& go : gameObjects) {
-            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-            if (go.id == m_selectedObjectId) {
+        // Get root objects (those without parents)
+        std::vector<uint32_t> roots = pScene->GetRootObjects();
+        
+        // "[Root]" drop target for unparenting objects
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+        ImGui::Selectable("## [Drop here to unparent]", false, ImGuiSelectableFlags_None);
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::TextDisabled("[Root - Drop here to unparent]");
+        
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("GAMEOBJECT_ID")) {
+                uint32_t draggedId = *static_cast<const uint32_t*>(payload->Data);
+                pScene->SetParent(draggedId, NO_PARENT);
+            }
+            ImGui::EndDragDropTarget();
+        }
+        
+        ImGui::Separator();
+        
+        // Recursive lambda to draw tree nodes
+        std::function<void(uint32_t)> drawNode = [&](uint32_t goId) {
+            const GameObject* pGO = pScene->FindGameObject(goId);
+            if (!pGO || !pGO->bActive) return;
+            
+            bool hasChildren = !pGO->children.empty();
+            
+            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+            if (goId == m_selectedObjectId) {
                 flags |= ImGuiTreeNodeFlags_Selected;
             }
-
-            ImGui::TreeNodeEx(
-                reinterpret_cast<void*>(static_cast<intptr_t>(go.id)),
+            if (!hasChildren) {
+                flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            }
+            
+            bool nodeOpen = ImGui::TreeNodeEx(
+                reinterpret_cast<void*>(static_cast<intptr_t>(goId)),
                 flags,
                 "%s [%u]",
-                go.name.empty() ? "Unnamed" : go.name.c_str(),
-                go.id
+                pGO->name.empty() ? "Unnamed" : pGO->name.c_str(),
+                goId
             );
-
+            
+            // Selection
             if (ImGui::IsItemClicked()) {
-                SetSelectedObject(go.id);
+                SetSelectedObject(goId);
             }
+            
+            // Drag source for reparenting
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                ImGui::SetDragDropPayload("GAMEOBJECT_ID", &goId, sizeof(uint32_t));
+                ImGui::Text("Move: %s", pGO->name.empty() ? "Unnamed" : pGO->name.c_str());
+                ImGui::EndDragDropSource();
+            }
+            
+            // Drop target for reparenting
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("GAMEOBJECT_ID")) {
+                    uint32_t draggedId = *static_cast<const uint32_t*>(payload->Data);
+                    if (draggedId != goId) {
+                        pScene->SetParent(draggedId, goId);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            
+            // Draw children if node is open
+            if (nodeOpen && hasChildren) {
+                for (uint32_t childId : pGO->children) {
+                    drawNode(childId);
+                }
+                ImGui::TreePop();
+            }
+        };
+        
+        // Draw root objects
+        for (uint32_t rootId : roots) {
+            drawNode(rootId);
         }
     }
 
@@ -563,16 +624,58 @@ void EditorLayer::DrawInspectorPanel(SceneNew* pScene) {
             Transform* pTransform = pScene->GetTransform(m_selectedObjectId);
             if (pTransform && ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
                 bool changed = false;
+                
+                // Parent assignment
+                {
+                    uint32_t currentParent = pTransform->parentId;
+                    std::string currentParentName = "(None - Root)";
+                    if (currentParent != NO_PARENT) {
+                        const GameObject* pParentGO = pScene->FindGameObject(currentParent);
+                        if (pParentGO) {
+                            currentParentName = pParentGO->name.empty() ? "Unnamed" : pParentGO->name;
+                            currentParentName += " [" + std::to_string(currentParent) + "]";
+                        }
+                    }
+                    
+                    if (ImGui::BeginCombo("Parent", currentParentName.c_str())) {
+                        // Option to clear parent
+                        if (ImGui::Selectable("(None - Root)", currentParent == NO_PARENT)) {
+                            pScene->SetParent(m_selectedObjectId, NO_PARENT);
+                            changed = true;
+                        }
+                        
+                        // List all other objects as potential parents
+                        const auto& gameObjects = pScene->GetGameObjects();
+                        for (const auto& go : gameObjects) {
+                            if (!go.bActive) continue;
+                            if (go.id == m_selectedObjectId) continue; // Can't parent to self
+                            if (pScene->WouldCreateCycle(m_selectedObjectId, go.id)) continue; // Skip cycles
+                            
+                            std::string label = go.name.empty() ? "Unnamed" : go.name;
+                            label += " [" + std::to_string(go.id) + "]";
+                            
+                            if (ImGui::Selectable(label.c_str(), currentParent == go.id)) {
+                                pScene->SetParent(m_selectedObjectId, go.id);
+                                changed = true;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+                
+                ImGui::Separator();
+                ImGui::Text("Local Transform");
+                ImGui::Indent();
 
-                // Position
-                if (ImGui::DragFloat3("Position", pTransform->position, 0.1f)) {
+                // Local Position (editable)
+                if (ImGui::DragFloat3("Position##Local", pTransform->position, 0.1f)) {
                     changed = true;
                 }
 
                 // Rotation (show as Euler angles)
                 glm::quat q(pTransform->rotation[3], pTransform->rotation[0], pTransform->rotation[1], pTransform->rotation[2]);
                 glm::vec3 euler = glm::degrees(glm::eulerAngles(q));
-                if (ImGui::DragFloat3("Rotation", &euler.x, 1.0f)) {
+                if (ImGui::DragFloat3("Rotation##Local", &euler.x, 1.0f)) {
                     glm::vec3 radians = glm::radians(euler);
                     glm::quat newQ = glm::quat(radians);
                     pTransform->rotation[0] = newQ.x;
@@ -583,8 +686,35 @@ void EditorLayer::DrawInspectorPanel(SceneNew* pScene) {
                 }
 
                 // Scale
-                if (ImGui::DragFloat3("Scale", pTransform->scale, 0.1f, 0.01f, 100.0f)) {
+                if (ImGui::DragFloat3("Scale##Local", pTransform->scale, 0.1f, 0.01f, 100.0f)) {
                     changed = true;
+                }
+                
+                ImGui::Unindent();
+                
+                // Show World Transform (read-only) if object has a parent
+                if (pTransform->HasParent()) {
+                    ImGui::Separator();
+                    ImGui::Text("World Transform (read-only)");
+                    ImGui::Indent();
+                    
+                    // Extract world position from world matrix
+                    float worldPos[3] = { pTransform->worldMatrix[12], pTransform->worldMatrix[13], pTransform->worldMatrix[14] };
+                    ImGui::BeginDisabled();
+                    ImGui::DragFloat3("Position##World", worldPos);
+                    
+                    // Extract world rotation from world matrix
+                    Transform tempTransform;
+                    TransformFromMatrix(pTransform->worldMatrix, tempTransform);
+                    glm::quat worldQ(tempTransform.rotation[3], tempTransform.rotation[0], tempTransform.rotation[1], tempTransform.rotation[2]);
+                    glm::vec3 worldEuler = glm::degrees(glm::eulerAngles(worldQ));
+                    ImGui::DragFloat3("Rotation##World", &worldEuler.x);
+                    
+                    // Show world scale
+                    ImGui::DragFloat3("Scale##World", tempTransform.scale);
+                    ImGui::EndDisabled();
+                    
+                    ImGui::Unindent();
                 }
 
                 if (changed) {
@@ -855,11 +985,26 @@ void EditorLayer::DrawGizmo(SceneNew* pScene, Camera* pCamera) {
         mode,
         glm::value_ptr(model)
     )) {
-        // Decompose the modified matrix back to transform
+        // The gizmo modifies the WORLD matrix. For objects with parents,
+        // we need to convert back to LOCAL space.
+        glm::mat4 localMatrix = model;
+        
+        if (pTransform->HasParent()) {
+            // Get parent's world matrix
+            Transform* pParentTransform = pScene->GetTransform(pTransform->parentId);
+            if (pParentTransform) {
+                glm::mat4 parentWorld = glm::make_mat4(pParentTransform->worldMatrix);
+                glm::mat4 parentWorldInv = glm::inverse(parentWorld);
+                // localMatrix = parentWorldInverse * newWorldMatrix
+                localMatrix = parentWorldInv * model;
+            }
+        }
+        
+        // Decompose the LOCAL matrix back to transform
         glm::vec3 scale, translation, skew;
         glm::vec4 perspective;
         glm::quat rotation;
-        glm::decompose(model, scale, rotation, translation, skew, perspective);
+        glm::decompose(localMatrix, scale, rotation, translation, skew, perspective);
 
         pTransform->position[0] = translation.x;
         pTransform->position[1] = translation.y;

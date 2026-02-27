@@ -18,6 +18,10 @@
 #include <unordered_set>
 #include <tiny_gltf.h>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
+
 using json = nlohmann::json;
 
 namespace {
@@ -221,6 +225,14 @@ struct GltfNodeVisitorContext {
     bool hasRoughnessOverride;
     float roughnessOverride;
     InstanceTier instanceTier;
+    
+    // Hierarchy tracking for glTF nodes
+    // Maps glTF node index -> first Object index created for that node
+    std::unordered_map<int, size_t> nodeToFirstObjIndex;
+    // Records (childObjIndex, parentNodeIndex) pairs for hierarchy building
+    std::vector<std::pair<size_t, int>> objParentNodePairs;
+    // Current parent node index being visited (-1 for root)
+    int currentParentNode = -1;
 };
 
 void SceneManager::PrepareAnimationImportStub(const tinygltf::Model& model, const std::string& gltfPath) {
@@ -258,6 +270,9 @@ void SceneManager::VisitGltfNode(GltfNodeVisitorContext& ctx, int nodeIndex, con
     float nodeWorld[16];
     BuildNodeLocalMatrix(node, nodeLocal);
     MatMultiply(nodeWorld, parentMatrix, nodeLocal);
+    
+    // Track the first Object index we create for this node (for hierarchy mapping)
+    bool firstObjForNode = true;
 
     if (node.mesh >= 0 && size_t(node.mesh) < ctx.model->meshes.size()) {
         const int meshIndex = node.mesh;
@@ -474,12 +489,28 @@ void SceneManager::VisitGltfNode(GltfNodeVisitorContext& ctx, int nodeIndex, con
 
             obj.pushData.resize(kObjectPushConstantSize);
             obj.pushDataSize = kObjectPushConstantSize;
+            
+            // Track hierarchy: record which node this object came from
+            size_t objIndex = ctx.objs.size();
+            if (firstObjForNode) {
+                ctx.nodeToFirstObjIndex[nodeIndex] = objIndex;
+                firstObjForNode = false;
+            }
+            // Record parent relationship (if this node has a parent in the glTF)
+            if (ctx.currentParentNode >= 0) {
+                ctx.objParentNodePairs.push_back({objIndex, ctx.currentParentNode});
+            }
+            
             ctx.objs.push_back(std::move(obj));
         }
     }
-
+    
+    // Recurse to children with this node as their parent
+    int savedParent = ctx.currentParentNode;
+    ctx.currentParentNode = nodeIndex;
     for (int child : node.children)
         VisitGltfNode(ctx, child, nodeWorld);
+    ctx.currentParentNode = savedParent;
 }
 
 void SceneManager::SetDependencies(MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic, TextureManager* pTextureManager_ic) {
@@ -548,6 +579,13 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
     auto scene = std::make_unique<Scene>(sceneName);
     std::vector<Object>& objs = scene->GetObjects();
 
+    // Track parent relationships for hierarchy (parsed from JSON, resolved after GameObjects created)
+    // Key: object index in objs vector, Value: parent object name (string reference)
+    std::vector<std::string> instanceParentNames;
+    
+    // Track glTF internal hierarchy: (childObjIndex, parentObjIndex) pairs
+    std::vector<std::pair<size_t, size_t>> gltfHierarchyPairs;
+
     if (!j.contains("instances") || !j["instances"].is_array()) {
         SetCurrentScene(std::move(scene));
         VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" (no instances)", path);
@@ -558,6 +596,18 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
         if (!jInst.is_object() || !jInst.contains("source") || !jInst["source"].is_string())
             continue;
         const std::string source = jInst["source"].get<std::string>();
+        
+        // Parse instance name (override for source, used for parenting references)
+        std::string instanceName;
+        if (jInst.contains("name") && jInst["name"].is_string()) {
+            instanceName = jInst["name"].get<std::string>();
+        }
+        
+        // Parse parent reference (name of another instance)
+        std::string parentName;
+        if (jInst.contains("parent") && jInst["parent"].is_string()) {
+            parentName = jInst["parent"].get<std::string>();
+        }
         if (source.empty())
             continue;
 
@@ -657,7 +707,8 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             }
 
             Object obj;
-            obj.name = source;  // Use source as name (e.g., "procedural:sphere")
+            // Use explicit name from JSON if provided, otherwise fall back to source
+            obj.name = instanceName.empty() ? source : instanceName;
             obj.pMesh = pMesh;
             obj.pMaterial = pMaterial;
             // Assign all PBR textures with proper defaults for full PBR support
@@ -696,6 +747,7 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             obj.instanceTier = instanceTier;
             obj.pushData.resize(kObjectPushConstantSize);
             obj.pushDataSize = kObjectPushConstantSize;
+            instanceParentNames.push_back(parentName);  // Track parent for hierarchy resolution
             objs.push_back(std::move(obj));
             continue;
         }
@@ -742,13 +794,39 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             metallicOverride,
             hasRoughnessOverride,
             roughnessOverride,
-            instanceTier
+            instanceTier,
+            {},  // nodeToFirstObjIndex
+            {},  // objParentNodePairs
+            -1   // currentParentNode (root)
         };
+        
+        // Track how many objects exist before loading this glTF
+        size_t objCountBefore = objs.size();
         
         float identity[16];
         MatIdentity(identity);
         for (int rootNode : roots)
             VisitGltfNode(ctx, rootNode, identity);
+        
+        // Apply the same parent reference to all objects loaded from this glTF instance
+        // Also track glTF internal hierarchy for later resolution
+        size_t objCountAfter = objs.size();
+        for (size_t objIdx = objCountBefore; objIdx < objCountAfter; ++objIdx) {
+            instanceParentNames.push_back(parentName);
+        }
+        
+        // Store glTF hierarchy info: (childObjIndex, parentObjIndex) pairs
+        // Convert from (childObjIndex, parentNodeIndex) to (childObjIndex, parentObjIndex)
+        for (const auto& pair : ctx.objParentNodePairs) {
+            size_t childObjIdx = pair.first;
+            int parentNodeIdx = pair.second;
+            auto it = ctx.nodeToFirstObjIndex.find(parentNodeIdx);
+            if (it != ctx.nodeToFirstObjIndex.end()) {
+                // Store negative index to mark this as glTF internal hierarchy (vs JSON parent name)
+                // We'll resolve this after GameObjects are created
+                gltfHierarchyPairs.push_back({childObjIdx, it->second});
+            }
+        }
     }
 
     // Create SceneNew for ECS components (lights, meshes, etc.)
@@ -788,6 +866,103 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
         m_sceneNew->AddRenderer(goId, renderer);
     }
     
+    // Resolve parent-child relationships from JSON "parent" fields
+    // Build name -> gameObjectId map for resolution
+    std::unordered_map<std::string, uint32_t> nameToId;
+    for (const auto& obj : objs) {
+        if (!obj.name.empty() && obj.gameObjectId != UINT32_MAX) {
+            nameToId[obj.name] = obj.gameObjectId;
+        }
+    }
+    
+    // Set parents based on parsed parent names
+    size_t parentSetCount = 0;
+    for (size_t i = 0; i < objs.size() && i < instanceParentNames.size(); ++i) {
+        const std::string& parentName = instanceParentNames[i];
+        if (parentName.empty()) continue;
+        
+        auto it = nameToId.find(parentName);
+        if (it != nameToId.end()) {
+            uint32_t childId = objs[i].gameObjectId;
+            uint32_t parentId = it->second;
+            // Use preserveWorldPosition = false; we compute local transforms manually below
+            if (m_sceneNew->SetParent(childId, parentId, false)) {
+                ++parentSetCount;
+            } else {
+                VulkanUtils::LogErr("SceneManager: failed to set parent \"{}\" for object \"{}\" (cycle or invalid)",
+                                   parentName, objs[i].name);
+            }
+        } else {
+            VulkanUtils::LogErr("SceneManager: parent \"{}\" not found for object \"{}\"",
+                               parentName, objs[i].name);
+        }
+    }
+    
+    // Set parents based on glTF internal node hierarchy
+    size_t gltfParentSetCount = 0;
+    for (const auto& pair : gltfHierarchyPairs) {
+        size_t childObjIdx = pair.first;
+        size_t parentObjIdx = pair.second;
+        
+        if (childObjIdx < objs.size() && parentObjIdx < objs.size()) {
+            uint32_t childId = objs[childObjIdx].gameObjectId;
+            uint32_t parentId = objs[parentObjIdx].gameObjectId;
+            
+            if (childId != UINT32_MAX && parentId != UINT32_MAX) {
+                // Only set if not already parented (JSON parent takes precedence)
+                Transform* pChildTransform = m_sceneNew->GetTransform(childId);
+                if (pChildTransform && pChildTransform->parentId == NO_PARENT) {
+                    // Use preserveWorldPosition = false; we compute local transforms manually below
+                    if (m_sceneNew->SetParent(childId, parentId, false)) {
+                        ++gltfParentSetCount;
+                    }
+                }
+            }
+        }
+    }
+    
+    if (gltfParentSetCount > 0) {
+        VulkanUtils::LogInfo("SceneManager: set {} glTF internal parent-child relationships", gltfParentSetCount);
+    }
+    
+    // For objects with parents, recompute local transforms from world transforms
+    // Currently transforms are decomposed from baked world matrices, but hierarchy
+    // expects local transforms (relative to parent)
+    for (auto& obj : objs) {
+        if (obj.gameObjectId == UINT32_MAX) continue;
+        
+        Transform* pTransform = m_sceneNew->GetTransform(obj.gameObjectId);
+        if (!pTransform || pTransform->parentId == NO_PARENT) continue;
+        
+        // Child has a parent - we need to compute local transform
+        Transform* pParentTransform = m_sceneNew->GetTransform(pTransform->parentId);
+        if (!pParentTransform) continue;
+        
+        // Get child's current world matrix (stored in obj.localTransform, which is actually baked world)
+        glm::mat4 childWorld = glm::make_mat4(obj.localTransform);
+        
+        // Get parent's world matrix (also baked in their localTransform)
+        const GameObject* pParentGO = m_sceneNew->FindGameObject(pTransform->parentId);
+        if (!pParentGO) continue;
+        
+        // Find parent's Object to get its world matrix
+        glm::mat4 parentWorld = glm::mat4(1.0f);
+        for (const auto& parentObj : objs) {
+            if (parentObj.gameObjectId == pTransform->parentId) {
+                parentWorld = glm::make_mat4(parentObj.localTransform);
+                break;
+            }
+        }
+        
+        // Compute local: local = inverse(parentWorld) * childWorld
+        glm::mat4 localMatrix = glm::inverse(parentWorld) * childWorld;
+        
+        // Decompose local matrix into position/rotation/scale
+        float localMatrixArr[16];
+        std::memcpy(localMatrixArr, glm::value_ptr(localMatrix), sizeof(localMatrixArr));
+        TransformFromMatrix(localMatrixArr, *pTransform);
+    }
+    
     const size_t objectCount = objs.size();
     SetCurrentScene(std::move(scene));
     
@@ -823,6 +998,9 @@ void SceneManager::RemoveObject(size_t index) {
 void SceneManager::SyncTransformsToScene() {
     if (!m_currentScene || !m_sceneNew) return;
     
+    // First, update all world matrices respecting hierarchy
+    m_sceneNew->UpdateWorldMatrices();
+    
     auto& objs = m_currentScene->GetObjects();
     const auto& transforms = m_sceneNew->GetTransforms();
     
@@ -846,13 +1024,9 @@ void SceneManager::SyncTransformsToScene() {
         float oldMatrix[16];
         std::memcpy(oldMatrix, obj.localTransform, sizeof(oldMatrix));
         
-        // Rebuild the localTransform matrix from position/rotation/scale
-        ObjectSetFromPositionRotationScale(
-            obj.localTransform,
-            t.position[0], t.position[1], t.position[2],
-            t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3],
-            t.scale[0], t.scale[1], t.scale[2]
-        );
+        // Copy the WORLD matrix to obj.localTransform (used for rendering)
+        // This handles hierarchy: child objects use their world transform for GPU
+        std::memcpy(obj.localTransform, t.worldMatrix, sizeof(obj.localTransform));
         
 #if EDITOR_BUILD
         // In editor: mark dirty if ANY matrix element changed (position, rotation, or scale)
