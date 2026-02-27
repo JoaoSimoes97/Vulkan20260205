@@ -87,7 +87,13 @@ inline void TransformBuildModelMatrix(Transform& t) {
     float* m = t.modelMatrix;
     const float* p = t.position;
     const float* q = t.rotation;
-    const float* s = t.scale;
+    
+    // Clamp scale to prevent zero/negative values that cause matrix singularity
+    const float minScale = 0.001f;
+    float sx = t.scale[0] < minScale ? minScale : t.scale[0];
+    float sy = t.scale[1] < minScale ? minScale : t.scale[1];
+    float sz = t.scale[2] < minScale ? minScale : t.scale[2];
+    const float s[3] = { sx, sy, sz };
 
     // Quaternion to rotation matrix
     float qx = q[0], qy = q[1], qz = q[2], qw = q[3];
@@ -207,9 +213,14 @@ inline void TransformFromMatrix(const float* m, Transform& t) {
     t.position[2] = m[14];
 
     // Scale is the length of each column (columns 0, 1, 2)
+    // Clamp to minimum to prevent division by zero
+    const float minScale = 0.001f;
     float sx = std::sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
     float sy = std::sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
     float sz = std::sqrt(m[8]*m[8] + m[9]*m[9] + m[10]*m[10]);
+    if (sx < minScale) sx = minScale;
+    if (sy < minScale) sy = minScale;
+    if (sz < minScale) sz = minScale;
     t.scale[0] = sx;
     t.scale[1] = sy;
     t.scale[2] = sz;

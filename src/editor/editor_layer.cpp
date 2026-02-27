@@ -28,6 +28,8 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 
+#include <algorithm>
+
 #include <SDL3/SDL.h>
 #include <fstream>
 #include <functional>
@@ -685,8 +687,11 @@ void EditorLayer::DrawInspectorPanel(SceneNew* pScene) {
                     changed = true;
                 }
 
-                // Scale
-                if (ImGui::DragFloat3("Scale##Local", pTransform->scale, 0.1f, 0.01f, 100.0f)) {
+                // Scale (clamp to prevent zero values)
+                if (ImGui::DragFloat3("Scale##Local", pTransform->scale, 0.1f, 0.001f, 100.0f)) {
+                    pTransform->scale[0] = std::max(pTransform->scale[0], 0.001f);
+                    pTransform->scale[1] = std::max(pTransform->scale[1], 0.001f);
+                    pTransform->scale[2] = std::max(pTransform->scale[2], 0.001f);
                     changed = true;
                 }
                 
@@ -1000,11 +1005,29 @@ void EditorLayer::DrawGizmo(SceneNew* pScene, Camera* pCamera) {
             }
         }
         
+        // Check scale from column lengths BEFORE decomposing
+        // This prevents singular matrix issues
+        const float minScale = 0.01f;
+        float scaleX = glm::length(glm::vec3(localMatrix[0]));
+        float scaleY = glm::length(glm::vec3(localMatrix[1]));
+        float scaleZ = glm::length(glm::vec3(localMatrix[2]));
+        
+        // If any scale is too small, reject this gizmo operation
+        if (scaleX < minScale || scaleY < minScale || scaleZ < minScale) {
+            // Don't apply - keep current transform
+            return;
+        }
+        
         // Decompose the LOCAL matrix back to transform
         glm::vec3 scale, translation, skew;
         glm::vec4 perspective;
         glm::quat rotation;
         glm::decompose(localMatrix, scale, rotation, translation, skew, perspective);
+
+        // Additional safety clamp
+        scale.x = std::max(scale.x, minScale);
+        scale.y = std::max(scale.y, minScale);
+        scale.z = std::max(scale.z, minScale);
 
         pTransform->position[0] = translation.x;
         pTransform->position[1] = translation.y;
