@@ -11,6 +11,7 @@
 #include "managers/mesh_manager.h"
 #include "scene/scene.h"
 #include "scene/object.h"
+#include "scene/level_selector.h"
 #include "camera/camera.h"
 #include "config/vulkan_config.h"
 #include "render/viewport_config.h"
@@ -329,11 +330,75 @@ void EditorLayer::DrawMenuBar() {
     }
 }
 
+bool EditorLayer::ConsumeLoadRequest() {
+    if (m_pLevelSelector) {
+        return m_pLevelSelector->ConsumeLoadRequest();
+    }
+    return false;
+}
+
 void EditorLayer::DrawFileMenu() {
     if (ImGui::BeginMenu("File")) {
         PlaceholderMenuItem("New Level", "Ctrl+N");
-        PlaceholderMenuItem("Open Level...", "Ctrl+O");
+        
+        // Load Level submenu with discovered levels
+        if (ImGui::BeginMenu("Load Level")) {
+            if (m_pLevelSelector) {
+                const auto& levels = m_pLevelSelector->GetLevels();
+                if (levels.empty()) {
+                    ImGui::TextDisabled("No levels found in 'levels' folder");
+                } else {
+                    for (int i = 0; i < static_cast<int>(levels.size()); ++i) {
+                        const LevelInfo& level = levels[i];
+                        
+                        // Separator items shown as dividers
+                        if (level.isSpecial && level.specialId == 0) {
+                            ImGui::Separator();
+                            ImGui::TextDisabled("%s", level.name.c_str());
+                            continue;
+                        }
+                        
+                        // Check if this is the currently loaded level
+                        bool isCurrentLevel = (!m_currentLevelPath.empty() && 
+                            (m_currentLevelPath == level.path || m_currentLevelPath.find(level.name) != std::string::npos));
+                        
+                        // Color stress tests differently
+                        if (level.isSpecial) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.3f, 1.0f));
+                        }
+                        
+                        if (ImGui::MenuItem(level.name.c_str(), nullptr, isCurrentLevel)) {
+                            m_pLevelSelector->SetSelectedIndex(i);
+                            m_pLevelSelector->RequestLoad();
+                        }
+                        
+                        if (level.isSpecial) {
+                            ImGui::PopStyleColor();
+                        }
+                        
+                        // Tooltip with description
+                        if (!level.description.empty() && ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("%s", level.description.c_str());
+                        }
+                    }
+                }
+            } else {
+                ImGui::TextDisabled("Level selector not initialized");
+            }
+            ImGui::EndMenu();
+        }
+        
         PlaceholderMenuItem("Open Recent");
+        ImGui::Separator();
+        
+        // Unload Level (for testing cleanup)
+        if (ImGui::MenuItem("Unload Level")) {
+            if (m_unloadSceneCallback) {
+                m_unloadSceneCallback();
+                m_currentLevelPath.clear();
+            }
+        }
+        
         ImGui::Separator();
         if (ImGui::MenuItem("Save Level", "Ctrl+S")) {
             // SaveCurrentLevel will be called - already partially implemented

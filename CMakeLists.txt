@@ -211,6 +211,7 @@ set(SOURCES
     src/scene/level_selector.cpp
     src/ui/imgui_base.cpp
     src/runtime/runtime_overlay.cpp
+    src/runtime/main_menu.cpp
     src/app/runtime_app.cpp
 )
 
@@ -285,6 +286,7 @@ set(HEADERS
     src/render/gpu_culler.h
     src/ui/imgui_base.h
     src/runtime/runtime_overlay.h
+    src/runtime/main_menu.h
 )
 
 # Editor headers (Debug builds only)

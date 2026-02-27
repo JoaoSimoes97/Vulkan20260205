@@ -41,12 +41,15 @@
 #include <string>
 #include <vector>
 
+// Level selector (shared between Editor and Runtime)
+#include "scene/level_selector.h"
+
 // UI layers: Editor (Debug) or RuntimeOverlay (Release)
 #if EDITOR_BUILD
 #include "editor/editor_layer.h"
 #else
 #include "runtime/runtime_overlay.h"
-#include "scene/level_selector.h"
+#include "runtime/main_menu.h"
 #endif
 
 class VulkanShaderManager;
@@ -230,6 +233,9 @@ private:
     /* ======== Viewports ======== */
     ViewportManager m_viewportManager;
 
+    /* ======== Level Selection (shared between Editor and Runtime) ======== */
+    LevelSelector m_levelSelector;
+
     /* ======== Build-Specific Components ======== */
 #if !EDITOR_BUILD
     /** Push constant storage for Runtime mode. */
@@ -240,7 +246,8 @@ private:
     EditorLayer m_editorLayer;
 #else
     RuntimeOverlay m_runtimeOverlay;
-    LevelSelector m_levelSelector;
+    MainMenu m_mainMenu;
+    bool m_bLevelLoaded = false;  // True when a level has been loaded
 #endif
 
     /* ======== Camera & Frame Timing ======== */

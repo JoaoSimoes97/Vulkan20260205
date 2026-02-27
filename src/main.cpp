@@ -19,16 +19,14 @@ int main(int argc, char** argv) {
     VulkanUtils::SetLogLevelMask(VulkanUtils::LOG_ALL);
 #endif
 
-    // Require level path as command-line argument
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <level_path>\n";
-        std::cerr << "\nExamples:\n";
-        std::cerr << "  " << argv[0] << " levels/default/level.json\n";
-        std::cerr << "  " << argv[0] << " levels/demo/level.json\n";
-        return EXIT_FAILURE;
+    // Level path is optional - File menu (Editor) or Main Menu (Release) handles selection
+    std::string levelPath;
+    if (argc >= 2) {
+        levelPath = argv[1];
+        VulkanUtils::LogInfo("Level path from command line: {}", levelPath);
+    } else {
+        VulkanUtils::LogInfo("No level path provided - use File menu to load levels");
     }
-
-    std::string levelPath = argv[1];
 
     try {
         VulkanConfig config = LoadConfigFromFileOrCreate(CONFIG_PATH_USER, CONFIG_PATH_DEFAULT);

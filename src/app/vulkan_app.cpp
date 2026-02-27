@@ -347,16 +347,42 @@ void VulkanApp::InitVulkan() {
         &this->m_shaderManager
     );
     
-    // Load level from config (set via command-line)
-    if (m_config.sLevelPath.empty()) {
-        VulkanUtils::LogErr("No level path specified in config");
-        throw std::runtime_error("Level path required");
-    }
-    std::string levelPath = VulkanUtils::GetResourcePath(m_config.sLevelPath);
-    if (!this->m_sceneManager.LoadLevelFromFile(levelPath)) {
-        VulkanUtils::LogErr("Failed to load level: {}", levelPath);
+    // Load level from config (set via command-line) - optional in all builds
+#if EDITOR_BUILD
+    // Editor: Level path is optional - File menu handles level selection
+    if (!m_config.sLevelPath.empty()) {
+        std::string levelPath = VulkanUtils::GetResourcePath(m_config.sLevelPath);
+        if (!this->m_sceneManager.LoadLevelFromFile(levelPath)) {
+            VulkanUtils::LogErr("Failed to load level: {}", levelPath);
+            this->m_sceneManager.SetCurrentScene(std::make_unique<Scene>("empty"));
+        } else {
+            VulkanUtils::LogInfo("Level loaded from command line: {}", levelPath);
+        }
+    } else {
+        // No level specified - create empty scene
+        VulkanUtils::LogInfo("No level specified - use File > Load Level menu");
         this->m_sceneManager.SetCurrentScene(std::make_unique<Scene>("empty"));
     }
+#else
+    // Release: Level path is optional - main menu will handle level selection
+    if (!m_config.sLevelPath.empty()) {
+        std::string levelPath = VulkanUtils::GetResourcePath(m_config.sLevelPath);
+        if (this->m_sceneManager.LoadLevelFromFile(levelPath)) {
+            this->m_bLevelLoaded = true;
+            this->m_mainMenu.SetLevelLoaded(true);
+            this->m_mainMenu.SetVisible(false);  // Hide main menu when level is loaded via command line
+            VulkanUtils::LogInfo("Level loaded from command line: {}", levelPath);
+        } else {
+            VulkanUtils::LogErr("Failed to load level: {}", levelPath);
+            this->m_sceneManager.SetCurrentScene(std::make_unique<Scene>("empty"));
+        }
+    } else {
+        // No level specified - create empty scene and show main menu
+        VulkanUtils::LogInfo("No level specified - showing main menu");
+        this->m_sceneManager.SetCurrentScene(std::make_unique<Scene>("empty"));
+        this->m_bLevelLoaded = false;
+    }
+#endif
     
     /* Set up scene change callback to invalidate batched draw list.
        This ensures batches are rebuilt only when scene structure changes, not every frame. */
@@ -501,7 +527,30 @@ void VulkanApp::InitVulkan() {
     );
     /* Set level path for editor save functionality. */
     this->m_editorLayer.SetLevelPath(VulkanUtils::GetResourcePath(this->m_config.sLevelPath));
+    
+    /* Initialize level selector - scan levels folder and wire to editor. */
+    this->m_levelSelector.ScanLevels("levels");
+    this->m_levelSelector.SetCurrentLevelPath(this->m_config.sLevelPath);
+    this->m_editorLayer.SetLevelSelector(&this->m_levelSelector);
+    
+    /* Wire unload scene callback. */
+    this->m_editorLayer.SetUnloadSceneCallback([this]() {
+        this->m_sceneManager.UnloadScene();
+        VulkanUtils::LogInfo("Scene unloaded via File menu");
+    });
 #else
+    /* Initialize main menu (front page for level selection). */
+    this->m_mainMenu.Init(
+        this->m_pWindow->GetSDLWindow(),
+        this->m_instance.Get(),
+        this->m_device.GetPhysicalDevice(),
+        this->m_device.GetDevice(),
+        this->m_device.GetQueueFamilyIndices().graphicsFamily,
+        this->m_device.GetGraphicsQueue(),
+        this->m_renderPass.Get(),
+        this->m_swapchain.GetImageCount()
+    );
+    
     /* Initialize runtime overlay (minimal stats display). */
     this->m_runtimeOverlay.Init(
         this->m_pWindow->GetSDLWindow(),
@@ -514,9 +563,10 @@ void VulkanApp::InitVulkan() {
         this->m_swapchain.GetImageCount()
     );
     
-    /* Initialize level selector - scan levels folder and wire to overlay. */
+    /* Initialize level selector - scan levels folder and wire to menu and overlay. */
     this->m_levelSelector.ScanLevels("levels");
     this->m_levelSelector.SetCurrentLevelPath(this->m_config.sLevelPath);
+    this->m_mainMenu.SetLevelSelector(&this->m_levelSelector);
     this->m_runtimeOverlay.SetLevelSelector(&this->m_levelSelector);
 #endif
 
@@ -1112,8 +1162,10 @@ void VulkanApp::MainLoop() {
         /* Skip camera update if editor wants input */
         const bool bEditorWantsInput = this->m_editorLayer.WantCaptureMouse() || this->m_editorLayer.WantCaptureKeyboard();
 #else
-        /* Runtime overlay: check if ImGui wants input */
-        const bool bEditorWantsInput = this->m_runtimeOverlay.WantCaptureMouse() || this->m_runtimeOverlay.WantCaptureKeyboard();
+        /* Runtime: check if main menu is visible or if ImGui wants input */
+        const bool bMainMenuActive = this->m_mainMenu.IsVisible();
+        const bool bEditorWantsInput = bMainMenuActive || 
+            this->m_runtimeOverlay.WantCaptureMouse() || this->m_runtimeOverlay.WantCaptureKeyboard();
 #endif
 
         const float fMoveSpeed = (this->m_config.fPanSpeed > 0.f) ? this->m_config.fPanSpeed : kDefaultPanSpeed;
@@ -1423,6 +1475,54 @@ void VulkanApp::MainLoop() {
         Scene* pRenderSceneForEditor = this->m_sceneManager.GetCurrentScene();
         this->m_editorLayer.DrawEditor(pSceneNewForEditor, &this->m_camera, this->m_config, &this->m_viewportManager, pRenderSceneForEditor);
         this->m_editorLayer.EndFrame();
+        
+        /* Handle level loading requests from File menu */
+        if (this->m_editorLayer.ConsumeLoadRequest()) {
+            const LevelInfo* pLevel = this->m_levelSelector.GetSelectedLevel();
+            if (pLevel) {
+                // Wait for GPU to finish before unloading
+                vkDeviceWaitIdle(this->m_device.GetDevice());
+                
+                if (pLevel->isSpecial && pLevel->specialId > 0) {
+                    // Stress test - generate procedural scene using textured glTF model
+                    StressTestParams params;
+                    switch (pLevel->specialId) {
+                        case 1: params = StressTestParams::Light(); break;
+                        case 2: params = StressTestParams::Medium(); break;
+                        case 3: params = StressTestParams::Heavy(); break;
+                        case 4: params = StressTestParams::Extreme(); break;
+                        case 5: params = this->m_levelSelector.GetCustomParams(); break;
+                        default: params = StressTestParams::Medium(); break;
+                    }
+                    
+                    VulkanUtils::LogInfo("Generating stress test: {} objects...", GetStressTestObjectCount(params));
+                    uint32_t created = this->m_sceneManager.GenerateStressTestScene(params, "models/BoxTextured.glb");
+                    VulkanUtils::LogInfo("Stress test generated: {} objects", created);
+                    
+                    this->m_levelSelector.SetCurrentLevelPath(pLevel->name);
+                    this->m_editorLayer.SetLevelPath(pLevel->name);
+                } else {
+                    // Regular level - load from JSON
+                    VulkanUtils::LogInfo("Loading level: {}", pLevel->path);
+                    this->m_sceneManager.UnloadScene();
+                    
+                    if (this->m_sceneManager.LoadLevelFromFile(pLevel->path)) {
+                        VulkanUtils::LogInfo("Level loaded successfully: {}", pLevel->name);
+                        this->m_levelSelector.SetCurrentLevelPath(pLevel->path);
+                        this->m_editorLayer.SetLevelPath(pLevel->path);
+                    } else {
+                        VulkanUtils::LogErr("Failed to load level: {}", pLevel->path);
+                    }
+                }
+                
+                // Force draw list rebuild
+                this->m_batchedDrawList.SetDirty();
+                
+                // Trim unused resources
+                this->m_meshManager.TrimUnused();
+                this->m_textureManager.TrimUnused();
+            }
+        }
 #else
         /* Calculate render statistics for overlay. */
         {
@@ -1492,11 +1592,23 @@ void VulkanApp::MainLoop() {
             this->m_runtimeOverlay.SetRenderStats(stats);
         }
         
-        /* Update and draw runtime overlay (FPS, frame time, etc.). */
-        this->m_runtimeOverlay.Update(this->m_avgFrameTimeSec);
-        this->m_runtimeOverlay.Draw(&this->m_camera, &this->m_config);
+        /* Draw main menu if visible (front page before level is loaded). */
+        if (this->m_mainMenu.IsVisible()) {
+            this->m_mainMenu.Draw(&this->m_config);
+            
+            // Check for quit request from main menu
+            if (this->m_mainMenu.WasQuitRequested()) {
+                bQuit = true;
+            }
+        }
         
-        /* Handle level loading requests from level selector */
+        /* Update and draw runtime overlay (FPS, frame time, etc.) when level is loaded. */
+        if (this->m_bLevelLoaded && !this->m_mainMenu.IsVisible()) {
+            this->m_runtimeOverlay.Update(this->m_avgFrameTimeSec);
+            this->m_runtimeOverlay.Draw(&this->m_camera, &this->m_config);
+        }
+        
+        /* Handle level loading requests from level selector (both main menu and runtime overlay). */
         if (this->m_levelSelector.ConsumeLoadRequest()) {
             const LevelInfo* pLevel = this->m_levelSelector.GetSelectedLevel();
             if (pLevel) {
@@ -1520,6 +1632,9 @@ void VulkanApp::MainLoop() {
                     VulkanUtils::LogInfo("Stress test generated: {} objects", created);
                     
                     this->m_levelSelector.SetCurrentLevelPath(pLevel->name);
+                    this->m_bLevelLoaded = true;
+                    this->m_mainMenu.SetLevelLoaded(true);
+                    this->m_mainMenu.SetVisible(false);
                 } else {
                     // Regular level - load from JSON
                     VulkanUtils::LogInfo("Loading level: {}", pLevel->path);
@@ -1528,6 +1643,9 @@ void VulkanApp::MainLoop() {
                     if (this->m_sceneManager.LoadLevelFromFile(pLevel->path)) {
                         VulkanUtils::LogInfo("Level loaded successfully: {}", pLevel->name);
                         this->m_levelSelector.SetCurrentLevelPath(pLevel->path);
+                        this->m_bLevelLoaded = true;
+                        this->m_mainMenu.SetLevelLoaded(true);
+                        this->m_mainMenu.SetVisible(false);
                     } else {
                         VulkanUtils::LogErr("Failed to load level: {}", pLevel->path);
                     }
@@ -1539,6 +1657,9 @@ void VulkanApp::MainLoop() {
                 // Trim unused resources
                 this->m_meshManager.TrimUnused();
                 this->m_textureManager.TrimUnused();
+                
+                // Clear main menu's load request flag
+                this->m_mainMenu.ClearLevelLoadRequest();
             }
         }
 #endif
@@ -1616,10 +1737,28 @@ bool VulkanApp::OnEditorEvent(const SDL_Event& evt_ic) {
 
 bool VulkanApp::OnRuntimeEvent(const SDL_Event& evt_ic) {
 #if !EDITOR_BUILD
-    if ((evt_ic.type == SDL_EVENT_KEY_DOWN) && (evt_ic.key.key == SDLK_F3)) {
-        this->m_runtimeOverlay.ToggleVisible();
+    // ESC key toggles main menu
+    if ((evt_ic.type == SDL_EVENT_KEY_DOWN) && (evt_ic.key.key == SDLK_ESCAPE)) {
+        if (this->m_bLevelLoaded) {
+            // When level is loaded, ESC toggles back to main menu
+            this->m_mainMenu.ToggleVisible();
+        }
         return true;
     }
+    
+    // F3 key toggles runtime overlay (only when main menu is not visible)
+    if ((evt_ic.type == SDL_EVENT_KEY_DOWN) && (evt_ic.key.key == SDLK_F3)) {
+        if (!this->m_mainMenu.IsVisible()) {
+            this->m_runtimeOverlay.ToggleVisible();
+        }
+        return true;
+    }
+    
+    // Main menu gets events first when visible
+    if (this->m_mainMenu.IsVisible()) {
+        return this->m_mainMenu.ProcessEvent(&evt_ic);
+    }
+    
     return this->m_runtimeOverlay.ProcessEvent(&evt_ic);
 #else
     (void)evt_ic;
@@ -1637,7 +1776,14 @@ void VulkanApp::RenderEditorUI(VkCommandBuffer cmd) {
 
 void VulkanApp::RenderRuntimeUI(VkCommandBuffer cmd) {
 #if !EDITOR_BUILD
-    this->m_runtimeOverlay.RenderDrawData(cmd);
+    // Render main menu first (it's a background overlay)
+    if (this->m_mainMenu.IsVisible()) {
+        this->m_mainMenu.RenderDrawData(cmd);
+    }
+    // Runtime overlay rendered on top when level is loaded
+    if (this->m_bLevelLoaded && !this->m_mainMenu.IsVisible()) {
+        this->m_runtimeOverlay.RenderDrawData(cmd);
+    }
 #else
     (void)cmd;
 #endif

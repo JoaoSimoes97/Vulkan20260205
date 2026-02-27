@@ -12,12 +12,14 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <functional>
 
 struct SDL_Window;
 class SceneNew;
 class Scene;
 class Camera;
 struct Transform;
+class LevelSelector;
 struct VulkanConfig;
 class ViewportManager;
 
@@ -150,6 +152,17 @@ public:
     void SetLevelPath(const std::string& path) { m_currentLevelPath = path; }
     const std::string& GetLevelPath() const { return m_currentLevelPath; }
 
+    /* ---- Level Loading ---- */
+
+    /** Set level selector for File > Load Level menu. */
+    void SetLevelSelector(LevelSelector* pSelector) { m_pLevelSelector = pSelector; }
+
+    /** Set callback for unloading the current scene. */
+    void SetUnloadSceneCallback(std::function<void()> callback) { m_unloadSceneCallback = std::move(callback); }
+
+    /** Check if a level load was requested (and clear the flag). */
+    bool ConsumeLoadRequest();
+
     /** Check if ImGui wants mouse input. */
     bool WantCaptureMouse() const;
 
@@ -217,6 +230,10 @@ private:
     
     // Render Scene for emissive light editing (Objects with emitsLight)
     Scene* m_pRenderScene = nullptr;
+    
+    // Level selector and callbacks
+    LevelSelector* m_pLevelSelector = nullptr;
+    std::function<void()> m_unloadSceneCallback;
     
     // Panel visibility toggles
     bool m_bShowHierarchy = true;
