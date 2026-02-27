@@ -350,13 +350,13 @@ void SceneNew::ComputeWorldMatrixForObject(uint32_t gameObjectId) {
 }
 
 void SceneNew::UpdateWorldMatrices() {
-    // First update all local matrices
+    // Update all local matrices first
     UpdateAllTransforms();
     
     // Get root objects and recursively update world matrices
     std::vector<uint32_t> roots = GetRootObjects();
     
-    // Recursive lambda to update world matrix
+    // Recursive lambda to update world matrix from parent down
     std::function<void(uint32_t, const float*)> updateRecursive = 
         [this, &updateRecursive](uint32_t goId, const float* parentWorld) {
             Transform* pTransform = GetTransform(goId);
