@@ -1,0 +1,203 @@
+# Alpha review checklist — architecture, correctness, efficiency, client-ready
+
+Goal: Review + improve. Fix issues and apply improvements while checking. Project must be scalable.
+When in doubt on a decision, ask the user.
+
+================================================================================
+1. ARCHITECTURE — COHERENCE & USAGE
+================================================================================
+
+- [ ] Dual Scene systems: scene.h (Scene + std::vector<Object>) is USED; scene_unified.h (Scene with GameObjects + component pools, BuildRenderList, RenderObject) is NOT included anywhere except scene_unified.cpp. Decide: (A) Remove scene_unified.* as dead code for alpha, or (B) Migrate app to use it and deprecate scene.h + sync path. Document decision.
+- [ ] SceneNew vs Scene (scene.h): SceneManager owns both; syncs SceneNew → Scene via SyncTransformsToScene(). Confirm data flow is one-way and no stale pointers after sync.
+- [ ] core.h: never included. Use as ECS umbrella in one place or remove.
+- [ ] managers.h: never included. Use as managers umbrella or remove.
+- [ ] Frame flow matches docs: Input → Scene update (transforms, lights) → Build render list → Record commands → Submit. Confirm no step skipped or reordered incorrectly.
+- [ ] Extension points: architecture.md describes adding components/managers/shaders. Verify init order and registration (e.g. ResourceCleanupManager) include all current managers.
+- [ ] docs/engine-design.md: describes critical bugs (broken normal transform, emissive unused, material props incomplete). Verify each is either fixed or explicitly listed as alpha limitation.
+
+================================================================================
+2. IS EVERYTHING USED?
+================================================================================
+
+- [ ] SceneUnified (scene_unified.h/cpp): full Scene class with BuildRenderList, RenderObject, dirty flags — not referenced by VulkanApp, SceneManager, or any render path. Remove or wire in.
+- [ ] core.h, managers.h: no includes. Remove or wire.
+- [ ] physics_component.h: stub; any code path that creates/reads PhysicsComponent? If unused, document “not in alpha”.
+- [ ] script_component.h: same — used or stub-only?
+- [ ] camera_component: used by ViewportManager / scene cameras? Confirm.
+- [ ] GPUCuller: used in render path or only prepared (binding 8 placeholder)? If prepared but not active, document.
+- [ ] RingBuffer<T> (gpu_buffer.h): used for object/light SSBOs or only GPUBuffer? Confirm ring indices match framesInFlight.
+- [ ] FrameContext.objectBufferOffset / lightBufferOffset: set and used in descriptor bindings every frame?
+- [ ] BatchedDrawList vs RenderListBuilder: both used? No duplicate build paths.
+- [ ] TieredInstanceManager: integrated in draw path or experimental? Document if not fully wired.
+- [ ] LevelSelector, StressTestGenerator: used from UI or scripts? Confirm entry points.
+
+================================================================================
+3. EFFICIENCY — HOT PATHS & RESOURCES
+================================================================================
+
+- [ ] Per-frame allocations: any vector::push_back/resize in render or sync path that could reserve() once? (e.g. draw call lists, visible lists)
+- [ ] Descriptor sets: reuse across frames? Pool sizing (max sets) sufficient; no per-frame alloc in hot path.
+- [ ] Pipeline barriers: only where needed (image layout, buffer visibility). No redundant vkCmdPipelineBarrier.
+- [ ] Buffer updates: object/light SSBOs use ring buffer per frame; no map/unmap per draw. Confirm single write per frame per buffer.
+- [ ] Draw call batching: sort by pipeline then mesh; minimal state changes. Verify order in VulkanApp/BatchedDrawList.
+- [ ] Frustum culling: done once per view; results reused for all passes. No duplicate cull per draw.
+- [ ] Manager caches: TrimUnused on worker thread; main thread never blocks on trim. Confirm.
+- [ ] Job queue: loading on worker; completion callback on main. No busy-wait.
+- [ ] shared_ptr use: refs held only where needed; TrimUnused can drop unused. No unnecessary shared_ptr in hot path (e.g. per-draw).
+- [ ] Mesh/material lookups: by handle or index; no per-frame map lookups in inner loop if avoidable.
+
+================================================================================
+4. VULKAN CORRECTNESS — SYNC & LIFETIME
+================================================================================
+
+- [ ] vkWaitForFences: before reusing command buffer / frame resources. Fence signaled in same submit as usage.
+- [ ] Semaphore chain: imageAvailable → command buffer → renderFinished → present. No missing or reversed dependency.
+- [ ] Pipeline barriers (render pass): layout transitions and access masks match actual usage (e.g. COLOR_ATTACHMENT_WRITE → SHADER_READ for resolve/read).
+- [ ] Pipeline barriers (texture upload): TRANSFER_WRITE → SHADER_READ; stages TOP_OF_PIPE → TRANSFER, TRANSFER → FRAGMENT.
+- [ ] Pipeline barriers (compute): GPUCuller host write → compute read; compute write → indirect/vertex read. Stages and access flags correct.
+- [ ] Descriptor set writes: before vkCmdBindDescriptorSets; no use of set that was updated later in same frame without sync.
+- [ ] Buffer/image lifetime: no destroy or resize while in use by GPU. Deferred destroy after fence wait.
+- [ ] Swapchain: acquire → use imageIndex for framebuffer → submit with imageAvailable semaphore → present with renderFinished. No reuse of image before present.
+- [ ] Validation layers: run with Debug build; zero errors/warnings. Fix or document known acceptable warnings.
+
+================================================================================
+5. SHADER & DATA LAYOUT CORRECTNESS
+================================================================================
+
+- [ ] Push constant layout: CPU and GLSL match (size, offsets). object.h kInstancedPushConstantSize == 96; vert.vert layout verified.
+- [ ] SSBO/UBO strides and offsets: ObjectData 256B, alignment; light buffer element size; descriptor offset/range correct.
+- [ ] Vertex attribute layout: position, UV, normal, etc. Match in pipeline and mesh data.
+- [ ] Normal transform: if using model matrix for normals, use transpose(inverse(model)) and pass to shader; engine-design.md listed “no model matrix for normals” as bug — fix or doc.
+- [ ] Emissive: Object.emissive populated; frag.frag uses it. If not, fix or doc as alpha limitation.
+- [ ] Binding numbers: descriptor set 0 bindings 0–8 (or used subset) consistent across all pipelines that use them.
+
+================================================================================
+6. CODE CORRECTNESS & LOGIC
+================================================================================
+
+- [ ] Deprecated API (object.h): kObjectPushConstantSize, FillObjectPushConstants, etc. Either remove and use only kInstancedPushConstantSize / ObjectFillInstancedPushData, or document legacy path.
+- [ ] vulkan_app: “visible indices SSBO” binding 8 — wired to GPU culler or stub; no dangling bind.
+- [ ] scene_unified.cpp: TODO hierarchy/world matrix (238); TODO actual mesh bounds (372). Fix or doc.
+- [ ] procedural_mesh_factory: TODO caps/base cylinder/cone. Fix or doc.
+- [ ] scene_manager: PrepareAnimationImportStub, PrepareSkinningImportStub. Doc “animation/skinning not in alpha”.
+- [ ] engine.cpp: placeholder returns. Real logic or explicit “not implemented”.
+- [ ] renderer.cpp / tiered_instance_manager: placeholder comments. Implement or remove.
+- [ ] Config: all user-facing fields validated/clamped (config_loader.cpp). No unvalidated numeric input.
+- [ ] Debug build + validation: no validation errors.
+- [ ] Release build: smoke test; no crash, no silent failure.
+
+================================================================================
+7. GUIDELINES (docs/guidelines/coding-guidelines.md)
+================================================================================
+
+- [ ] Member naming: type prefix (m_sName, m_bInitialized, m_lWidth) where missing.
+- [ ] No `!` in conditions: use (x == false), (ptr == nullptr). Grep and fix.
+- [ ] Literals: explicit cast in definitions (static_cast<bool>(true), etc.). Grep = true, = 0, = nullptr, = 1.0f.
+- [ ] Parameters: _ic / _out / _io on public API where missing.
+- [ ] Include order: project first then std/lib; source: own header first.
+- [ ] this-> for member access in classes.
+
+================================================================================
+8. DEAD / STUB / PLACEHOLDER CODE
+================================================================================
+
+- [ ] core.h, managers.h: use or remove.
+- [ ] physics_component.h stub: doc or minimal behavior.
+- [ ] Editor placeholder menu items: implement or disable + “Coming later” tooltip.
+- [ ] Large commented-out blocks: remove or #if 0 with short comment.
+- [ ] scene_unified: entire module unused; remove or integrate.
+
+================================================================================
+9. BUILD, INSTALL, RUN
+================================================================================
+
+- [ ] CMake: all sources/headers listed; no missing for current platform.
+- [ ] compile_shaders: produces .spv; install_local copies shaders, config, levels, models.
+- [ ] README / getting-started: setup, build (Debug + Release), run with level path.
+- [ ] Optional: run_alpha script (build + launch default level).
+
+================================================================================
+10. DOCS & CLIENT READINESS
+================================================================================
+
+- [ ] README: “Alpha” + known limitations (no animation/skinning, editor menus, etc.).
+- [ ] ROADMAP: alpha scope vs post-alpha; no promise of stubs.
+- [ ] Version: 1.0.0 vs 0.1.0/0.9.0 for alpha; document in README.
+- [ ] Internal-only docs (future-ideas, placeholder platforms): mark or move so client doesn’t treat as delivered.
+- [ ] Coding guidelines: single source of truth; link from README/CONTRIBUTING if needed.
+
+================================================================================
+11. CURSOR RULE & TESTS
+================================================================================
+
+- [ ] .cursor/rules/checkinstanc.mdc: matches “instance extensions checked before create”. Expand if needed.
+- [ ] No unit tests: document “validate manually” for alpha. Optional: smoke script (run app, exit code 0).
+- [ ] No assert()/abort() in Release hot path with valid input.
+
+================================================================================
+12. IMPROVEMENTS — DO WHILE REVIEWING
+================================================================================
+(Apply these as you fix/check; improves codebase without scope creep.)
+
+- [ ] Single scene model: pick Scene (scene.h) or SceneUnified; remove the other or merge. One clear data path for “current scene” and “render list”.
+- [ ] Umbrella headers: if keeping core.h / managers.h, add one include in a central file (e.g. vulkan_app or main) so they are the single include for ECS/managers. Else remove.
+- [ ] Deprecated API: remove old push-constant helpers from object.h once all call sites use instanced path; reduces confusion and maintenance.
+- [ ] Config limits: move magic numbers (e.g. max objects, max lights) to named constants or config; easy to tune for scale.
+- [ ] Descriptor layout: centralize binding numbers (e.g. enum or constants) so new pipelines/shaders don’t hardcode; reduces binding bugs.
+- [ ] Error handling: consistent pattern (log + throw for fatal; return false + log for recoverable). No silent ignores.
+- [ ] Include guards: prefer #pragma once everywhere; no mixed #ifndef.
+- [ ] Forward decls: use in headers where possible; reduce compile time and coupling.
+- [ ] Manager init order: document or enforce via a single InitManagers() that initializes in correct order; scales when adding new managers.
+- [ ] Editor menus: either implement or clearly disable with tooltip; no “does nothing” actions.
+
+================================================================================
+13. SCALABILITY — DESIGN FOR GROWTH
+================================================================================
+(Ensure architecture can grow without rewrites.)
+
+- [ ] Object count: max objects from config; buffers/SSBOs sized from config. No hardcoded small limits in hot path.
+- [ ] Light count: max lights (e.g. 256) and light buffer size configurable; shader loop/UBO size matches.
+- [ ] Draw calls / batches: batching and sort order scale with more meshes; no O(n²) or per-draw alloc in inner loop.
+- [ ] Scenes/levels: load/unload one scene at a time; clear refs so TrimUnused can run. No assumption of “single global scene” that can’t be swapped.
+- [ ] Adding components: adding a new component type (e.g. Audio) follows docs: new pool, add to GameObject, one place to register. No hidden coupling.
+- [ ] Adding managers: new manager registered in one place (e.g. VulkanApp + ResourceCleanupManager); init order documented.
+- [ ] Adding shaders/pipelines: pipeline key + layout in one place; descriptor bindings from shared constants. New pass = new pipeline, no copy-paste of 20 bindings.
+- [ ] Threading: job queue for load; resource thread for trim. No ad-hoc threads; adding new async work uses existing queue or documented pattern.
+- [ ] Memory: large allocations (SSBOs, pools) driven by config or heuristics; no “fixed 1024” that blocks scaling.
+- [ ] Platforms: platform-specific code behind interfaces or #if; adding new platform (e.g. mobile) doesn’t require touching core render path.
+- [ ] Docs: architecture.md and ROADMAP describe how to add features; new dev can add component/manager/shader without guessing.
+
+================================================================================
+14. QUESTIONS FOR USER (ASK IF IN DOUBT)
+================================================================================
+(Unclear decisions — get your input before locking behavior.)
+
+- Scene vs SceneUnified: for alpha and beyond, which is canonical? Remove the other or keep SceneUnified as “future” and document?
+- Binding 8 (visible indices / GPU culler): ship alpha with culler on or off? Document and stub cleanly if off.
+- Normals / emissive / material props (engine-design bugs): fix before alpha or list as known limitations?
+- Version number: 0.1.0 / 0.9.0 / 1.0.0 for alpha build?
+- Editor: which menu items must work for alpha demo vs “Coming later”? Disable the rest clearly.
+- Scalability targets: any specific numbers (e.g. “must support 10k objects”, “50 lights”) to validate against?
+
+================================================================================
+15. QUICK REFERENCE — TODOs BY FILE
+================================================================================
+
+| Location                     | Action |
+|-----------------------------|--------|
+| scene_unified.*             | Remove as dead or integrate. |
+| scene.h vs scene_unified.h   | Resolve dual “Scene” name; one source of truth. |
+| object.h deprecated API     | Migrate or document. |
+| vulkan_app SSBO binding 8   | Wire or stub; document. |
+| scene_unified.cpp TODOs     | Hierarchy/bounds — implement or doc. |
+| procedural_mesh cylinder/cone | Implement or doc. |
+| scene_manager animation/skinning | Doc “not in alpha”. |
+| engine.cpp placeholders     | Real logic or explicit nop. |
+| Editor placeholder menus    | Implement or disable + tooltip. |
+| core.h / managers.h         | Use or remove. |
+| physics_component stub      | Doc or minimal behavior. |
+| engine-design.md bugs       | Normals, emissive, material props — fix or doc. |
+
+---
+When every section is checked, improvements applied where listed, and scalability verified, the project is consistent, maintainable, and ready for client alpha demo.
+When in doubt on a decision (e.g. Scene vs SceneUnified, culler on/off), ask the user before changing behavior.
