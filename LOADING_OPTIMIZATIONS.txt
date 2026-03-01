@@ -1,0 +1,105 @@
+=============================================================================
+                    LEVEL LOADING OPTIMIZATIONS - PROGRESS
+=============================================================================
+Started: 2026-02-27
+Status: COMPLETED ✓
+
+=============================================================================
+OPTIMIZATIONS PLANNED
+=============================================================================
+
+[1] GLTF MODEL CACHING (Priority: HIGH)
+    Status: COMPLETED ✓
+    
+    Problem: Each instance entry triggers LoadFromFile() for the GLTF.
+             100 helmets = 100 disk reads of same file.
+    
+    Solution: Added file-scoped cache in scene_manager.cpp:
+              static std::map<std::string, std::unique_ptr<tinygltf::Model>> s_gltfModelCache
+    
+    Implementation:
+    - GetOrLoadGltfModel(path) - returns cached or loads new
+    - ClearGltfCache() - called on UnloadScene()
+    - Console log shows cache hits: "cached glTF ... (X meshes, Y materials)"
+    
+    Files modified:
+    - src/managers/scene_manager.h   (added method declarations)
+    - src/managers/scene_manager.cpp (added cache + methods)
+
+-----------------------------------------------------------------------------
+
+[2] MODEL DEFINITIONS IN LEVEL.JSON (Priority: HIGH)
+    Status: COMPLETED ✓
+    
+    Problem: Every instance repeats "source", "instanceTier", "renderMode".
+             Verbose, error-prone, hard to maintain.
+    
+    Solution: Added "models" section for reusable definitions:
+              {
+                "models": {
+                  "Helmet": { "source": "...", "instanceTier": "static" }
+                },
+                "instances": [
+                  { "model": "Helmet", "position": [...] }
+                ]
+              }
+    
+    Implementation:
+    - Parse "models" section before "instances" in LoadLevelFromFile()
+    - ModelDef struct holds source, renderMode, instanceTier defaults
+    - Instances can use "model" key to reference definition
+    - Instance values override model defaults
+    - Fully backwards compatible (existing "source" still works)
+    
+    Files modified:
+    - src/managers/scene_manager.cpp (added model definitions parsing)
+
+-----------------------------------------------------------------------------
+
+[3] TEXTURE DEDUPLICATION CHECK (Priority: MEDIUM)
+    Status: VERIFIED ✓
+    
+    TextureManager already uses GetOrCreateFromMemory with name-based caching.
+    No changes needed - textures are already deduplicated.
+
+-----------------------------------------------------------------------------
+
+[4] MATERIAL DEDUPLICATION (Priority: LOW)
+    Status: NOT STARTED
+    
+    Multiple instances of same GLTF create separate Material pipeline lookups.
+    Could cache pipeline key -> Material* mapping at model level.
+
+-----------------------------------------------------------------------------
+
+[5] ASYNC GLTF LOADING (Priority: FUTURE)
+    Status: DEFERRED
+    
+    Background thread loads GLTFs while showing loading screen.
+    Already have JobQueue infrastructure.
+
+=============================================================================
+IMPLEMENTATION LOG
+=============================================================================
+
+[2026-02-27] Started optimization work
+- Created this progress file
+- Implemented GLTF model caching (s_gltfModelCache)
+- Implemented model definitions parsing in LoadLevelFromFile
+- Created demo level: levels/model_defs_demo/level.json
+- All builds successful (Debug)
+
+Summary of changes:
+- src/managers/scene_manager.h: Added GetOrLoadGltfModel(), ClearGltfCache()
+- src/managers/scene_manager.cpp: 
+  - File-scoped s_gltfModelCache map
+  - Model definitions parsing (ModelDef struct)
+  - Instance "model" key support with fallback to "source"
+  - GetOrLoadGltfModel() caches parsed models
+  - ClearGltfCache() called on UnloadScene()
+- levels/model_defs_demo/level.json: Example using new format
+
+Performance impact:
+- Before: 100 helmet instances = 100 file reads + 100 parses
+- After:  100 helmet instances = 1 file read + 1 parse + 99 cache hits
+

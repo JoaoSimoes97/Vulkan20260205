@@ -1,0 +1,56 @@
+{
+  "name": "Model Definitions Demo",
+  "version": "1.0",
+  "description": "Demonstrates the model definitions feature for cleaner level files",
+  
+  "lights": [
+    {
+      "name": "Sun",
+      "type": "directional",
+      "position": [0.0, 50.0, 0.0],
+      "rotation": [-0.383, 0.0, 0.0, 0.924],
+      "color": [1.0, 0.98, 0.95],
+      "intensity": 1.5
+    }
+  ],
+  
+  "models": {
+    "Helmet": {
+      "source": "../../models/DamagedHelmet.glb",
+      "renderMode": "auto",
+      "instanceTier": "static"
+    },
+    "Floor": {
+      "source": "procedural:rectangle",
+      "renderMode": "solid",
+      "instanceTier": "static"
+    }
+  },
+  
+  "instances": [
+    {
+      "name": "Ground",
+      "model": "Floor",
+      "position": [0.0, -1.0, 0.0],
+      "rotation": [-0.707, 0.0, 0.0, 0.707],
+      "scale": [50.0, 50.0, 1.0],
+      "color": [0.2, 0.2, 0.25, 1.0]
+    },
+    
+    { "name": "Helmet_01", "model": "Helmet", "position": [-4.0, 0.0, 0.0] },
+    { "name": "Helmet_02", "model": "Helmet", "position": [0.0, 0.0, 0.0] },
+    { "name": "Helmet_03", "model": "Helmet", "position": [4.0, 0.0, 0.0] },
+    
+    { "name": "Helmet_04", "model": "Helmet", "position": [-4.0, 0.0, -4.0], "rotation": [0.0, 0.383, 0.0, 0.924] },
+    { "name": "Helmet_05", "model": "Helmet", "position": [0.0, 0.0, -4.0], "rotation": [0.0, 0.707, 0.0, 0.707] },
+    { "name": "Helmet_06", "model": "Helmet", "position": [4.0, 0.0, -4.0], "rotation": [0.0, 0.924, 0.0, 0.383] },
+    
+    {
+      "_comment": "Override instanceTier for this specific helmet (dynamic instead of static)",
+      "name": "DynamicHelmet",
+      "model": "Helmet",
+      "position": [0.0, 2.0, 2.0],
+      "instanceTier": "dynamic"
+    }
+  ]
+}
