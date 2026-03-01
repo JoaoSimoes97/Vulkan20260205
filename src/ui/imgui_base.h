@@ -119,7 +119,12 @@ private:
     bool m_bInitialized = false;
     bool m_bEnabled = true;
     bool m_bViewportsEnabled = false;
+    bool m_bOwnsContext = false;  // True if this instance created the shared context
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+    
+    // Static: shared ImGui context management
+    static int s_contextRefCount;
+    static bool s_backendsInitialized;
 };

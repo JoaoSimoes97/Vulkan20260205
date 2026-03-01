@@ -152,7 +152,7 @@ void MainMenu::DrawMainPage() {
         ImGui::PopStyleColor(3);
         
         // Version/credits at bottom
-        const char* versionText = "v1.0 - 2026";
+        const char* versionText = "João Simões - 2026";
         ImVec2 versionSize = ImGui::CalcTextSize(versionText);
         ImGui::SetCursorPosX((viewport->WorkSize.x - versionSize.x) * 0.5f);
         ImGui::SetCursorPosY(viewport->WorkSize.y - 40.0f);

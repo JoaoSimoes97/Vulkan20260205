@@ -101,6 +101,12 @@ private:
     
     /** Recursive helper for visiting glTF nodes (factored from lambda per coding guidelines). */
     void VisitGltfNode(GltfNodeVisitorContext& ctx, int nodeIndex, const float* parentMatrix);
+    
+    /** Get or load a glTF model (cached). Returns nullptr on failure. */
+    const tinygltf::Model* GetOrLoadGltfModel(const std::string& path);
+    
+    /** Clear the glTF model cache (call on scene unload). */
+    void ClearGltfCache();
 
     GltfLoader m_gltfLoader;
     MaterialManager* m_pMaterialManager = nullptr;

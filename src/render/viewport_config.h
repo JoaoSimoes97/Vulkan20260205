@@ -106,6 +106,9 @@ struct ViewportConfig {
     /** Show grid in this viewport? */
     bool bShowGrid = false;
     
+    /** Show light debug visualization in this viewport? */
+    bool bShowLightDebug = false;
+    
     /** Field of view override (0 = use camera's default). */
     float fovOverride = 0.0f;
     

@@ -134,7 +134,7 @@ private:
     void RenderRuntimeUI(VkCommandBuffer cmd);
 #if EDITOR_BUILD
     void RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>* pDrawCalls_ic, const float* pViewProj_ic,
-                         bool bRenderLightDebug, SceneNew* pSceneNew_ic);
+                         SceneNew* pSceneNew_ic);
 #endif
 
     /* ======== Threading & Job Queue ======== */

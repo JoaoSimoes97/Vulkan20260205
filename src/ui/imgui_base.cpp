@@ -18,6 +18,10 @@ namespace {
     }
 }
 
+// Static member initialization
+int ImGuiBase::s_contextRefCount = 0;
+bool ImGuiBase::s_backendsInitialized = false;
+
 ImGuiBase::~ImGuiBase() {
     if (m_bInitialized) {
         ShutdownImGui();
@@ -43,8 +47,22 @@ void ImGuiBase::InitImGui(
 
     m_device = device;
 
-    // Create descriptor pool for ImGui
+    // Create descriptor pool for ImGui (each instance needs its own)
     CreateDescriptorPool();
+
+    // Check if ImGui context and backends are already initialized (shared context)
+    if (s_backendsInitialized) {
+        // Reuse existing context - just increment refcount
+        ++s_contextRefCount;
+        m_bOwnsContext = false;
+        m_bInitialized = true;
+        VulkanUtils::LogInfo("ImGuiBase attached to shared context (refCount: {})", s_contextRefCount);
+        return;
+    }
+
+    // First initialization - create shared context
+    m_bOwnsContext = true;
+    ++s_contextRefCount;
 
     // Setup ImGui context
     IMGUI_CHECKVERSION();
@@ -99,6 +117,7 @@ void ImGuiBase::InitImGui(
     ImGui_ImplVulkan_Init(&initInfo);
     ImGui_ImplVulkan_CreateFontsTexture();
 
+    s_backendsInitialized = true;
     m_bInitialized = true;
     VulkanUtils::LogInfo("ImGuiBase initialized (docking: {}, viewports: {})",
         enableDocking ? "on" : "off",
@@ -108,17 +127,28 @@ void ImGuiBase::InitImGui(
 void ImGuiBase::ShutdownImGui() {
     if (!m_bInitialized) return;
 
-    ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplSDL3_Shutdown();
-    ImGui::DestroyContext();
-
+    // Destroy our descriptor pool (each instance has its own)
     if (m_descriptorPool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
         m_descriptorPool = VK_NULL_HANDLE;
     }
 
+    // Decrement refcount
+    --s_contextRefCount;
+    
+    // Only destroy shared context when last instance shuts down
+    if (s_contextRefCount <= 0) {
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplSDL3_Shutdown();
+        ImGui::DestroyContext();
+        s_backendsInitialized = false;
+        s_contextRefCount = 0;
+        VulkanUtils::LogInfo("ImGuiBase: destroyed shared context");
+    } else {
+        VulkanUtils::LogInfo("ImGuiBase: detached from shared context (refCount: {})", s_contextRefCount);
+    }
+
     m_bInitialized = false;
-    VulkanUtils::LogInfo("ImGuiBase shutdown");
 }
 
 void ImGuiBase::CreateDescriptorPool() {

@@ -252,7 +252,7 @@ bool EditorLayer::WantCaptureKeyboard() const {
 }
 
 void EditorLayer::DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager, Scene* pRenderScene) {
-    if (!m_bInitialized || !m_bEnabled || !pScene) return;
+    if (!m_bInitialized || !m_bEnabled) return;
     
     // Store render scene for inspector access (emissive light editing)
     m_pRenderScene = pRenderScene;
@@ -287,10 +287,13 @@ void EditorLayer::DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConf
     ImGuiID dockspaceId = ImGui::GetID("MainDockSpace");
     ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
 
-    // Menu bar
+    // Menu bar - always draw even without a scene
     DrawMenuBar();
 
     ImGui::End();
+
+    // Only draw panels if we have a valid scene
+    if (!pScene) return;
 
     // Draw panels (based on visibility toggles)
     if (m_bShowToolbar) DrawToolbar();
@@ -1530,6 +1533,9 @@ void EditorLayer::DrawViewportsPanel(ViewportManager* pViewportManager, SceneNew
             
             // Visibility toggle
             ImGui::Checkbox("Visible", &config.bVisible);
+            
+            // Light debug toggle
+            ImGui::Checkbox("Show Light Debug", &config.bShowLightDebug);
             
             // Render mode dropdown
             const char* renderModes[] = {"Solid", "Wireframe", "Unlit", "Normals", "Depth", "UV"};

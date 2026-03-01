@@ -24,6 +24,11 @@
 
 using json = nlohmann::json;
 
+// ============================================================================
+// File-scoped glTF model cache (avoids incomplete type issues in header)
+// ============================================================================
+static std::map<std::string, std::unique_ptr<tinygltf::Model>> s_gltfModelCache;
+
 namespace {
 
 /**
@@ -524,10 +529,17 @@ void SceneManager::UnloadScene() {
     m_sceneNew.reset();
     // Clear procedural mesh cache to release all mesh handles
     m_proceduralMeshCache.clear();
+    // Clear glTF model cache (will be reloaded on next level load)
+    ClearGltfCache();
 }
 
 void SceneManager::SetCurrentScene(std::unique_ptr<Scene> scene) {
     m_currentScene = std::move(scene);
+    
+    // Also create a matching SceneNew if we don't have one (for empty scenes)
+    if (m_currentScene && !m_sceneNew) {
+        m_sceneNew = std::make_unique<SceneNew>(m_currentScene->GetName());
+    }
 }
 
 void SceneManager::EnsureDefaultLevelFile(const std::string& path) {
@@ -586,6 +598,39 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
     // Track glTF internal hierarchy: (childObjIndex, parentObjIndex) pairs
     std::vector<std::pair<size_t, size_t>> gltfHierarchyPairs;
 
+    // ========================================================================
+    // Parse model definitions (reusable templates for instances)
+    // ========================================================================
+    struct ModelDef {
+        std::string source;
+        std::string renderMode = "auto";
+        std::string instanceTier = "static";
+    };
+    std::map<std::string, ModelDef> modelDefs;
+    
+    if (j.contains("models") && j["models"].is_object()) {
+        for (auto& [modelName, modelJson] : j["models"].items()) {
+            if (!modelJson.is_object()) continue;
+            
+            ModelDef def;
+            if (modelJson.contains("source") && modelJson["source"].is_string()) {
+                def.source = modelJson["source"].get<std::string>();
+            }
+            if (modelJson.contains("renderMode") && modelJson["renderMode"].is_string()) {
+                def.renderMode = modelJson["renderMode"].get<std::string>();
+            }
+            if (modelJson.contains("instanceTier") && modelJson["instanceTier"].is_string()) {
+                def.instanceTier = modelJson["instanceTier"].get<std::string>();
+            }
+            
+            if (!def.source.empty()) {
+                modelDefs[modelName] = def;
+                VulkanUtils::LogInfo("SceneManager: registered model definition \"{}\" -> \"{}\"", 
+                                     modelName, def.source);
+            }
+        }
+    }
+
     if (!j.contains("instances") || !j["instances"].is_array()) {
         SetCurrentScene(std::move(scene));
         VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" (no instances)", path);
@@ -593,9 +638,34 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
     }
 
     for (const auto& jInst : j["instances"]) {
-        if (!jInst.is_object() || !jInst.contains("source") || !jInst["source"].is_string())
+        if (!jInst.is_object())
             continue;
-        const std::string source = jInst["source"].get<std::string>();
+        
+        // Resolve source and defaults from model definition or direct specification
+        std::string source;
+        std::string defaultRenderMode = "auto";
+        std::string defaultInstanceTier = "static";
+        
+        // Check for model reference first (new format)
+        if (jInst.contains("model") && jInst["model"].is_string()) {
+            const std::string modelRef = jInst["model"].get<std::string>();
+            auto it = modelDefs.find(modelRef);
+            if (it != modelDefs.end()) {
+                source = it->second.source;
+                defaultRenderMode = it->second.renderMode;
+                defaultInstanceTier = it->second.instanceTier;
+            } else {
+                VulkanUtils::LogErr("SceneManager: unknown model reference \"{}\"", modelRef);
+                continue;
+            }
+        }
+        // Fall back to direct source (legacy format)
+        else if (jInst.contains("source") && jInst["source"].is_string()) {
+            source = jInst["source"].get<std::string>();
+        }
+        else {
+            continue; // Neither model nor source specified
+        }
         
         // Parse instance name (override for source, used for parenting references)
         std::string instanceName;
@@ -611,23 +681,26 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
         if (source.empty())
             continue;
 
+        // Parse renderMode (instance override takes precedence over model default)
         RenderMode renderMode = RenderMode::Auto;
+        std::string modeStr = defaultRenderMode;
         if (jInst.contains("renderMode") && jInst["renderMode"].is_string()) {
-            const std::string modeStr = jInst["renderMode"].get<std::string>();
-            if (modeStr == "solid") renderMode = RenderMode::Solid;
-            else if (modeStr == "wireframe") renderMode = RenderMode::Wireframe;
-            else if (modeStr == "auto") renderMode = RenderMode::Auto;
-            else {
-                VulkanUtils::LogErr("SceneManager: unknown renderMode \"{}\" for source \"{}\"", modeStr, source);
-                continue;
-            }
+            modeStr = jInst["renderMode"].get<std::string>();
+        }
+        if (modeStr == "solid") renderMode = RenderMode::Solid;
+        else if (modeStr == "wireframe") renderMode = RenderMode::Wireframe;
+        else if (modeStr == "auto") renderMode = RenderMode::Auto;
+        else {
+            VulkanUtils::LogErr("SceneManager: unknown renderMode \"{}\" for source \"{}\"", modeStr, source);
+            continue;
         }
 
-        // Parse instance tier (default: static)
-        InstanceTier instanceTier = InstanceTier::Static;
+        // Parse instance tier (instance override takes precedence over model default)
+        std::string tierStr = defaultInstanceTier;
         if (jInst.contains("instanceTier") && jInst["instanceTier"].is_string()) {
-            instanceTier = ParseInstanceTier(jInst["instanceTier"].get<std::string>());
+            tierStr = jInst["instanceTier"].get<std::string>();
         }
+        InstanceTier instanceTier = ParseInstanceTier(tierStr);
 
         float pos[3] = { 0.f, 0.f, 0.f };
         float rot[4] = { 0.f, 0.f, 0.f, 1.f };
@@ -754,11 +827,9 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
 
         const std::filesystem::path resolvedPath = baseDir / source;
         const std::string gltfPath = resolvedPath.string();
-        if (!m_gltfLoader.LoadFromFile(gltfPath)) {
-            VulkanUtils::LogErr("SceneManager: failed to load glTF \"{}\"", gltfPath);
-            continue;
-        }
-        const tinygltf::Model* model = m_gltfLoader.GetModel();
+        
+        // Use cached model loading (avoids re-parsing same file for multiple instances)
+        const tinygltf::Model* model = GetOrLoadGltfModel(gltfPath);
         if (!model || model->meshes.empty()) {
             VulkanUtils::LogErr("SceneManager: glTF has no meshes \"{}\"", gltfPath);
             continue;
@@ -1183,6 +1254,43 @@ std::shared_ptr<MeshHandle> SceneManager::LoadProceduralMesh(const std::string& 
     return pMesh;
 }
 
+const tinygltf::Model* SceneManager::GetOrLoadGltfModel(const std::string& path) {
+    // Check cache first
+    auto it = s_gltfModelCache.find(path);
+    if (it != s_gltfModelCache.end()) {
+        return it->second.get();
+    }
+    
+    // Load from file
+    if (!m_gltfLoader.LoadFromFile(path)) {
+        VulkanUtils::LogErr("SceneManager: failed to load glTF \"{}\"", path);
+        return nullptr;
+    }
+    
+    // Clone the model into cache (GltfLoader owns one model at a time)
+    const tinygltf::Model* pLoaded = m_gltfLoader.GetModel();
+    if (!pLoaded) {
+        return nullptr;
+    }
+    
+    // Move-construct a copy into the cache
+    auto pCached = std::make_unique<tinygltf::Model>(*pLoaded);
+    const tinygltf::Model* pResult = pCached.get();
+    s_gltfModelCache[path] = std::move(pCached);
+    
+    VulkanUtils::LogInfo("SceneManager: cached glTF \"{}\" ({} meshes, {} materials)",
+                         path, pResult->meshes.size(), pResult->materials.size());
+    
+    return pResult;
+}
+
+void SceneManager::ClearGltfCache() {
+    if (!s_gltfModelCache.empty()) {
+        VulkanUtils::LogInfo("SceneManager: cleared {} cached glTF models", s_gltfModelCache.size());
+        s_gltfModelCache.clear();
+    }
+}
+
 void SceneManager::LoadLightsFromJson(const nlohmann::json& j) {
     if (!m_sceneNew) return;
     
@@ -1331,23 +1439,18 @@ uint32_t SceneManager::GenerateStressTestScene(const StressTestParams& params, c
         return 0;
     }
     
-    // Load the glTF model
-    if (!m_gltfLoader.LoadFromFile(modelPath)) {
-        VulkanUtils::LogErr("SceneManager: failed to load glTF model: {}", modelPath);
-        return 0;
-    }
-    
-    const tinygltf::Model* pModel = m_gltfLoader.GetModel();
-    if (!pModel || pModel->meshes.empty()) {
-        VulkanUtils::LogErr("SceneManager: glTF model has no meshes: {}", modelPath);
-        return 0;
-    }
-    
-    // Create new scene
+    // Create new scene first (clears cache), then load model
     UnloadScene();
     m_currentScene = std::make_unique<Scene>();
     m_currentScene->SetName("Stress Test");
     m_sceneNew = std::make_unique<SceneNew>();
+    
+    // Load the glTF model (uses cache)
+    const tinygltf::Model* pModel = GetOrLoadGltfModel(modelPath);
+    if (!pModel || pModel->meshes.empty()) {
+        VulkanUtils::LogErr("SceneManager: glTF model has no meshes: {}", modelPath);
+        return 0;
+    }
     
     // Extract first mesh/primitive from model
     const tinygltf::Mesh& mesh = pModel->meshes[0];

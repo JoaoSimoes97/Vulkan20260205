@@ -1791,7 +1791,7 @@ void VulkanApp::RenderRuntimeUI(VkCommandBuffer cmd) {
 
 #if EDITOR_BUILD
 void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>* pDrawCalls_ic, const float* pViewProj_ic,
-                                bool bRenderLightDebug, SceneNew* pSceneNew_ic) {
+                                SceneNew* pSceneNew_ic) {
     /* Per-viewport temporary push constant buffer (96 bytes for instanced rendering) */
     alignas(16) uint8_t vpPushData[kInstancedPushConstantSize];
     
@@ -1920,8 +1920,9 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
             }
         }
         
-        /* Render light debug visualizations (inside the viewport render pass) */
-        if ((bRenderLightDebug == true) && (pSceneNew_ic != nullptr)) {
+        /* Render light debug visualizations (inside the viewport render pass, per-viewport toggle) */
+        const bool bVpLightDebug = vp.config.bShowLightDebug && this->m_lightDebugRenderer.IsReady();
+        if ((bVpLightDebug == true) && (pSceneNew_ic != nullptr)) {
             this->m_lightDebugRenderer.Draw(cmd, pSceneNew_ic, vpViewProj);
         }
         
@@ -2113,16 +2114,13 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
 
 #if EDITOR_BUILD
     /* Pre-scene callback for viewport rendering (all viewports render to offscreen targets).
-       This includes scene objects AND light debug. */
-    const bool bRenderLightDebug = (this->m_config.bShowLightDebug == true) && 
-                                   (this->m_lightDebugRenderer.IsReady() == true) && 
-                                   (pViewProjMat16_ic != nullptr);
+       Light debug is controlled per-viewport via bShowLightDebug. */
     SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
     
     /* Wrap viewport rendering with GPU culler dispatch */
     auto viewportCallback = std::bind(
         &VulkanApp::RenderViewports, this, std::placeholders::_1,
-        &vecDrawCalls_ic, pViewProjMat16_ic, bRenderLightDebug, pSceneNew);
+        &vecDrawCalls_ic, pViewProjMat16_ic, pSceneNew);
     
     /* GPU culler dispatch happens before any render passes */
     std::function<void(VkCommandBuffer)> preSceneCallback = [this, viewportCallback](VkCommandBuffer cmd) {
