@@ -31,6 +31,14 @@ layout(push_constant) uniform Push {
     // Total: 96 bytes
 } pc;
 
+/* ---- Global UBO (binding 1): time, deltaTime, reserved for future use ---- */
+layout(std140, set = 0, binding = 1) uniform GlobalUBO {
+    float time;
+    float deltaTime;
+    float _pad0;
+    float _pad1;
+} globalUBO;
+
 /* ---- Texture Sampler (binding 0) ---- */
 layout(set = 0, binding = 0) uniform sampler2D uTex;
 

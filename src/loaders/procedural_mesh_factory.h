@@ -10,6 +10,7 @@ class MeshHandle;
 /**
  * ProceduralMeshFactory: Generate basic geometric primitives with full vertex data (pos+UV+normal).
  * All meshes use the VertexData struct (interleaved pos+UV+normal, 32 bytes/vertex).
+ * Alpha: Cylinder and cone do not include top/bottom cap geometry; side-only. Documented as alpha limitation.
  */
 namespace ProceduralMeshFactory {
 

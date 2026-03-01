@@ -27,6 +27,7 @@
 #include "scene/scene_unified.h"
 #include <glm/glm.hpp>
 #include <cstdint>
+#include <unordered_set>
 #include <vector>
 
 struct DrawBatch;
@@ -79,6 +80,8 @@ public:
     
     /**
      * Update SSBO with object data from render list (unified Scene path).
+     * @param bForceFullUploadThisFrame If true, upload all tiers this frame.
+     * @param pMovedObjectIds If non-null (e.g. in editor), also upload Static/SemiStatic/Procedural objects whose gameObjectId is in this set, so only moved objects are re-uploaded.
      */
     TierUpdateStats UpdateSSBO(
         ObjectData* pObjectData,
@@ -86,7 +89,9 @@ public:
         const std::vector<RenderObject>& renderObjects,
         const std::vector<DrawBatch>& opaqueBatches,
         const std::vector<DrawBatch>& transparentBatches,
-        bool bSceneRebuilt
+        bool bSceneRebuilt,
+        bool bForceFullUploadThisFrame = false,
+        const std::unordered_set<uint32_t>* pMovedObjectIds = nullptr
     );
     
     /**
@@ -108,6 +113,7 @@ private:
         const std::vector<RenderObject>& renderObjects,
         const DrawBatch& batch,
         bool bFullUpload,
+        const std::unordered_set<uint32_t>* pMovedObjectIds,
         TierUpdateStats& stats
     );
     

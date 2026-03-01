@@ -57,6 +57,7 @@ private:
 
     void LoadLightsFromJson(const nlohmann::json& j);
 
+    /** Animation/skinning not in alpha: stub only; logs if glTF has animation/skin data. */
     void PrepareAnimationImportStub(const tinygltf::Model& model, const std::string& gltfPath);
     void PrepareSkinningImportStub(const tinygltf::Model& model, const tinygltf::Primitive& prim, const std::string& gltfPath);
 

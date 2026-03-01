@@ -28,6 +28,13 @@ install\Debug\bin\VulkanApp.exe levels/default/level.json
 scripts/linux/build.sh --debug
 ./install/Debug/bin/VulkanApp levels/default/level.json
 ```
+
+**Optional — build and run in one step (alpha validation):**  
+`scripts/windows/run_alpha.bat` or `scripts/linux/run_alpha.sh` (build Debug then launch with default level).
+
+**Release build (smoke test):**  
+`scripts/windows/build.bat --release` then `install\Release\bin\VulkanApp.exe levels\default\level.json` (Windows). Run from project root or from `install/Release/bin` so resource paths resolve.
+
 (Use only project scripts: `scripts/linux/build.sh`, `scripts/linux/clean.sh`, `scripts/linux/setup_linux.sh`; same for `scripts/windows/` and `scripts/macos/`.)
 
 ## Documentation
@@ -38,6 +45,7 @@ scripts/linux/build.sh --debug
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Development status and planned features |
 | [docs/getting-started.md](docs/getting-started.md) | Build setup for all platforms |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common issues and solutions |
+| [docs/guidelines/coding-guidelines.md](docs/guidelines/coding-guidelines.md) | Coding standards (naming, parameters, no `!`, literals, include order) |
 
 ## Project Structure
 

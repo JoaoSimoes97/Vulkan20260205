@@ -470,14 +470,9 @@ void Renderer::DestroyDepthResources() {
 }
 
 bool Renderer::CreateFramebuffers() {
-    // Need swapchain image views from context
-    // For now, this is a placeholder - actual implementation needs
-    // swapchain image views passed in context or retrieved separately
-    
+    // Alpha: Placeholder. Framebuffers are created and owned by VulkanApp; Renderer does not create them.
+    // Swapchain image views would need to be passed in context for Renderer to create framebuffers.
     m_framebuffers.resize(m_context.swapchainImageCount);
-
-    // Note: This requires swapchain image views which need to be added to context
-    // For now, return true assuming framebuffers are created externally
     return true;
 }
 

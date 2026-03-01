@@ -139,20 +139,14 @@ void Engine::RegisterSubsystem(std::unique_ptr<Subsystem> subsystem) {
 }
 
 bool Engine::InitializeWindow() {
-    // Window creation is delegated to app layer
-    // Engine holds a pointer to externally-created Window
-    // This avoids constructor parameter issues
-    
-    // Window is created by VulkanApp which passes it to Engine
-    // For now, return true as placeholder
+    // Window creation is delegated to app layer (VulkanApp). Engine holds a pointer to externally-created Window.
+    // Placeholder: not implemented in Engine; VulkanApp owns window. Alpha: explicit placeholder.
     return true;
 }
 
 bool Engine::InitializeVulkan() {
-    // Vulkan initialization is currently handled by VulkanApp
-    // This is a placeholder for future refactoring where Engine
-    // will own the Vulkan context directly
-    
+    // Vulkan initialization is currently handled by VulkanApp. Placeholder: Engine creates a Renderer instance only.
+    // Alpha: explicit placeholder; real Vulkan/swapchain ownership is in VulkanApp.
     m_renderer = std::make_unique<Renderer>();
     return m_renderer != nullptr;
 }
@@ -168,11 +162,8 @@ bool Engine::InitializeSubsystems() {
 }
 
 void Engine::ProcessInput() {
-    // Input processing is currently handled by Window/SDL
-    // Check if window requested close
-    if (m_window) {
-        // Window polling handled elsewhere for now
-    }
+    // Input processing is currently handled by Window/SDL at app layer. Alpha: explicit placeholder; no-op here.
+    (void)m_window;
 }
 
 void Engine::UpdateSystems(float deltaTime) {

@@ -186,10 +186,12 @@ private:
     /** Reverse map: descriptor set -> texture (for reference counting and cleanup). */
     std::map<VkDescriptorSet, std::shared_ptr<TextureHandle>> m_descriptorSetTextures;
 
-    /* ======== GPU Buffers (SSBO for lights) ======== */
+    /* ======== GPU Buffers (SSBO for lights, UBO global) ======== */
     /** Light data SSBO buffer (16 byte header + 256 lights × 64 bytes = ~16KB). */
     VkBuffer m_lightBuffer = VK_NULL_HANDLE;
     VkDeviceMemory m_lightBufferMemory = VK_NULL_HANDLE;
+    /** Global UBO (binding 1): time, deltaTime, padding to 64 bytes. Updated each frame. */
+    GPUBuffer m_globalUBOBuffer;
     
     /* ======== Ring Buffers (persistent mapping) ======== */
     /** Frame context manager for per-frame resource tracking. */
@@ -251,5 +253,7 @@ private:
     /* ======== Camera & Frame Timing ======== */
     Camera m_camera;
     float m_avgFrameTimeSec = 1.f / 60.f;
+    /** Total elapsed time in seconds (for global UBO). */
+    float m_totalTimeSec = 0.f;
     std::chrono::steady_clock::time_point m_lastFpsTitleUpdate;
 };

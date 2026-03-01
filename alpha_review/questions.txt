@@ -94,6 +94,6 @@ Planned shaders (later): Unlit, Shadow, Sky, Post. See shaders/SHADER_LIST.md.
 
 Tasks:
 - [x] Add shaders/SHADER_LIST.md (current list, binding table, planned unlit/shadow/sky/post, C++ todos).
-- [ ] Add global UBO; write binding 1 in all main-layout descriptor write paths.
-- [ ] Add time_demo.vert + time_demo.frag; one scene quad/cube; integrate pass in render loop.
-- [ ] Fix descriptor writes for 6, 7, 8 (default tex + visible-indices buffer) where still missing.
+- [x] Add global UBO; write binding 1 in all main-layout descriptor write paths (EnsureMainDescriptorSetWritten + GetOrCreateDescriptorSetForTextures). Global UBO 64 bytes (time, deltaTime); updated each frame in MainLoop.
+- [x] Add time_demo.vert + time_demo.frag; one scene cube; integrate pass in render loop (editor viewport: cube at (0,2,0), scale pulse from globalUBO.time, color from time in frag).
+- [x] Fix descriptor writes for 6, 7, 8 (default normal/occlusion tex + visible-indices buffer) in EnsureMainDescriptorSetWritten. GetOrCreateDescriptorSetForTextures already wrote 6, 7, 8.

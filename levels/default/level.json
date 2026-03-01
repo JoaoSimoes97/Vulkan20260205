@@ -96,6 +96,15 @@
       "renderMode": "auto"
     },
     {
+      "name": "Time Demo Cube",
+      "source": "procedural:cube",
+      "material": "time_demo",
+      "position": [0.0, 2.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "renderMode": "solid"
+    },
+    {
       "name": "Debug Mirror Sphere",
       "source": "procedural:sphere",
       "position": [0.0, 2.0, 0.0],

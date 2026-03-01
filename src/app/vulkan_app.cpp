@@ -21,11 +21,15 @@
 #include <functional>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 static const char* SHADER_VERT_PATH     = "shaders/vert.spv";
 static const char* SHADER_FRAG_PATH     = "shaders/frag.spv";
+static const char* SHADER_TIME_DEMO_VERT  = "shaders/time_demo.vert.spv";
+static const char* SHADER_TIME_DEMO_FRAG  = "shaders/time_demo.frag.spv";
 static const char* PIPELINE_KEY_MAIN_TEX   = "main_tex";
+static const char* PIPELINE_KEY_TIME_DEMO  = "time_demo";
 static const char* PIPELINE_KEY_WIRE_TEX   = "wire_tex";
 static const char* PIPELINE_KEY_MASK_TEX   = "mask_tex";
 static const char* PIPELINE_KEY_TRANSPARENT_TEX = "transparent_tex";
@@ -34,6 +38,15 @@ static const char* PIPELINE_KEY_WIRE_UNTEX = "wire_untex";
 static const char* PIPELINE_KEY_MASK_UNTEX = "mask_untex";
 static const char* PIPELINE_KEY_TRANSPARENT_UNTEX = "transparent_untex";
 static constexpr float kDefaultPanSpeed = 0.012f;
+
+#if EDITOR_BUILD
+/** Return wireframe pipeline key for a given pipeline key; if no wire variant, return same key. */
+static std::string GetWireframePipelineKey(const std::string& pipelineKey) {
+    if (pipelineKey.find("main_tex") != std::string::npos) return std::string(PIPELINE_KEY_WIRE_TEX);
+    if (pipelineKey.find("main_untex") != std::string::npos) return std::string(PIPELINE_KEY_WIRE_UNTEX);
+    return pipelineKey;
+}
+#endif
 static constexpr float kOrthoFallbackHalfExtent = 8.f;
 
 namespace {
@@ -175,6 +188,11 @@ void VulkanApp::InitVulkan() {
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_WIRE_UNTEX, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_MASK_UNTEX, &this->m_shaderManager, sVertPath, sFragPath);
     this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_TRANSPARENT_UNTEX, &this->m_shaderManager, sVertPath, sFragPath);
+    {
+        std::string sTimeDemoVert = VulkanUtils::GetResourcePath(SHADER_TIME_DEMO_VERT);
+        std::string sTimeDemoFrag = VulkanUtils::GetResourcePath(SHADER_TIME_DEMO_FRAG);
+        this->m_pipelineManager.RequestPipeline(PIPELINE_KEY_TIME_DEMO, &this->m_shaderManager, sTimeDemoVert, sTimeDemoFrag);
+    }
 
     /* Descriptor set layouts by key (before materials so pipeline layouts can reference them). */
     static const std::string kLayoutKeyMainFragTex("main_frag_tex");
@@ -309,6 +327,17 @@ void VulkanApp::InitVulkan() {
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("main_untex_ds", PIPELINE_KEY_MAIN_UNTEX, stUntexturedLayoutDesc, stPipeParamsDoubleSided));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("mask_untex_ds", PIPELINE_KEY_MASK_UNTEX, stUntexturedLayoutDesc, stPipeParamsDoubleSided));
     this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("transparent_untex_ds", PIPELINE_KEY_TRANSPARENT_UNTEX, stUntexturedLayoutDesc, stPipeParamsDoubleSided));
+    /* Time-demo pipeline: same descriptor layout (binding 1 = GlobalUBO), push constants 128 bytes (viewProj + model). */
+    {
+        constexpr uint32_t kTimeDemoPushSize = 128u;
+        PipelineLayoutDescriptor stTimeDemoLayoutDesc = {
+            .pushConstantRanges = {
+                { .stageFlags = static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), .offset = 0u, .size = kTimeDemoPushSize }
+            },
+            .descriptorSetLayouts = { pMainFragLayout },
+        };
+        this->m_cachedMaterials.push_back(this->m_materialManager.RegisterMaterial("time_demo", PIPELINE_KEY_TIME_DEMO, stTimeDemoLayoutDesc, stPipeParamsMain));
+    }
     this->m_meshManager.SetDevice(this->m_device.GetDevice());
     this->m_meshManager.SetPhysicalDevice(this->m_device.GetPhysicalDevice());
     this->m_meshManager.SetQueue(this->m_device.GetGraphicsQueue());
@@ -320,7 +349,6 @@ void VulkanApp::InitVulkan() {
     this->m_sceneManager.SetDependencies(&this->m_materialManager, &this->m_meshManager, &this->m_textureManager);
     this->m_meshManager.SetJobQueue(&this->m_jobQueue);
     this->m_textureManager.SetJobQueue(&this->m_jobQueue);
-    
     /* Start resource manager thread for async cleanup */
     this->m_resourceManagerThread.Start();
     
@@ -449,6 +477,17 @@ void VulkanApp::InitVulkan() {
     } else {
         VulkanUtils::LogErr("Failed to create placeholder visible indices SSBO");
         throw std::runtime_error("VulkanApp::InitVulkan: placeholder visible indices SSBO creation failed");
+    }
+
+    /* Global UBO (binding 1): 64 bytes for time, deltaTime, padding. Updated each frame. */
+    constexpr VkDeviceSize kGlobalUBOSize = 64u;
+    if (this->m_globalUBOBuffer.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice(),
+                                       kGlobalUBOSize,
+                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                       true /* persistentMap */) == false) {
+        VulkanUtils::LogErr("Global UBO creation failed");
+        throw std::runtime_error("VulkanApp::InitVulkan: global UBO creation failed");
     }
 
     /* Initialize descriptor cache for transient per-frame allocations. */
@@ -583,11 +622,17 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
         return;
     /* Already exposed main/wire in the map → set was written. */
     auto it = this->m_pipelineDescriptorSets.find(PIPELINE_KEY_MAIN_TEX);
-    if (it != this->m_pipelineDescriptorSets.end() && !it->second.empty())
+    if (it != this->m_pipelineDescriptorSets.end() && (it->second.empty() == false))
         return;
     std::shared_ptr<TextureHandle> pDefaultTex = this->m_textureManager.GetOrCreateDefaultTexture();
-    if (pDefaultTex == nullptr || !pDefaultTex->IsValid())
+    if (pDefaultTex == nullptr || (pDefaultTex->IsValid() == false))
         return;
+    std::shared_ptr<TextureHandle> pDefaultNormalTex = this->m_textureManager.GetOrCreateDefaultNormalTexture();
+    std::shared_ptr<TextureHandle> pDefaultOcclusionTex = this->m_textureManager.GetOrCreateDefaultOcclusionTexture();
+    if (pDefaultNormalTex == nullptr || (pDefaultNormalTex->IsValid() == false))
+        pDefaultNormalTex = pDefaultTex;
+    if (pDefaultOcclusionTex == nullptr || (pDefaultOcclusionTex->IsValid() == false))
+        pDefaultOcclusionTex = pDefaultTex;
     /* Keep a reference so TextureManager::TrimUnused() does not destroy the default texture (descriptor set uses its view/sampler). */
     this->m_pDefaultTexture = pDefaultTex;
     VkDescriptorImageInfo stImageInfo = {
@@ -595,7 +640,11 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
         .imageView   = pDefaultTex->GetView(),
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
-    
+    VkDescriptorBufferInfo stGlobalUBOInfo = {
+        .buffer = this->m_globalUBOBuffer.GetBuffer(),
+        .offset = 0,
+        .range  = 64u,
+    };
     /* Use ring buffer for object data SSBO - range covers one frame's worth of data.
        Dynamic offset selects which frame's region is active at bind time. */
     VkDescriptorBufferInfo stBufferInfo = {
@@ -603,90 +652,52 @@ void VulkanApp::EnsureMainDescriptorSetWritten() {
         .offset = 0,
         .range  = this->m_frameSize,
     };
-    
     VkDescriptorBufferInfo stLightBufferInfo = {
         .buffer = this->m_lightBuffer,
         .offset = 0,
         .range  = VK_WHOLE_SIZE,
     };
-    
     /* Default MR texture: white (1,1,1,1) so metallic/roughness factors are used as-is */
     VkDescriptorImageInfo stMRImageInfo = {
         .sampler     = pDefaultTex->GetSampler(),
         .imageView   = pDefaultTex->GetView(),
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
-    
     /* Default emissive texture: white (1,1,1,1) so emissiveFactor is used as-is */
     VkDescriptorImageInfo stEmissiveImageInfo = {
         .sampler     = pDefaultTex->GetSampler(),
         .imageView   = pDefaultTex->GetView(),
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
-    
-    std::array<VkWriteDescriptorSet, 5> writeDescriptors = {{
-        {
-            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext            = nullptr,
-            .dstSet           = this->m_descriptorSetMain,
-            .dstBinding       = 0,
-            .dstArrayElement  = 0,
-            .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo       = &stImageInfo,
-            .pBufferInfo      = nullptr,
-            .pTexelBufferView = nullptr,
-        },
-        {
-            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext            = nullptr,
-            .dstSet           = this->m_descriptorSetMain,
-            .dstBinding       = 2,
-            .dstArrayElement  = 0,
-            .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
-            .pImageInfo       = nullptr,
-            .pBufferInfo      = &stBufferInfo,
-            .pTexelBufferView = nullptr,
-        },
-        {
-            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext            = nullptr,
-            .dstSet           = this->m_descriptorSetMain,
-            .dstBinding       = 3,
-            .dstArrayElement  = 0,
-            .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pImageInfo       = nullptr,
-            .pBufferInfo      = &stLightBufferInfo,
-            .pTexelBufferView = nullptr,
-        },
-        {
-            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext            = nullptr,
-            .dstSet           = this->m_descriptorSetMain,
-            .dstBinding       = 4,
-            .dstArrayElement  = 0,
-            .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo       = &stMRImageInfo,
-            .pBufferInfo      = nullptr,
-            .pTexelBufferView = nullptr,
-        },
-        {
-            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext            = nullptr,
-            .dstSet           = this->m_descriptorSetMain,
-            .dstBinding       = 5,
-            .dstArrayElement  = 0,
-            .descriptorCount  = 1,
-            .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo       = &stEmissiveImageInfo,
-            .pBufferInfo      = nullptr,
-            .pTexelBufferView = nullptr,
-        }
+    VkDescriptorImageInfo stNormalImageInfo = {
+        .sampler     = pDefaultNormalTex->GetSampler(),
+        .imageView   = pDefaultNormalTex->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    VkDescriptorImageInfo stOcclusionImageInfo = {
+        .sampler     = pDefaultOcclusionTex->GetSampler(),
+        .imageView   = pDefaultOcclusionTex->GetView(),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    VkBuffer visibleIndicesBuffer = (this->m_gpuCullerEnabled && this->m_gpuCuller.IsValid())
+        ? this->m_gpuCuller.GetVisibleIndicesBuffer()
+        : this->m_placeholderVisibleIndicesSSBO.GetBuffer();
+    VkDescriptorBufferInfo stVisibleIndicesInfo = {
+        .buffer = visibleIndicesBuffer,
+        .offset = 0,
+        .range  = VK_WHOLE_SIZE,
+    };
+    std::array<VkWriteDescriptorSet, 9> writeDescriptors = {{
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 0, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &stImageInfo, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 1, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .pImageInfo = nullptr, .pBufferInfo = &stGlobalUBOInfo, .pTexelBufferView = nullptr },
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 2, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, .pImageInfo = nullptr, .pBufferInfo = &stBufferInfo, .pTexelBufferView = nullptr },
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 3, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr, .pBufferInfo = &stLightBufferInfo, .pTexelBufferView = nullptr },
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 4, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &stMRImageInfo, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 5, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &stEmissiveImageInfo, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 6, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &stNormalImageInfo, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 7, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &stOcclusionImageInfo, .pBufferInfo = nullptr, .pTexelBufferView = nullptr },
+        { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = nullptr, .dstSet = this->m_descriptorSetMain, .dstBinding = 8, .dstArrayElement = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pImageInfo = nullptr, .pBufferInfo = &stVisibleIndicesInfo, .pTexelBufferView = nullptr },
     }};
-    
     vkUpdateDescriptorSets(this->m_device.GetDevice(), static_cast<uint32_t>(writeDescriptors.size()), writeDescriptors.data(), 0, nullptr);
     
     /* Register descriptor set for all pipeline keys (both textured and untextured). */
@@ -862,7 +873,11 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
         .imageView   = pBaseColorTexture->GetView(),
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
-    
+    VkDescriptorBufferInfo globalUBOBufferInfo = {
+        .buffer = this->m_globalUBOBuffer.GetBuffer(),
+        .offset = 0,
+        .range  = 64u,
+    };
     /* Use ring buffer for object data SSBO. */
     VkDescriptorBufferInfo bufferInfo = {
         .buffer = this->m_objectDataRingBuffer.GetBuffer(),
@@ -911,7 +926,7 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
     
-    std::array<VkWriteDescriptorSet, 8> writes = {{
+    std::array<VkWriteDescriptorSet, 9> writes = {{
         {
             .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext            = nullptr,
@@ -922,6 +937,18 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
             .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .pImageInfo       = &baseColorImageInfo,
             .pBufferInfo      = nullptr,
+            .pTexelBufferView = nullptr,
+        },
+        {
+            .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext            = nullptr,
+            .dstSet           = newSet,
+            .dstBinding       = 1,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pImageInfo       = nullptr,
+            .pBufferInfo      = &globalUBOBufferInfo,
             .pTexelBufferView = nullptr,
         },
         {
@@ -1120,6 +1147,18 @@ void VulkanApp::MainLoop() {
     while (bQuit == false) {
         const auto frameStart = std::chrono::steady_clock::now();
 
+        /* Update global UBO (binding 1): time, deltaTime for shaders. */
+        {
+            void* pUBO = this->m_globalUBOBuffer.GetMappedPtr();
+            if (pUBO != nullptr) {
+                float* pFloats = static_cast<float*>(pUBO);
+                pFloats[0] = this->m_totalTimeSec;
+                pFloats[1] = this->m_avgFrameTimeSec;
+                pFloats[2] = 0.f;
+                pFloats[3] = 0.f;
+            }
+        }
+
         this->m_jobQueue.ProcessCompletedJobs(this->m_completedJobHandler);
         /* Clean up unused texture descriptor sets before trimming textures */
         CleanupUnusedTextureDescriptorSets();
@@ -1229,6 +1268,7 @@ void VulkanApp::MainLoop() {
         Scene* pScene = this->m_sceneManager.GetCurrentScene();
         if (pScene != nullptr) {
             pScene->UpdateTransformHierarchy();
+            this->m_batchedDrawList.RefreshWorldMatricesFromScene(pScene);
         }
 
         {
@@ -1280,13 +1320,28 @@ void VulkanApp::MainLoop() {
             ObjectData* pObjectData = this->m_objectDataRingBuffer.GetFrameData(lFrameIndex);
             
             if (pObjectData != nullptr && pScene != nullptr) {
+#if EDITOR_BUILD
+                std::unordered_set<uint32_t> movedIds = this->m_editorLayer.ConsumeMovedObjectIds();
+                const std::unordered_set<uint32_t>* pMovedIds = movedIds.empty() ? nullptr : &movedIds;
                 this->m_tieredInstanceManager.UpdateSSBO(
                     pObjectData,
                     this->m_config.lMaxObjects,
                     this->m_batchedDrawList.GetLastRenderObjects(),
                     this->m_batchedDrawList.GetOpaqueBatches(),
                     this->m_batchedDrawList.GetTransparentBatches(),
-                    bSceneRebuilt);
+                    bSceneRebuilt,
+                    false,
+                    pMovedIds);
+#else
+                this->m_tieredInstanceManager.UpdateSSBO(
+                    pObjectData,
+                    this->m_config.lMaxObjects,
+                    this->m_batchedDrawList.GetLastRenderObjects(),
+                    this->m_batchedDrawList.GetOpaqueBatches(),
+                    this->m_batchedDrawList.GetTransparentBatches(),
+                    bSceneRebuilt,
+                    false);
+#endif
             }
         }
         
@@ -1375,13 +1430,22 @@ void VulkanApp::MainLoop() {
         
         /* Convert batches to DrawCall format.
            Each batch = 1 draw call with instanceCount = number of objects in batch.
-           GPU uses batchStartIndex + gl_InstanceIndex to look up per-object data in SSBO. */
+           GPU uses batchStartIndex + gl_InstanceIndex to look up per-object data in SSBO.
+           Exception: time_demo pipeline uses 128-byte push (viewProj + model) and one draw per object. */
         this->m_drawCalls.clear();
         const auto& opaqueBatches = this->m_batchedDrawList.GetOpaqueBatches();
         const auto& transparentBatches = this->m_batchedDrawList.GetTransparentBatches();
-        this->m_drawCalls.reserve(opaqueBatches.size() + transparentBatches.size());
+        const auto& renderObjects = this->m_batchedDrawList.GetLastRenderObjects();
+        constexpr uint32_t kTimeDemoPushSize = 128u;
         
-        /* Helper to create draw call from batch */
+        size_t reserveCount = 0;
+        for (const auto& b : opaqueBatches)
+            reserveCount += (b.pipelineKey == "time_demo") ? b.objectIndices.size() : 1;
+        for (const auto& b : transparentBatches)
+            reserveCount += (b.pipelineKey == "time_demo") ? b.objectIndices.size() : 1;
+        this->m_drawCalls.reserve(reserveCount);
+        
+        /* Helper to create draw call from batch (instanced path) */
         auto createDrawCallFromBatch = [&](const DrawBatch& batch) {
             if (batch.objectIndices.empty()) return;
             if (batch.pipeline == VK_NULL_HANDLE) return;
@@ -1409,11 +1473,47 @@ void VulkanApp::MainLoop() {
             this->m_drawCalls.push_back(dc);
         };
         
+        /* Helper: one DrawCall per object for time_demo (128-byte push viewProj + model) */
+        auto createTimeDemoDrawCalls = [&](const DrawBatch& batch) {
+            if (batch.pipeline == VK_NULL_HANDLE || batch.objectIndices.empty()) return;
+            for (uint32_t objIdx : batch.objectIndices) {
+                if (objIdx >= renderObjects.size()) continue;
+                const float* pModel = renderObjects[objIdx].worldMatrix;
+                DrawCall dc = {
+                    .pipeline           = batch.pipeline,
+                    .pipelineLayout     = batch.pipelineLayout,
+                    .vertexBuffer       = batch.vertexBuffer,
+                    .vertexBufferOffset = batch.vertexBufferOffset,
+                    .pPushConstants     = nullptr,
+                    .pushConstantSize   = kTimeDemoPushSize,
+                    .vertexCount        = batch.vertexCount,
+                    .instanceCount      = 1,
+                    .firstVertex        = batch.firstVertex,
+                    .firstInstance      = 0,
+                    .descriptorSets     = batch.descriptorSets,
+                    .instanceBuffer     = VK_NULL_HANDLE,
+                    .instanceBufferOffset = 0,
+                    .dynamicOffsets     = {},
+                    .pLocalTransform    = pModel,
+                    .color              = {1.0f, 1.0f, 1.0f, 1.0f},
+                    .objectIndex        = 0,
+                    .pipelineKey        = batch.pipelineKey,
+                };
+                this->m_drawCalls.push_back(dc);
+            }
+        };
+        
         for (const auto& batch : opaqueBatches) {
-            createDrawCallFromBatch(batch);
+            if (batch.pipelineKey == "time_demo")
+                createTimeDemoDrawCalls(batch);
+            else
+                createDrawCallFromBatch(batch);
         }
         for (const auto& batch : transparentBatches) {
-            createDrawCallFromBatch(batch);
+            if (batch.pipelineKey == "time_demo")
+                createTimeDemoDrawCalls(batch);
+            else
+                createDrawCallFromBatch(batch);
         }
 
 #if EDITOR_BUILD
@@ -1616,6 +1716,7 @@ void VulkanApp::MainLoop() {
         /* FPS in window title (smoothed, update every 0.25 s). */
         const auto frameEnd = std::chrono::steady_clock::now();
         const double dDt = std::chrono::duration<double>(frameEnd - frameStart).count();
+        this->m_totalTimeSec += static_cast<float>(dDt);
         if (dDt > static_cast<double>(0.0))
             this->m_avgFrameTimeSec = static_cast<float>(0.9f) * this->m_avgFrameTimeSec + static_cast<float>(0.1f) * static_cast<float>(dDt);
         constexpr double kFpsTitleIntervalSec = 0.25;
@@ -1851,6 +1952,13 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
                 
                 vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                     static_cast<uint32_t>(0), kInstancedPushConstantSize, vpPushData);
+            } else if (dc.pushConstantSize == 128u && dc.pLocalTransform != nullptr) {
+                /* Time-demo (and similar) per-object push: viewProj (64) + model (64) */
+                alignas(16) uint8_t timeDemoPush[128];
+                std::memcpy(timeDemoPush, vpViewProj, static_cast<size_t>(64));
+                std::memcpy(timeDemoPush + 64, dc.pLocalTransform, static_cast<size_t>(64));
+                vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, 128, timeDemoPush);
             } else if ((dc.pushConstantSize > static_cast<uint32_t>(0)) && (dc.pPushConstants != nullptr)) {
                 vkCmdPushConstants(cmd, dc.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                     static_cast<uint32_t>(0), dc.pushConstantSize, dc.pPushConstants);
@@ -1928,6 +2036,7 @@ void VulkanApp::Cleanup() {
     /* Clean up ring buffer and frame context manager. */
     this->m_objectDataRingBuffer.Destroy();
     this->m_placeholderVisibleIndicesSSBO.Destroy();
+    this->m_globalUBOBuffer.Destroy();
     this->m_frameContextManager.Destroy();
     this->m_descriptorCache.Destroy();
     
@@ -1955,7 +2064,8 @@ void VulkanApp::Cleanup() {
     this->m_jobQueue.Stop();
 }
 
-bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const float* /* pViewProjMat16_ic */) {
+bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const float* pViewProjMat16_ic) {
+    (void)pViewProjMat16_ic;  /* Used in EDITOR_BUILD viewport callback */
     VkDevice pDevice = this->m_device.GetDevice();
     uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
     

@@ -10,6 +10,7 @@
 #include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <cstdint>
 #include <functional>
@@ -122,6 +123,9 @@ public:
     /** Get currently selected GameObject ID. UINT32_MAX if none. */
     uint32_t GetSelectedObject() const { return m_selectedObjectId; }
 
+    /** Returns set of game object IDs whose transform was changed this frame (e.g. by gizmo); clears the set. Used so SSBO only re-uploads moved objects in editor. */
+    std::unordered_set<uint32_t> ConsumeMovedObjectIds();
+
     /** Perform ray cast selection from screen position. */
     void SelectAtScreenPos(Scene* pScene, Camera* pCamera, float screenX, float screenY, uint32_t viewportW, uint32_t viewportH);
 
@@ -211,6 +215,9 @@ private:
     float m_cachedPosition[3] = {0.f, 0.f, 0.f};
     float m_cachedRotation[4] = {0.f, 0.f, 0.f, 1.f};
     float m_cachedScale[3] = {1.f, 1.f, 1.f};
+
+    /** Game object IDs that had their transform changed this frame (e.g. by gizmo). Consumed before SSBO update so only moved objects are re-uploaded. */
+    std::unordered_set<uint32_t> m_objectsMovedThisFrame;
 
     // Level path for saving
     std::string m_currentLevelPath;

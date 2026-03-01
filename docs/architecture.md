@@ -258,6 +258,10 @@ std::shared_ptr<VkShaderModule> shader(
 
 **TrimUnused()** removes cache entries where `use_count() == 1`.
 
+### Manager initialization order
+
+All managers are initialized in **one place**: `VulkanApp::InitVulkan()`. Order: (1) Vulkan instance and device; (2) descriptor set layout manager and pipeline requests; (3) descriptor pool and descriptor cache; (4) material/mesh/texture managers (SetDevice, SetQueue); (5) scene manager (SetDependencies); (6) job queue (SetJobQueue on mesh/texture managers); (7) ResourceCleanupManager (SetManagers). Adding a new manager: add wiring in InitVulkan and in ResourceCleanupManager::SetManagers/TrimAllCaches. See Extension Points below.
+
 ### Async Resource Loading
 
 ```
@@ -341,7 +345,8 @@ std::unique_lock lock(m_mutex);
 1. Create GLSL source in `shaders/source/`
 2. Run `compile_shaders.bat/sh`
 3. Define pipeline key in `vulkan_pipeline.h`
-4. Register layout in `VulkanApp::InitVulkan()`
+4. Use binding numbers from `src/vulkan/descriptor_bindings.h` (set 0) or add new constants there for new pipelines
+5. Register layout in `VulkanApp::InitVulkan()`
 
 ---
 

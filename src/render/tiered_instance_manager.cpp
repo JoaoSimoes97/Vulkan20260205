@@ -11,7 +11,9 @@ TierUpdateStats TieredInstanceManager::UpdateSSBO(
     const std::vector<RenderObject>& renderObjects,
     const std::vector<DrawBatch>& opaqueBatches,
     const std::vector<DrawBatch>& transparentBatches,
-    bool bSceneRebuilt
+    bool bSceneRebuilt,
+    bool bForceFullUploadThisFrame,
+    const std::unordered_set<uint32_t>* pMovedObjectIds
 ) {
     TierUpdateStats stats;
     if (!pObjectData || renderObjects.empty()) {
@@ -22,7 +24,7 @@ TierUpdateStats TieredInstanceManager::UpdateSSBO(
     if (bSceneRebuilt) {
         m_rebuildFramesRemaining = kFramesInFlight;
     }
-    bool bFullUpload = m_bForceFullUpload || (m_rebuildFramesRemaining > 0);
+    bool bFullUpload = m_bForceFullUpload || (m_rebuildFramesRemaining > 0) || bForceFullUploadThisFrame;
     m_bForceFullUpload = false;
     if (m_rebuildFramesRemaining > 0) {
         --m_rebuildFramesRemaining;
@@ -39,10 +41,10 @@ TierUpdateStats TieredInstanceManager::UpdateSSBO(
     }
 
     for (const auto& batch : opaqueBatches) {
-        ProcessBatch(pObjectData, maxObjects, renderObjects, batch, bFullUpload, stats);
+        ProcessBatch(pObjectData, maxObjects, renderObjects, batch, bFullUpload, pMovedObjectIds, stats);
     }
     for (const auto& batch : transparentBatches) {
-        ProcessBatch(pObjectData, maxObjects, renderObjects, batch, bFullUpload, stats);
+        ProcessBatch(pObjectData, maxObjects, renderObjects, batch, bFullUpload, pMovedObjectIds, stats);
     }
     m_lastStats = stats;
     return stats;
@@ -54,27 +56,32 @@ void TieredInstanceManager::ProcessBatch(
     const std::vector<RenderObject>& renderObjects,
     const DrawBatch& batch,
     bool bFullUpload,
+    const std::unordered_set<uint32_t>* pMovedObjectIds,
     TierUpdateStats& stats
 ) {
     const InstanceTier tier = batch.key.tier;
     uint32_t ssboOffset = batch.firstInstanceIndex;
-    
+    const auto isMoved = [pMovedObjectIds](uint32_t goId) {
+        return pMovedObjectIds && pMovedObjectIds->count(goId) != 0;
+    };
+
     for (uint32_t objIdx : batch.objectIndices) {
         if (objIdx >= renderObjects.size() || ssboOffset >= maxObjects) continue;
 
         const RenderObject& ro = renderObjects[objIdx];
-        
+        const bool moved = isMoved(ro.gameObjectId);
+
         bool needsUpload = false;
-        
+
         switch (tier) {
-            case InstanceTier::Static:    needsUpload = bFullUpload; if (needsUpload) ++stats.staticUploaded; break;
-            case InstanceTier::SemiStatic: needsUpload = bFullUpload; if (needsUpload) ++stats.semiStaticUploaded; break;
+            case InstanceTier::Static:    needsUpload = bFullUpload || moved; if (needsUpload) ++stats.staticUploaded; break;
+            case InstanceTier::SemiStatic: needsUpload = bFullUpload || moved; if (needsUpload) ++stats.semiStaticUploaded; break;
             case InstanceTier::Dynamic:   needsUpload = true; ++stats.dynamicUploaded; break;
-            case InstanceTier::Procedural: needsUpload = bFullUpload; if (needsUpload) ++stats.proceduralUploaded; break;
+            case InstanceTier::Procedural: needsUpload = bFullUpload || moved; if (needsUpload) ++stats.proceduralUploaded; break;
         }
         if (needsUpload)
             WriteObjectToSSBO(pObjectData[ssboOffset], ro);
-        
+
         ++ssboOffset;
     }
 }

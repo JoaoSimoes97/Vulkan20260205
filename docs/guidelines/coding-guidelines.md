@@ -60,6 +60,7 @@ When the name already implies direction (e.g. `outDrawCalls`), the suffix still 
 
 - **Headers**: Use `#pragma once`. Order: project headers first, then standard/library, alphabetical within each group.
 - **Source**: Order includes: corresponding header first, then project headers, then standard/library.
+- **Forward declarations**: Prefer forward declarations in headers when a type is only used as pointer/reference; include the full header in the `.cpp` that needs the definition. Reduces compile time and coupling.
 
 ## Other
 
@@ -68,7 +69,7 @@ When the name already implies direction (e.g. `outDrawCalls`), the suffix still 
 - **Immediates / literals (all definitions)**: Every definition that uses a literal value must use an explicit cast. This includes all variable and constant initializers. Examples: `bool b = static_cast<bool>(true);`, `int i = static_cast<int>(800);`, `float f = static_cast<float>(1.0);`, `T* p = static_cast<T*>(nullptr);`. No bare literals like `= true`, `= 800`, `= 1.0f`, or `= nullptr`; always cast. Same for arguments passed to APIs.
 - **Const correctness**: Use `const` for parameters and methods that do not modify state.
 - **Magic numbers**: Prefer named constants (e.g. `constexpr int WINDOW_WIDTH = 800;`).
-- **Error handling**: Prefer exceptions for fatal errors; log before throwing.
+- **Error handling**: Fatal: log (e.g. VulkanUtils::LogErr) then throw. Recoverable: return false and log; no silent ignores.
 - **Scope**: Prefer the narrowest scope (e.g. declare loop variables in the loop).
 
 ## Vulkan

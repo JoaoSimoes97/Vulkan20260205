@@ -373,7 +373,9 @@ bool Scene::SetParent(uint32_t childId, uint32_t parentId, bool preserveWorldPos
         TransformFromMatrix(newLocalMatrix, *pChildTransform);
         std::memcpy(pChildTransform->modelMatrix, newLocalMatrix, sizeof(pChildTransform->modelMatrix));
         std::memcpy(pChildTransform->worldMatrix, savedWorldMatrix, sizeof(pChildTransform->worldMatrix));
-        pChildTransform->bDirty = false;
+        /* Keep bDirty true so next UpdateTransformHierarchy rebuilds modelMatrix from pos/rot/scale;
+           otherwise modelMatrix stays stale and hierarchy recompute uses wrong local matrix. */
+        pChildTransform->bDirty = true;
     } else {
         pChildTransform->bDirty = true;
     }

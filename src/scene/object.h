@@ -252,31 +252,6 @@ inline void ObjectSetFromPositionRotationScale(float* out16,
     ObjectMat4Multiply(out16, t, rs);
 }
 
-/** Push layout: mat4 (64 bytes) + vec4 color (16 bytes) + uint objectIndex (4 bytes) + padding (12 bytes) + vec4 camPos (16 bytes) = 112 bytes.
-    NOTE: vec4 requires 16-byte alignment in GLSL, so camPos must start at offset 96 (multiple of 16). 
-    DEPRECATED: Use kInstancedPushConstantSize for instanced rendering. */
-constexpr uint32_t kObjectMat4Bytes       = 64u;
-constexpr uint32_t kObjectColorBytes      = 16u;
-constexpr uint32_t kObjectIndexBytes      = 4u;
-constexpr uint32_t kObjectPushPaddingBytes = 12u;  // Align camPos to 16 bytes (offset 96)
-constexpr uint32_t kObjectCamPosBytes     = 16u;
-constexpr uint32_t kObjectPushConstantSize = kObjectMat4Bytes + kObjectColorBytes + kObjectIndexBytes + kObjectPushPaddingBytes + kObjectCamPosBytes;
-
-// Push constant offset validations (MUST match GLSL layout) - DEPRECATED
-constexpr uint32_t kPushOffset_MVP        = 0u;                                                         // mat4 at offset 0
-constexpr uint32_t kPushOffset_Color      = kObjectMat4Bytes;                                           // vec4 at offset 64
-constexpr uint32_t kPushOffset_ObjectIdx  = kPushOffset_Color + kObjectColorBytes;                      // uint at offset 80
-constexpr uint32_t kPushOffset_Padding    = kPushOffset_ObjectIdx + kObjectIndexBytes;                  // padding at offset 84
-constexpr uint32_t kPushOffset_CamPos     = kPushOffset_Padding + kObjectPushPaddingBytes;              // vec4 at offset 96
-
-// Static validations for layout correctness
-static_assert(kPushOffset_MVP == 0, "MVP must be at offset 0");
-static_assert(kPushOffset_Color == 64, "Color must be at offset 64");
-static_assert(kPushOffset_ObjectIdx == 80, "ObjectIndex must be at offset 80");
-static_assert(kPushOffset_CamPos == 96, "CamPos must be at offset 96 (16-byte aligned for vec4)");
-static_assert(kPushOffset_CamPos % 16 == 0, "CamPos offset must be 16-byte aligned for GLSL vec4");
-static_assert(kObjectPushConstantSize == 112, "Total push constant size must be 112 bytes");
-
 /**
  * Instanced Push Constant Layout (96 bytes):
  * - mat4 viewProj (64 bytes) at offset 0
@@ -310,29 +285,6 @@ static_assert(kInstPushOffset_CamPos == 64, "CamPos must be at offset 64");
 static_assert(kInstPushOffset_BatchIndex == 80, "BatchIndex must be at offset 80");
 static_assert(kInstPushOffset_UseIndirection == 84, "UseIndirection must be at offset 84");
 static_assert(kInstancedPushConstantSize == 96, "Instanced push constant size must be 96 bytes");
-
-/** DEPRECATED: Use ObjectFillInstancedPushData for instanced rendering.
-    Fill object pushData from viewProj * localTransform, color, objectIndex, and camera position. Ensures pushData is sized; call each frame before draw. */
-inline void ObjectFillPushData(Object& obj, const float* viewProj, uint32_t objectIndex, const float* camPos) {
-    // Always ensure pushData is the correct size and pushDataSize is set
-    if (obj.pushData.size() != kObjectPushConstantSize) {
-        obj.pushData.resize(kObjectPushConstantSize);
-    }
-    obj.pushDataSize = kObjectPushConstantSize;  // Always set this
-    
-    if (viewProj) {
-        ObjectMat4Multiply(reinterpret_cast<float*>(obj.pushData.data()), viewProj, obj.localTransform);
-        std::memcpy(obj.pushData.data() + kObjectMat4Bytes, obj.color, kObjectColorBytes);
-        std::memcpy(obj.pushData.data() + kObjectMat4Bytes + kObjectColorBytes, &objectIndex, kObjectIndexBytes);
-        std::memset(obj.pushData.data() + kObjectMat4Bytes + kObjectColorBytes + kObjectIndexBytes, 0, kObjectPushPaddingBytes);
-        // Camera position (vec4: xyz position, w unused)
-        if (camPos) {
-            std::memcpy(obj.pushData.data() + kObjectMat4Bytes + kObjectColorBytes + kObjectIndexBytes + kObjectPushPaddingBytes, camPos, 12);
-            float w = 1.0f;
-            std::memcpy(obj.pushData.data() + kObjectMat4Bytes + kObjectColorBytes + kObjectIndexBytes + kObjectPushPaddingBytes + 12, &w, 4);
-        }
-    }
-}
 
 /** Fill instanced push data (96 bytes) for GPU instanced rendering.
     Layout: viewProj (64) + camPos (16) + batchStartIndex (4) + padding (12)

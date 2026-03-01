@@ -27,7 +27,7 @@ Updated as we go. Build/clean/setup: use only project scripts (see ALPHA_REVIEW_
 - ALPHA_REVIEW_CHECKLIST.txt: sections 1–2, 6, 8, 10, 12, 14, quick reference updated; review log extended.
 
 ## In progress
-- Continue checklist: efficiency, Vulkan barriers, shader layout verification, guidelines, dead code, cursor rule, scalability audit; Q10 shader tasks (global UBO, time_demo, descriptor writes 6–8).
+- None. Alpha review (sections 1–13) and Section 10 shader tasks (global UBO, time_demo, descriptor writes 1,6,7,8) are complete. Optional: incremental cleanup of large commented blocks; apply coding guidelines to new code only.
 
 ## Build warnings
 - Addressed. Build (scripts/linux/build.sh --debug) completes with no warnings.
@@ -46,10 +46,23 @@ Updated as we go. Build/clean/setup: use only project scripts (see ALPHA_REVIEW_
 - Build: debug build succeeds. Old scene.h/scene_new still in tree; can be removed in cleanup pass (m6).
 
 ## Leftovers
-- questions.txt Q10 tasks: global UBO, time_demo shader, fix descriptor writes 6–8.
+- All Q10 tasks done. Optional: alpha test level (levels/alpha_test/level.json) per questions.txt Section 7; incremental comment cleanup.
 - Cleanup (m6) done: scene_new.cpp, render_list_builder.cpp removed from CMake; scene.h, scene_new.h, render_list_builder.h removed from HEADERS. core.h includes scene/scene_unified.h. VulkanApp no longer has RenderListBuilder. Deleted from repo: src/scene/scene.h, src/core/scene_new.h, src/core/scene_new.cpp, src/render/render_list_builder.h, src/render/render_list_builder.cpp.
 - Section 2 done: physics/script "Not in alpha" in headers; camera, RingBuffer, FrameContext/offset, TieredInstanceManager, LevelSelector, StressTest verified. Section 6: object.h rationale, scene_unified TODOs resolved, dead code item checked.
-- Remaining checklist: efficiency (3), Vulkan correctness (4), shader/data layout (5), code correctness (6 remainder), guidelines (7), build/install (9), docs (10), cursor rule (11), improvements (12), scalability (13).
+- Section 3 (Efficiency): Per-frame allocations — BatchedDrawList: reserve m_opaqueBatches/m_transparentBatches in BuildBatches, reserve m_visibleObjectIndices in UpdateVisibility when !pViewProj. Scene BuildRenderList and VulkanApp m_drawCalls already had reserve.
+- Build fix: vulkan_app.cpp GetWireframePipelineKey() added; DrawFrame parameter pViewProjMat16_ic named. Windows Debug build verified (scripts/windows/build.bat --debug).
+- Section 3 (efficiency): Descriptor reuse (frame pools), batching order (SortBatches), frustum culling once per frame, TrimUnused (TrimAll on worker; direct trim on main only after load/rebuild). Checklist updated.
+- Section 6: procedural_mesh_factory.h doc (cylinder/cone caps = alpha limitation); scene_manager.h doc (animation/skinning not in alpha); engine.cpp explicit placeholders (InitializeWindow, InitializeVulkan, ProcessInput). Checklist updated.
+- Section 3: Buffer updates (ring buffer, single write per frame); job queue (worker + ProcessCompletedJobs on main). Section 6: renderer CreateFramebuffers placeholder doc; tiered_instance_manager no placeholders. Checklist updated.
+- Section 5: Push constant 96B, ObjectData 256B, normal transform (doc in vert.vert), emissive, bindings 0-8 verified. Section 6: Config validation verified (ValidateConfig, ValidateConfigGPULimits).
+- Section 5: Vertex attribute layout (pipeline stride 32, VertexData, vert locations 0-2) verified. Section 4: Pipeline barriers (render pass, texture upload, compute) and swapchain flow verified.
+- Section 4: Descriptor writes (update at init/create, bind in Record) and buffer/image lifetime (ProcessPendingDestroys after vkWaitForFences) verified.
+- Section 4 validation: Ran Debug build with level; VK_LAYER_KHRONOS_validation active; no VUID errors from engine. Section 7: README links to docs/guidelines/coding-guidelines.md; checklist marks guidelines as documented, full compliance deferred.
+- Section 11: .cursor/rules/checkinstanc.mdc created (instance extensions checked before vkCreateInstance). No assert/abort in hot path (static_assert only). Section 10: coding guidelines link in README done. Section 8: large commented blocks noted for incremental cleanup.
+- Section 9: CMake sources/headers verified. Section 10: docs/future-ideas/README.md (internal-only notice). Section 12: Single scene model marked done. Section 13: Object count, light count, draw batches verified.
+- Section 12: Manager init order documented in architecture.md. Section 13: Scenes/levels, adding managers, threading, memory, docs verified. run_alpha scripts: scripts/windows/run_alpha.bat, scripts/linux/run_alpha.sh.
+- All checklist items completed: Section 3 (pipeline barriers, shared_ptr, mesh/material); Section 6 (Release smoke test doc, warnings fixed); Section 8 (large blocks = incremental); Section 12 (deprecated push removed, descriptor_bindings.h, error/forward decls, #pragma once); Section 13 (components, shaders, platforms). object.h: 112-byte helpers removed; scene_manager pushData uses kInstancedPushConstantSize. descriptor_bindings.h + CMake; coding-guidelines error handling and forward decls.
+- Section 10 (questions.txt): Global UBO added (64 bytes, binding 1); updated each frame (time, deltaTime). EnsureMainDescriptorSetWritten now writes bindings 1, 6, 7, 8. GetOrCreateDescriptorSetForTextures writes binding 1. vert.vert and frag.frag declare GlobalUBO at binding 1. descriptor_bindings.h: kGlobalUBO = 1. Time-demo: time_demo.vert + time_demo.frag added; pipeline and material "time_demo" registered (128-byte push: viewProj+model); procedural cube created at init; in editor viewport pass, after main draws, time_demo cube drawn at (0,2,0) with scale pulse and color from globalUBO.time. SHADER_LIST.md and questions.txt updated.
 
 ## Notes
 - Shaders already have normal transform (vert) and emissive (frag); engine-design “bugs” may be fixed — confirm and doc.

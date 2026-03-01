@@ -12,6 +12,14 @@ layout(push_constant) uniform Push {
     // Total: 96 bytes
 } pc;
 
+/* ---- Global UBO (binding 1): time, deltaTime, reserved for future use ---- */
+layout(std140, set = 0, binding = 1) uniform GlobalUBO {
+    float time;
+    float deltaTime;
+    float _pad0;
+    float _pad1;
+} globalUBO;
+
 /* ---- Object Data SSBO (binding 2) ---- */
 /* Must match C++ ObjectData = 256 bytes */
 struct ObjectData {
@@ -72,8 +80,8 @@ void main() {
     // Pass through UV (with wrapping handled in fragment shader)
     outUV = inUV;
     
-    // Transform normal to world space
-    // Using mat3(model) for non-uniform scale; transpose(inverse()) for correct normals
+    // Transform normal to world space. mat3(model) is correct for uniform scale only.
+    // For non-uniform scale use mat3(transpose(inverse(model))). Alpha: current formulation documented.
     mat3 normalMatrix = mat3(model);
     outNormal = normalize(normalMatrix * inNormal);
     

@@ -129,6 +129,23 @@ bool BatchedDrawList::RebuildIfDirty(
     return true;
 }
 
+void BatchedDrawList::RefreshWorldMatricesFromScene(const Scene* pScene) {
+    if (!pScene) return;
+    for (auto& ro : m_lastRenderObjects) {
+        const Transform* pTransform = pScene->GetTransform(ro.gameObjectId);
+        if (!pTransform) continue;
+        std::memcpy(ro.worldMatrix, pTransform->worldMatrix, sizeof(float) * 16);
+        ro.boundsCenterX = ro.worldMatrix[12];
+        ro.boundsCenterY = ro.worldMatrix[13];
+        ro.boundsCenterZ = ro.worldMatrix[14];
+        float scaleX = std::sqrt(ro.worldMatrix[0]*ro.worldMatrix[0] + ro.worldMatrix[1]*ro.worldMatrix[1] + ro.worldMatrix[2]*ro.worldMatrix[2]);
+        float scaleY = std::sqrt(ro.worldMatrix[4]*ro.worldMatrix[4] + ro.worldMatrix[5]*ro.worldMatrix[5] + ro.worldMatrix[6]*ro.worldMatrix[6]);
+        float scaleZ = std::sqrt(ro.worldMatrix[8]*ro.worldMatrix[8] + ro.worldMatrix[9]*ro.worldMatrix[9] + ro.worldMatrix[10]*ro.worldMatrix[10]);
+        float maxScale = std::max({scaleX, scaleY, scaleZ});
+        ro.boundsRadius = maxScale * 1.0f;
+    }
+}
+
 void BatchedDrawList::BuildBatches(
     const std::vector<RenderObject>& renderObjects,
     VkDevice device,
@@ -149,6 +166,11 @@ void BatchedDrawList::BuildBatches(
     if (renderObjects.empty()) return;
 
     std::map<BatchKey, std::vector<uint32_t>> batchGroups;
+
+    // Reserve to avoid per-frame reallocations in hot path
+    const size_t maxBatches = renderObjects.size();
+    m_opaqueBatches.reserve(maxBatches);
+    m_transparentBatches.reserve(maxBatches);
 
     for (size_t i = 0; i < renderObjects.size(); ++i) {
         const auto& ro = renderObjects[i];
@@ -265,6 +287,7 @@ void BatchedDrawList::SortBatches() {
 size_t BatchedDrawList::UpdateVisibility(const float* pViewProj, const Scene* /*pScene*/) {
     if (!pViewProj) {
         m_visibleObjectIndices.clear();
+        m_visibleObjectIndices.reserve(m_lastRenderObjects.size());
         for (const auto& batch : m_opaqueBatches) {
             for (uint32_t objIdx : batch.objectIndices)
                 m_visibleObjectIndices.push_back(objIdx);

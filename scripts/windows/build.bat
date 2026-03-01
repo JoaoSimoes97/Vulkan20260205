@@ -101,4 +101,3 @@ echo   From this dir:       .\%BUILD_TYPE%\VulkanApp.exe
 echo.
 echo To build the other type: scripts\windows\build.bat --release  or  --debug
 echo.
-pause

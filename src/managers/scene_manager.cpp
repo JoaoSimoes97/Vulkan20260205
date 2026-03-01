@@ -493,8 +493,8 @@ void SceneManager::VisitGltfNode(GltfNodeVisitorContext& ctx, int nodeIndex, con
             // Apply instance tier from level JSON
             obj.instanceTier = ctx.instanceTier;
 
-            obj.pushData.resize(kObjectPushConstantSize);
-            obj.pushDataSize = kObjectPushConstantSize;
+            obj.pushData.resize(kInstancedPushConstantSize);
+            obj.pushDataSize = kInstancedPushConstantSize;
             
             // Track hierarchy: record which node this object came from
             size_t objIndex = ctx.objs.size();
@@ -752,6 +752,12 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
             roughnessOverride = static_cast<float>(jInst["roughness"].get<double>());
         }
 
+        // Optional material override for procedural instances (e.g. "time_demo")
+        std::string materialOverride;
+        if (jInst.contains("material") && jInst["material"].is_string()) {
+            materialOverride = jInst["material"].get<std::string>();
+        }
+
         if (source.rfind("procedural:", 0) == 0) {
             std::shared_ptr<MeshHandle> pMesh = LoadProceduralMesh(source);
             if (!pMesh) {
@@ -759,11 +765,17 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                 continue;
             }
 
-            // Use textured pipeline for procedural meshes - default white texture enables PBR with factors
-            const std::string pipelineKey = ResolvePipelineKey("OPAQUE", renderMode, true, false);
-            std::shared_ptr<MaterialHandle> pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
+            std::shared_ptr<MaterialHandle> pMaterial;
+            if (!materialOverride.empty()) {
+                pMaterial = m_pMaterialManager->GetMaterial(materialOverride);
+            }
             if (!pMaterial) {
-                VulkanUtils::LogErr("SceneManager: pipeline \"{}\" not registered for procedural \"{}\"", pipelineKey, source);
+                // Use textured pipeline for procedural meshes - default white texture enables PBR with factors
+                const std::string pipelineKey = ResolvePipelineKey("OPAQUE", renderMode, true, false);
+                pMaterial = m_pMaterialManager->GetMaterial(pipelineKey);
+            }
+            if (!pMaterial) {
+                VulkanUtils::LogErr("SceneManager: material not found for procedural \"{}\" (override=\"{}\")", source, materialOverride);
                 continue;
             }
 
@@ -806,8 +818,8 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
                 obj.roughnessFactor = roughnessOverride;
             }
             obj.instanceTier = instanceTier;
-            obj.pushData.resize(kObjectPushConstantSize);
-            obj.pushDataSize = kObjectPushConstantSize;
+            obj.pushData.resize(kInstancedPushConstantSize);
+            obj.pushDataSize = kInstancedPushConstantSize;
             instanceParentNames.push_back(parentName);  // Track parent for hierarchy resolution
             objs.push_back(std::move(obj));
             continue;

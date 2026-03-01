@@ -161,6 +161,13 @@ public:
     const std::vector<RenderObject>& GetLastRenderObjects() const { return m_lastRenderObjects; }
     
     /**
+     * Refresh world matrices (and bounds) in m_lastRenderObjects from the scene.
+     * Call after UpdateTransformHierarchy() so transforms are current. Ensures moved
+     * objects render in the correct place without a full batch rebuild.
+     */
+    void RefreshWorldMatricesFromScene(const Scene* pScene);
+    
+    /**
      * Get the batch for a given object index. Returns nullptr if not found.
      */
     const DrawBatch* GetBatchForObject(uint32_t objIdx) const {

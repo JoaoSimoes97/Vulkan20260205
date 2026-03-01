@@ -3,31 +3,27 @@
 ## Project
 Vulkan PBR engine, Alpha v0.1.0. Single unified Scene (scene_unified); old scene.h / SceneNew / RenderListBuilder deleted.
 
-## Build (use project scripts only)
-  scripts/linux/build.sh --debug   # or --release
-  scripts/linux/clean.sh
+## Build (use project scripts only — run before continuing)
+  scripts/linux/build.sh --debug   # or scripts/windows/build.bat --debug
+  scripts/linux/build.sh --release # or scripts/windows/build.bat --release
+  scripts/linux/clean.sh            # or scripts/windows/clean.bat
   ./install/Debug/bin/VulkanApp levels/default/level.json
 
 ## Key files
-  ALPHA_REVIEW_CHECKLIST.txt   — full checklist (sections 1–2, 6, 8, 9 partly done)
-  alpha_review/progress.txt    — what’s done, leftovers
+  ALPHA_REVIEW_CHECKLIST.txt   — full checklist (all sections completed)
+  alpha_review/progress.txt    — what's done, leftovers
   alpha_review/questions.txt  — open decisions, Q10 shader tasks
 
 ## Done so far
-  - SceneUnified migration complete; scene.h, scene_new.*, render_list_builder.* deleted
-  - Section 1 (architecture), Section 2 (is everything used), Section 8 (dead code) mostly done
-  - Section 9: README/getting-started checked; Debug + Release build OK, no warnings
-  - physics/script_component: “Not in alpha” in headers
+  - All checklist sections 1–13 completed (architecture, usage, efficiency, Vulkan correctness, shader layout, code correctness, guidelines, dead code, build, docs, cursor rule, improvements, scalability).
+  - Deprecated 112-byte push helpers removed from object.h; scene_manager uses kInstancedPushConstantSize.
+  - descriptor_bindings.h added; coding guidelines (error handling, forward decls); Release build warnings fixed.
+  - run_alpha scripts; manager init order in architecture.md.
 
-## Next (unchecked in checklist)
-  - Section 3: Efficiency (per-frame allocs, barriers, batching, culling)
-  - Section 4: Vulkan correctness (barriers, descriptor writes, lifetime, validation)
-  - Section 5: Shader/data layout (push constants, SSBO, bindings 0–8)
-  - Section 6 remainder: procedural_mesh_factory TODO, animation/skinning doc, engine.cpp, config validation
-  - Section 7: Guidelines (naming, no `!`, literals, include order)
-  - Section 10: Internal docs, coding guidelines link
-  - Section 11: Cursor rule; Section 12–13: improvements, scalability
-  - alpha_review/questions.txt Section 10: global UBO, time_demo shader, descriptor writes 6–8
+## Optional / follow-up
+  - alpha_review/questions.txt Section 10: all tasks done (global UBO, descriptor writes 1,6,7,8, time_demo.vert/frag + cube in editor viewport).
+  - Large commented-out blocks: incremental cleanup when touching files (remove or #if 0).
+  - Full coding guidelines compliance (naming, no `!`, literals) applied incrementally to new code.
 
 ## If in doubt
   Ask the user. Use only project scripts for build/clean/setup.

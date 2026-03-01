@@ -11,8 +11,10 @@ Reference for alpha and beyond. See also [alpha_review/questions.txt](../alpha_r
 | debug_line.vert | Vertex | Debug line draw |
 | debug_line.frag | Fragment | Debug line draw |
 | gpu_cull.comp | Compute | Frustum culling → visible indices SSBO |
+| time_demo.vert | Vertex | Time-demo cube (viewProj+model push, binding 1 GlobalUBO) |
+| time_demo.frag | Fragment | Time-demo color from globalUBO.time |
 
-One main PBR program (vert + frag) for all materials.
+One main PBR program (vert + frag) for all materials. Time-demo reuses main descriptor layout (binding 1) and draws one procedural cube in editor viewports.
 
 ## Descriptor set 0 — binding table (main PBR)
 
@@ -39,9 +41,9 @@ C++ must write all bindings 0–8 for every descriptor set using the main layout
 
 ## C++ todos (from alpha review)
 
-- [ ] Add global UBO; write binding 1 in all main-layout descriptor write paths.
-- [ ] Add time_demo.vert + time_demo.frag (proof of work for binding 1); one scene cube; integrate in render loop.
-- [ ] Fix descriptor writes for bindings 6, 7, 8 (default tex + visible-indices buffer) where still missing.
+- [x] Add global UBO; write binding 1 in all main-layout descriptor write paths.
+- [x] Add time_demo.vert + time_demo.frag (proof of work for binding 1); one scene cube; integrate in render loop.
+- [x] Fix descriptor writes for bindings 6, 7, 8 (default tex + visible-indices buffer) where still missing.
 
 ## Build
 

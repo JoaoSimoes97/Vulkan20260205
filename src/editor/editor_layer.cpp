@@ -28,6 +28,7 @@
 #include <glm/gtx/matrix_decompose.hpp>
 
 #include <algorithm>
+#include <cmath>
 
 #include <SDL3/SDL.h>
 #include <fstream>
@@ -1012,9 +1013,9 @@ void EditorLayer::DrawGizmo(Scene* pScene, Camera* pCamera) {
             }
         }
     }
+    /* Fallback when object has no renderer: use world matrix so gizmo is in world space. */
     if (model == glm::mat4(1.0f) && pTransform) {
-        TransformBuildModelMatrix(*pTransform);
-        model = glm::make_mat4(pTransform->modelMatrix);
+        model = glm::make_mat4(pTransform->worldMatrix);
     }
 
     // Convert gizmo operation
@@ -1090,6 +1091,7 @@ void EditorLayer::DrawGizmo(Scene* pScene, Camera* pCamera) {
         pTransform->scale[2] = scale.z;
 
         pTransform->bDirty = true;
+        m_objectsMovedThisFrame.insert(m_selectedObjectId);
     }
 
     m_bGizmoUsing = ImGuizmo::IsUsing();
@@ -1111,6 +1113,12 @@ void EditorLayer::DrawGizmo(Scene* pScene, Camera* pCamera) {
 
 void EditorLayer::SetSelectedObject(uint32_t gameObjectId) {
     m_selectedObjectId = gameObjectId;
+}
+
+std::unordered_set<uint32_t> EditorLayer::ConsumeMovedObjectIds() {
+    std::unordered_set<uint32_t> out = std::move(m_objectsMovedThisFrame);
+    m_objectsMovedThisFrame.clear();
+    return out;
 }
 
 void EditorLayer::SelectAtScreenPos(Scene* pScene, Camera* pCamera, float screenX, float screenY, uint32_t viewportW, uint32_t viewportH) {
@@ -1141,10 +1149,15 @@ void EditorLayer::SelectAtScreenPos(Scene* pScene, Camera* pCamera, float screen
         if (!go.bActive || go.transformIndex >= transforms.size()) continue;
 
         const Transform& t = transforms[go.transformIndex];
-        glm::vec3 objPos(t.position[0], t.position[1], t.position[2]);
+        /* Use world position for ray test (position is local when object has a parent). */
+        float wx = t.worldMatrix[12], wy = t.worldMatrix[13], wz = t.worldMatrix[14];
+        glm::vec3 objPos(wx, wy, wz);
         
-        // Simple sphere of radius 1 (scaled by average scale)
-        float avgScale = (t.scale[0] + t.scale[1] + t.scale[2]) / 3.0f;
+        /* Simple sphere of radius 1 (scaled by world-space scale from matrix columns). */
+        float scaleX = std::sqrt(t.worldMatrix[0]*t.worldMatrix[0] + t.worldMatrix[1]*t.worldMatrix[1] + t.worldMatrix[2]*t.worldMatrix[2]);
+        float scaleY = std::sqrt(t.worldMatrix[4]*t.worldMatrix[4] + t.worldMatrix[5]*t.worldMatrix[5] + t.worldMatrix[6]*t.worldMatrix[6]);
+        float scaleZ = std::sqrt(t.worldMatrix[8]*t.worldMatrix[8] + t.worldMatrix[9]*t.worldMatrix[9] + t.worldMatrix[10]*t.worldMatrix[10]);
+        float avgScale = (scaleX + scaleY + scaleZ) / 3.0f;
         float radius = avgScale * 0.5f; // Half unit sphere
 
         // Ray-sphere intersection
