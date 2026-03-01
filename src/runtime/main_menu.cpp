@@ -64,11 +64,7 @@ void MainMenu::DrawMainPage() {
         ImGuiWindowFlags_NoBringToFrontOnFocus;
     
     if (ImGui::Begin("##MainMenuBackground", nullptr, windowFlags)) {
-        // Center the menu content
-        ImVec2 center = ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
-                               viewport->WorkPos.y + viewport->WorkSize.y * 0.5f);
-        
-        // Title
+        // Title (centered via SetCursorPosX/Y below)
         const char* title = "VULKAN ENGINE";
         ImGui::PushFont(nullptr);  // Use default font
         ImVec2 titleSize = ImGui::CalcTextSize(title);

@@ -9,7 +9,7 @@
 #include "config_loader.h"
 #include "camera/camera_controller.h"
 #include "scene/object.h"
-#include "scene/scene.h"
+#include "scene/scene_unified.h"
 #include "scene/stress_test_generator.h"
 #include "vulkan/vulkan_utils.h"
 #include <SDL3/SDL_keyboard.h>
@@ -23,9 +23,6 @@
 #include <string>
 #include <vector>
 
-static const char* CONFIG_PATH_USER      = "config/config.json";
-static const char* CONFIG_PATH_DEFAULT   = "config/default.json";
-static const char* DEFAULT_LEVEL_PATH    = "levels/default/level.json";
 static const char* SHADER_VERT_PATH     = "shaders/vert.spv";
 static const char* SHADER_FRAG_PATH     = "shaders/frag.spv";
 static const char* PIPELINE_KEY_MAIN_TEX   = "main_tex";
@@ -36,21 +33,10 @@ static const char* PIPELINE_KEY_MAIN_UNTEX = "main_untex";
 static const char* PIPELINE_KEY_WIRE_UNTEX = "wire_untex";
 static const char* PIPELINE_KEY_MASK_UNTEX = "mask_untex";
 static const char* PIPELINE_KEY_TRANSPARENT_UNTEX = "transparent_untex";
-static const char* LAYOUT_KEY_MAIN_FRAG_TEX = "main_frag_tex";
 static constexpr float kDefaultPanSpeed = 0.012f;
 static constexpr float kOrthoFallbackHalfExtent = 8.f;
 
 namespace {
-    /** Map solid pipeline key to wireframe equivalent. Returns original if no wireframe variant exists. */
-    std::string GetWireframePipelineKey(const std::string& solidKey) {
-        if (solidKey == "main_tex" || solidKey == "transparent_tex") return "wire_tex";
-        if (solidKey == "main_untex" || solidKey == "transparent_untex") return "wire_untex";
-        if (solidKey == "mask_tex") return "wire_tex";
-        if (solidKey == "mask_untex") return "wire_untex";
-        // Already a wire pipeline or unknown
-        return solidKey;
-    }
-    
     /** Extract 6 frustum planes from view-projection matrix (Gribb/Hartmann method). */
     void ExtractFrustumPlanesFromViewProj(const float* viewProj, float planes[6][4]) {
         // Left plane: row 3 + row 0
@@ -105,9 +91,9 @@ namespace {
 }
 
 VulkanApp::VulkanApp(const VulkanConfig& config_in)
-    : m_config(config_in)
-    , m_completedJobHandler(std::bind(&VulkanApp::OnCompletedLoadJob, this,
-          std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)) {
+    : m_completedJobHandler(std::bind(&VulkanApp::OnCompletedLoadJob, this,
+          std::placeholders::_1, std::placeholders::_2, std::placeholders::_3))
+    , m_config(config_in) {
     VulkanUtils::LogTrace("VulkanApp constructor");
     m_camera.SetPosition(m_config.fInitialCameraX, m_config.fInitialCameraY, m_config.fInitialCameraZ);
     m_jobQueue.Start();
@@ -406,7 +392,7 @@ void VulkanApp::InitVulkan() {
     
     /* Create LightManager which owns the light SSBO.
        16 bytes header (light count) + 256 lights × 64 bytes = ~16KB.
-       Updated each frame from SceneNew lights. */
+       Updated each frame from scene lights. */
     this->m_lightManager.Create(this->m_device.GetDevice(), this->m_device.GetPhysicalDevice());
     
     // Convenience accessor for descriptor set writes (LightManager owns the buffer)
@@ -1034,14 +1020,15 @@ VkDescriptorSet VulkanApp::GetOrCreateDescriptorSetForTextures(std::shared_ptr<T
 void VulkanApp::CleanupUnusedTextureDescriptorSets() {
     if (m_sceneManager.GetCurrentScene() == nullptr)
         return;
-    
-    // Collect textures still in use by current scene
+
     std::set<TextureHandle*> texturesInUse;
-    const Scene* pScene = m_sceneManager.GetCurrentScene();
-    for (const Object& obj : pScene->GetObjects()) {
-        if (obj.pTexture && obj.pTexture->IsValid()) {
-            texturesInUse.insert(obj.pTexture.get());
-        }
+    const auto& renderObjects = m_batchedDrawList.GetLastRenderObjects();
+    for (const auto& ro : renderObjects) {
+        if (ro.texture && ro.texture->IsValid()) texturesInUse.insert(ro.texture.get());
+        if (ro.pMetallicRoughnessTexture && ro.pMetallicRoughnessTexture->IsValid()) texturesInUse.insert(ro.pMetallicRoughnessTexture.get());
+        if (ro.pEmissiveTexture && ro.pEmissiveTexture->IsValid()) texturesInUse.insert(ro.pEmissiveTexture.get());
+        if (ro.pNormalTexture && ro.pNormalTexture->IsValid()) texturesInUse.insert(ro.pNormalTexture.get());
+        if (ro.pOcclusionTexture && ro.pOcclusionTexture->IsValid()) texturesInUse.insert(ro.pOcclusionTexture.get());
     }
     
     // Also keep default texture alive
@@ -1241,39 +1228,12 @@ void VulkanApp::MainLoop() {
 
         Scene* pScene = this->m_sceneManager.GetCurrentScene();
         if (pScene != nullptr) {
-            /* Update all objects with delta time (frame-rate independent). */
-            pScene->UpdateAllObjects(this->m_avgFrameTimeSec);
-            
-            /* NOTE: Per-object pushData loop removed - instanced rendering uses SSBO for transforms.
-               The shader computes MVP as viewProj * model, where model is fetched from SSBO. */
+            pScene->UpdateTransformHierarchy();
         }
 
-        /* SSBO write moved below after RebuildIfDirty so batches are valid */
-        
-        /* Sync ECS transforms to render Scene Objects.
-           Editor gizmo changes update SceneNew transforms, which must be copied
-           to Scene Objects for BatchedDrawList to render correctly. */
-        this->m_sceneManager.SyncTransformsToScene(); 
-        
-        /* Sync emissive objects to proper Light entities in SceneNew.
-           Creates/updates/removes LightComponents for Objects with emitsLight=true.
-           All lights (scene lights + emissive lights) are now handled uniformly.
-           Must be called BEFORE UpdateLightBuffer() so emissive lights are included. */
-        this->m_sceneManager.SyncEmissiveLights();
-
-        /* Update light buffer from SceneNew.
-           This uploads light data from the ECS scene to the GPU light SSBO.
-           All lights (scene lights + emissive lights from objects) are uploaded uniformly. */
         {
-            SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
-            if (pSceneNew) {
-                // Update all transform matrices before reading positions
-                pSceneNew->UpdateAllTransforms();
-                
-                // Set scene on light manager if not already set
-                this->m_lightManager.SetScene(pSceneNew);
-                
-                // Upload light data to GPU
+            if (pScene) {
+                this->m_lightManager.SetScene(pScene);
                 this->m_lightManager.UpdateLightBuffer();
             }
         }
@@ -1323,7 +1283,7 @@ void VulkanApp::MainLoop() {
                 this->m_tieredInstanceManager.UpdateSSBO(
                     pObjectData,
                     this->m_config.lMaxObjects,
-                    pScene,
+                    this->m_batchedDrawList.GetLastRenderObjects(),
                     this->m_batchedDrawList.GetOpaqueBatches(),
                     this->m_batchedDrawList.GetTransparentBatches(),
                     bSceneRebuilt);
@@ -1340,8 +1300,7 @@ void VulkanApp::MainLoop() {
             float frustumPlanes[6][4];
             ExtractFrustumPlanesFromViewProj(fViewProj, frustumPlanes);
             
-            // Build CullObjectData from batched objects (for per-batch GPU indirect draw)
-            const std::vector<Object>& objects = pScene->GetObjects();
+            const std::vector<RenderObject>& renderObjects = this->m_batchedDrawList.GetLastRenderObjects();
             const auto& opaqueBatchesForCull = this->m_batchedDrawList.GetOpaqueBatches();
             const auto& transparentBatchesForCull = this->m_batchedDrawList.GetTransparentBatches();
             const uint32_t totalBatches = static_cast<uint32_t>(opaqueBatchesForCull.size() + transparentBatchesForCull.size());
@@ -1380,27 +1339,15 @@ void VulkanApp::MainLoop() {
                         
                         uint32_t localIdx = 0;
                         for (uint32_t objIdx : batch.objectIndices) {
-                            if (objIdx >= objects.size()) continue;
-                            
-                            const Object& obj = objects[objIdx];
+                            if (objIdx >= renderObjects.size()) continue;
+
+                            const RenderObject& ro = renderObjects[objIdx];
                             CullObjectData& cullObj = this->m_cullObjectsCache[cullIdx];
-                            
-                            // World position from transform matrix (column 3)
-                            cullObj.boundingSphere[0] = obj.localTransform[12];
-                            cullObj.boundingSphere[1] = obj.localTransform[13];
-                            cullObj.boundingSphere[2] = obj.localTransform[14];
-                            
-                            // Approximate radius from scale (max of xyz scale)
-                            float scaleX = std::sqrt(obj.localTransform[0]*obj.localTransform[0] +
-                                                    obj.localTransform[1]*obj.localTransform[1] +
-                                                    obj.localTransform[2]*obj.localTransform[2]);
-                            float scaleY = std::sqrt(obj.localTransform[4]*obj.localTransform[4] +
-                                                    obj.localTransform[5]*obj.localTransform[5] +
-                                                    obj.localTransform[6]*obj.localTransform[6]);
-                            float scaleZ = std::sqrt(obj.localTransform[8]*obj.localTransform[8] +
-                                                    obj.localTransform[9]*obj.localTransform[9] +
-                                                    obj.localTransform[10]*obj.localTransform[10]);
-                            cullObj.boundingSphere[3] = std::max({scaleX, scaleY, scaleZ});
+
+                            cullObj.boundingSphere[0] = ro.boundsCenterX;
+                            cullObj.boundingSphere[1] = ro.boundsCenterY;
+                            cullObj.boundingSphere[2] = ro.boundsCenterZ;
+                            cullObj.boundingSphere[3] = ro.boundsRadius;
                             
                             // SSBO offset = batch.firstInstanceIndex + local index within batch
                             cullObj.objectIndex = batch.firstInstanceIndex + localIdx;
@@ -1471,9 +1418,8 @@ void VulkanApp::MainLoop() {
 
 #if EDITOR_BUILD
         /* Draw editor panels and gizmos, then end ImGui frame. */
-        SceneNew* pSceneNewForEditor = this->m_sceneManager.GetSceneNew();
-        Scene* pRenderSceneForEditor = this->m_sceneManager.GetCurrentScene();
-        this->m_editorLayer.DrawEditor(pSceneNewForEditor, &this->m_camera, this->m_config, &this->m_viewportManager, pRenderSceneForEditor);
+        Scene* pSceneForEditor = this->m_sceneManager.GetCurrentScene();
+        this->m_editorLayer.DrawEditor(pSceneForEditor, &this->m_camera, this->m_config, &this->m_viewportManager);
         this->m_editorLayer.EndFrame();
         
         /* Handle level loading requests from File menu */
@@ -1546,18 +1492,17 @@ void VulkanApp::MainLoop() {
                 : 1.0f;
             
             // Count instance tiers from scene objects
-            Scene* pStatsScene = this->m_sceneManager.GetCurrentScene();
-            if (pStatsScene) {
-                for (const Object& obj : pStatsScene->GetObjects()) {
-                    switch (obj.instanceTier) {
-                        case InstanceTier::Static:     ++stats.instancesStatic; break;
-                        case InstanceTier::SemiStatic: ++stats.instancesSemiStatic; break;
-                        case InstanceTier::Dynamic:    ++stats.instancesDynamic; break;
-                        case InstanceTier::Procedural: ++stats.instancesProcedural; break;
-                    }
+            const auto& statsRenderObjects = this->m_batchedDrawList.GetLastRenderObjects();
+            for (const auto& ro : statsRenderObjects) {
+                InstanceTier tier = static_cast<InstanceTier>(ro.instanceTier);
+                switch (tier) {
+                    case InstanceTier::Static:     ++stats.instancesStatic; break;
+                    case InstanceTier::SemiStatic: ++stats.instancesSemiStatic; break;
+                    case InstanceTier::Dynamic:    ++stats.instancesDynamic; break;
+                    case InstanceTier::Procedural: ++stats.instancesProcedural; break;
                 }
             }
-            
+
             // Count draw calls per tier (each batch has a dominant tier)
             for (const auto& batch : this->m_batchedDrawList.GetOpaqueBatches()) {
                 switch (batch.dominantTier) {
@@ -1690,6 +1635,11 @@ void VulkanApp::Run() {
 
 void VulkanApp::OnCompletedLoadJob(LoadJobType eType_ic, const std::string& sPath_ic, std::vector<uint8_t> vecData_in) {
     switch (eType_ic) {
+    case LoadJobType::LoadFile:
+        /* LoadFile completions are consumed via SubmitLoadFile wait path (e.g. shader manager); no handler needed. */
+        (void)sPath_ic;
+        (void)vecData_in;
+        break;
     case LoadJobType::LoadMesh:
         this->m_meshManager.OnCompletedMeshFile(sPath_ic, std::move(vecData_in));
         break;
@@ -1791,7 +1741,7 @@ void VulkanApp::RenderRuntimeUI(VkCommandBuffer cmd) {
 
 #if EDITOR_BUILD
 void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>* pDrawCalls_ic, const float* pViewProj_ic,
-                                SceneNew* pSceneNew_ic) {
+                                Scene* pScene_ic) {
     /* Per-viewport temporary push constant buffer (96 bytes for instanced rendering) */
     alignas(16) uint8_t vpPushData[kInstancedPushConstantSize];
     
@@ -1805,7 +1755,7 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
         }
         
         /* Get the camera for this viewport (main camera or scene camera) */
-        Camera* pVpCamera = this->m_viewportManager.GetCameraForViewport(vp, pSceneNew_ic, &this->m_camera);
+        Camera* pVpCamera = this->m_viewportManager.GetCameraForViewport(vp, pScene_ic, &this->m_camera);
         if (pVpCamera == nullptr) {
             pVpCamera = &this->m_camera;
         }
@@ -1922,8 +1872,8 @@ void VulkanApp::RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>
         
         /* Render light debug visualizations (inside the viewport render pass, per-viewport toggle) */
         const bool bVpLightDebug = vp.config.bShowLightDebug && this->m_lightDebugRenderer.IsReady();
-        if ((bVpLightDebug == true) && (pSceneNew_ic != nullptr)) {
-            this->m_lightDebugRenderer.Draw(cmd, pSceneNew_ic, vpViewProj);
+        if ((bVpLightDebug == true) && (pScene_ic != nullptr)) {
+            this->m_lightDebugRenderer.Draw(cmd, pScene_ic, vpViewProj);
         }
         
         /* End viewport render pass */
@@ -2005,7 +1955,7 @@ void VulkanApp::Cleanup() {
     this->m_jobQueue.Stop();
 }
 
-bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const float* pViewProjMat16_ic) {
+bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const float* /* pViewProjMat16_ic */) {
     VkDevice pDevice = this->m_device.GetDevice();
     uint32_t lFrameIndex = this->m_sync.GetCurrentFrameIndex();
     
@@ -2115,12 +2065,11 @@ bool VulkanApp::DrawFrame(const std::vector<DrawCall>& vecDrawCalls_ic, const fl
 #if EDITOR_BUILD
     /* Pre-scene callback for viewport rendering (all viewports render to offscreen targets).
        Light debug is controlled per-viewport via bShowLightDebug. */
-    SceneNew* pSceneNew = this->m_sceneManager.GetSceneNew();
-    
-    /* Wrap viewport rendering with GPU culler dispatch */
+    Scene* pScene = this->m_sceneManager.GetCurrentScene();
+
     auto viewportCallback = std::bind(
         &VulkanApp::RenderViewports, this, std::placeholders::_1,
-        &vecDrawCalls_ic, pViewProjMat16_ic, pSceneNew);
+        &vecDrawCalls_ic, pViewProjMat16_ic, pScene);
     
     /* GPU culler dispatch happens before any render passes */
     std::function<void(VkCommandBuffer)> preSceneCallback = [this, viewportCallback](VkCommandBuffer cmd) {

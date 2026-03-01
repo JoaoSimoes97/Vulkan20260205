@@ -18,7 +18,6 @@
 #include "managers/scene_manager.h"
 #include "managers/texture_manager.h"
 #include "render/batched_draw_list.h"
-#include "render/render_list_builder.h"
 #include "render/tiered_instance_manager.h"
 #include "render/gpu_culler.h"
 #include "render/viewport_manager.h"
@@ -53,7 +52,7 @@
 #endif
 
 class VulkanShaderManager;
-class SceneNew;
+class Scene;  // unified scene
 union SDL_Event;
 
 /**
@@ -134,7 +133,7 @@ private:
     void RenderRuntimeUI(VkCommandBuffer cmd);
 #if EDITOR_BUILD
     void RenderViewports(VkCommandBuffer cmd, const std::vector<DrawCall>* pDrawCalls_ic, const float* pViewProj_ic,
-                         SceneNew* pSceneNew_ic);
+                         Scene* pScene_ic);
 #endif
 
     /* ======== Threading & Job Queue ======== */
@@ -166,7 +165,6 @@ private:
     SceneManager m_sceneManager;
 
     /* ======== Render Lists & Draw Calls ======== */
-    RenderListBuilder m_renderListBuilder;
     BatchedDrawList m_batchedDrawList;
     std::vector<DrawCall> m_drawCalls;
 

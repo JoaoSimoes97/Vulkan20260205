@@ -1,0 +1,33 @@
+# Continue here (alpha review — PC switch)
+
+## Project
+Vulkan PBR engine, Alpha v0.1.0. Single unified Scene (scene_unified); old scene.h / SceneNew / RenderListBuilder deleted.
+
+## Build (use project scripts only)
+  scripts/linux/build.sh --debug   # or --release
+  scripts/linux/clean.sh
+  ./install/Debug/bin/VulkanApp levels/default/level.json
+
+## Key files
+  ALPHA_REVIEW_CHECKLIST.txt   — full checklist (sections 1–2, 6, 8, 9 partly done)
+  alpha_review/progress.txt    — what’s done, leftovers
+  alpha_review/questions.txt  — open decisions, Q10 shader tasks
+
+## Done so far
+  - SceneUnified migration complete; scene.h, scene_new.*, render_list_builder.* deleted
+  - Section 1 (architecture), Section 2 (is everything used), Section 8 (dead code) mostly done
+  - Section 9: README/getting-started checked; Debug + Release build OK, no warnings
+  - physics/script_component: “Not in alpha” in headers
+
+## Next (unchecked in checklist)
+  - Section 3: Efficiency (per-frame allocs, barriers, batching, culling)
+  - Section 4: Vulkan correctness (barriers, descriptor writes, lifetime, validation)
+  - Section 5: Shader/data layout (push constants, SSBO, bindings 0–8)
+  - Section 6 remainder: procedural_mesh_factory TODO, animation/skinning doc, engine.cpp, config validation
+  - Section 7: Guidelines (naming, no `!`, literals, include order)
+  - Section 10: Internal docs, coding guidelines link
+  - Section 11: Cursor rule; Section 12–13: improvements, scalability
+  - alpha_review/questions.txt Section 10: global UBO, time_demo shader, descriptor writes 6–8
+
+## If in doubt
+  Ask the user. Use only project scripts for build/clean/setup.

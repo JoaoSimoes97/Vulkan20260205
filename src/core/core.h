@@ -34,6 +34,6 @@
 // Managers
 #include "light_manager.h"
 
-// Scene container
-#include "scene_new.h"
+// Scene container (unified ECS + render list)
+#include "scene/scene_unified.h"
 

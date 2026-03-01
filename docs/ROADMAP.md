@@ -95,7 +95,7 @@
 | Scene (render data) | ✅ | Object structs for GPU rendering |
 | SceneNew (ECS) | ✅ | GameObjects + component pools (SoA) |
 | Transform sync | ✅ | SyncTransformsToScene() copies ECS→render |
-| SceneUnified (future) | ⚪ | Planned merge of Scene+SceneNew |
+| SceneUnified | 🔄 | Migrating to single scene; will replace Scene (scene.h) + SceneNew. |
 | BuildRenderList | ✅ | Frustum culling via BatchedDrawList |
 
 ### Phase 4.3: Renderer Extraction ✅

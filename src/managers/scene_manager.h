@@ -1,9 +1,9 @@
 #pragma once
 
 #include "gltf_loader.h"
-#include "scene/scene.h"
+#include "scene/scene_unified.h"
 #include "scene/stress_test_generator.h"
-#include "core/scene_new.h"
+#include "scene/object.h"
 #include <nlohmann/json_fwd.hpp>
 #include <memory>
 #include <string>
@@ -22,99 +22,61 @@ struct GltfNodeVisitorContext;
 /**
  * SceneManager: owns current scene and level loading. Level = JSON descriptor + many glTFs (one per instance).
  * SetDependencies() must be called before LoadLevelFromFile or LoadDefaultLevelOrCreate.
- * Supports procedural meshes via "procedural:type" syntax (e.g., "procedural:cube").
- * 
- * Architecture: Maintains both Scene (render data) and SceneNew (ECS components).
- * - Scene contains Object structs with mesh/texture handles for GPU rendering
- * - SceneNew contains GameObjects with Transform/Renderer/Light/Camera components for editing
- * - SyncTransformsToScene() copies ECS transforms to render Objects each frame
+ * Uses unified Scene (scene_unified.h) only: GameObjects + component pools; BuildRenderList() for rendering.
  */
 class SceneManager {
 public:
     SceneManager() = default;
 
-    /** Set managers (for resolving material/mesh/texture refs). Call before LoadLevelFromFile or LoadDefaultLevelOrCreate. */
     void SetDependencies(MaterialManager* pMaterialManager_ic, MeshManager* pMeshManager_ic, TextureManager* pTextureManager_ic);
 
-    /** Unload current scene (drops refs; managers can TrimUnused). */
     void UnloadScene();
 
-    /** Current render scene (may be null). Contains Object structs for GPU rendering. */
+    /** Current scene (unified: GameObjects, transforms, renderers, lights). May be null. */
     Scene* GetCurrentScene() { return m_currentScene.get(); }
     const Scene* GetCurrentScene() const { return m_currentScene.get(); }
 
-    /** Current ECS scene (may be null). Contains lights and ECS components. */
-    SceneNew* GetSceneNew() { return m_sceneNew.get(); }
-    const SceneNew* GetSceneNew() const { return m_sceneNew.get(); }
-
-    /** Set current scene. Replaces any current scene. */
     void SetCurrentScene(std::unique_ptr<Scene> scene);
 
-    /** Load level from JSON (instances[] with source glTF path or "procedural:type" + transform). Returns true on success. */
     bool LoadLevelFromFile(const std::string& path);
 
-    /** Ensure default level file and primitives exist; create if missing. Never overwrites existing files. */
     void EnsureDefaultLevelFile(const std::string& path);
 
-    /** Ensure default level file exists, then load it. Use at startup. Returns true on success. */
     bool LoadDefaultLevelOrCreate(const std::string& defaultLevelPath);
 
-    /** Add object to current scene. No-op if no current scene. */
+    /** Add object to current scene (converts Object to GameObject + components). No-op if no current scene. */
     void AddObject(Object obj);
 
     /** Remove object at index. No-op if index out of range. */
     void RemoveObject(size_t index);
 
-    /**
-     * Generate a stress test scene using a textured glTF model.
-     * @param params Stress test parameters (counts per tier, world size, etc.)
-     * @param modelPath Path to glTF model (e.g., "models/BoxTextured.glb")
-     * @return Number of objects created
-     */
     uint32_t GenerateStressTestScene(const StressTestParams& params, const std::string& modelPath);
 
-    /**
-     * Sync transforms from SceneNew GameObjects back to Scene Objects.
-     * Call each frame before rendering to ensure editor changes to mesh transforms are reflected.
-     */
-    void SyncTransformsToScene();
-
-    /**
-     * Sync emissive object lights to SceneNew LightComponents.
-     * Creates/updates/removes LightComponents for Objects with emitsLight=true.
-     * Call after SyncTransformsToScene() each frame.
-     */
-    void SyncEmissiveLights();
-
 private:
-    /** Helper: check if source is procedural (starts with "procedural:"), extract type, return mesh. */
     std::shared_ptr<MeshHandle> LoadProceduralMesh(const std::string& source);
 
-    /** Load lights from JSON into SceneNew. */
     void LoadLightsFromJson(const nlohmann::json& j);
 
-    /**
-     * Future-work hooks: if called, log once per glTF so animation/skinning tasks are not forgotten.
-     */
     void PrepareAnimationImportStub(const tinygltf::Model& model, const std::string& gltfPath);
     void PrepareSkinningImportStub(const tinygltf::Model& model, const tinygltf::Primitive& prim, const std::string& gltfPath);
-    
-    /** Recursive helper for visiting glTF nodes (factored from lambda per coding guidelines). */
+
     void VisitGltfNode(GltfNodeVisitorContext& ctx, int nodeIndex, const float* parentMatrix);
-    
-    /** Get or load a glTF model (cached). Returns nullptr on failure. */
+
     const tinygltf::Model* GetOrLoadGltfModel(const std::string& path);
-    
-    /** Clear the glTF model cache (call on scene unload). */
+
     void ClearGltfCache();
+
+    /** Convert Object to Transform for AddTransform. */
+    static void ObjectToTransform(const Object& obj, Transform& out);
+
+    /** Convert Object to RendererComponent for AddRenderer. */
+    void ObjectToRenderer(const Object& obj, RendererComponent& out);
 
     GltfLoader m_gltfLoader;
     MaterialManager* m_pMaterialManager = nullptr;
     MeshManager*     m_pMeshManager     = nullptr;
     TextureManager*  m_pTextureManager  = nullptr;
     std::unique_ptr<Scene> m_currentScene;
-    std::unique_ptr<SceneNew> m_sceneNew;
-    
-    /** Cache for procedural meshes (type -> mesh). */
+
     std::map<std::string, std::shared_ptr<MeshHandle>> m_proceduralMeshCache;
 };

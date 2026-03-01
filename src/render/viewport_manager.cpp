@@ -4,7 +4,7 @@
 
 #include "viewport_manager.h"
 #include "../camera/camera.h"
-#include "../core/scene_new.h"
+#include "../scene/scene_unified.h"
 #include "../core/camera_component.h"
 #include "../core/transform.h"
 #include "../vulkan/vulkan_utils.h"
@@ -265,7 +265,7 @@ void ViewportManager::EndViewportRender(uint32_t id, VkCommandBuffer cmd) {
     );
 }
 
-Camera* ViewportManager::GetCameraForViewport(const Viewport& viewport, SceneNew* pScene, Camera* pMainCamera) {
+Camera* ViewportManager::GetCameraForViewport(const Viewport& viewport, Scene* pScene, Camera* pMainCamera) {
     // If no camera specified or no scene, use main camera
     if (viewport.config.cameraGameObjectId == UINT32_MAX || pScene == nullptr) {
         return pMainCamera;

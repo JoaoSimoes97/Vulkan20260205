@@ -5,9 +5,63 @@
  */
 
 #include "scene_unified.h"
+#include "object.h"
+#include "core/transform.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+/* ======== Clear & AddObject (compatibility) ======== */
+
+void Scene::Clear() {
+    m_gameObjects.clear();
+    m_idToIndex.clear();
+    m_nextId = 1;
+    m_transforms.clear();
+    m_renderers.clear();
+    m_lights.clear();
+    m_cameras.clear();
+    m_transformMap.clear();
+    m_rendererMap.clear();
+    m_lightMap.clear();
+    m_cameraMap.clear();
+    m_dirtyFlags = SceneDirtyFlags::None;
+    NotifyChange();
+}
+
+void Scene::AddObject(const Object& obj) {
+    uint32_t goId = CreateGameObject(obj.name.empty() ? "Object" : obj.name);
+    Transform t;
+    TransformFromMatrix(obj.localTransform, t);
+    AddTransform(goId, t);
+    RendererComponent r;
+    r.mesh = obj.pMesh;
+    r.material = obj.pMaterial;
+    r.texture = obj.pTexture;
+    r.pMetallicRoughnessTexture = obj.pMetallicRoughnessTexture;
+    r.pEmissiveTexture = obj.pEmissiveTexture;
+    r.pNormalTexture = obj.pNormalTexture;
+    r.pOcclusionTexture = obj.pOcclusionTexture;
+    r.matProps.baseColor[0] = obj.color[0];
+    r.matProps.baseColor[1] = obj.color[1];
+    r.matProps.baseColor[2] = obj.color[2];
+    r.matProps.baseColor[3] = obj.color[3];
+    r.matProps.emissive[0] = obj.emissive[0];
+    r.matProps.emissive[1] = obj.emissive[1];
+    r.matProps.emissive[2] = obj.emissive[2];
+    r.matProps.emissive[3] = obj.emissive[3];
+    r.matProps.metallic = obj.metallicFactor;
+    r.matProps.roughness = obj.roughnessFactor;
+    r.bVisible = true;
+    r.emitsLight = obj.emitsLight;
+    r.emissiveLightRadius = obj.emissiveLightRadius;
+    r.emissiveLightIntensity = obj.emissiveLightIntensity;
+    r.instanceTier = static_cast<uint8_t>(static_cast<std::underlying_type_t<InstanceTier>>(obj.instanceTier));
+    AddRenderer(goId, r);
+}
 
 /* ======== GameObject Management ======== */
 
@@ -232,16 +286,129 @@ const CameraComponent* Scene::GetCamera(uint32_t gameObjectId) const {
 
 /* ======== Transform Hierarchy ======== */
 
+namespace {
+void ComputeWorldMatrixForObject(Scene* pScene, uint32_t gameObjectId) {
+    Transform* pTransform = pScene->GetTransform(gameObjectId);
+    if (!pTransform) return;
+    TransformBuildModelMatrix(*pTransform);
+    if (pTransform->parentId == NO_PARENT) {
+        std::memcpy(pTransform->worldMatrix, pTransform->modelMatrix, sizeof(pTransform->worldMatrix));
+    } else {
+        ComputeWorldMatrixForObject(pScene, pTransform->parentId);
+        const Transform* pParent = pScene->GetTransform(pTransform->parentId);
+        if (pParent)
+            TransformMultiplyMatrices(pParent->worldMatrix, pTransform->modelMatrix, pTransform->worldMatrix);
+        else
+            std::memcpy(pTransform->worldMatrix, pTransform->modelMatrix, sizeof(pTransform->worldMatrix));
+    }
+}
+}
+
 void Scene::UpdateTransformHierarchy() {
-    // Update all transform matrices
-    // For now, simple: each transform computes its world matrix independently
-    // TODO: Implement parent-child hierarchy with proper world matrix propagation
-    
     for (auto& transform : m_transforms) {
         TransformBuildModelMatrix(transform);
     }
-    
+    std::vector<uint32_t> roots = GetRootObjects();
+    std::function<void(uint32_t, const float*)> updateRecursive =
+        [this, &updateRecursive](uint32_t goId, const float* parentWorld) {
+            Transform* pTransform = GetTransform(goId);
+            if (!pTransform) return;
+            TransformComputeWorldMatrix(*pTransform, parentWorld);
+            const GameObject* pGO = FindGameObject(goId);
+            if (pGO) {
+                for (uint32_t childId : pGO->children) {
+                    updateRecursive(childId, pTransform->worldMatrix);
+                }
+            }
+        };
+    for (uint32_t rootId : roots) {
+        updateRecursive(rootId, nullptr);
+    }
     ClearDirty(SceneDirtyFlags::Transforms);
+}
+
+bool Scene::SetParent(uint32_t childId, uint32_t parentId, bool preserveWorldPosition) {
+    if (childId == parentId) return false;
+    GameObject* pChild = FindGameObject(childId);
+    if (!pChild) return false;
+    Transform* pChildTransform = GetTransform(childId);
+    if (!pChildTransform) return false;
+    if (parentId != NO_PARENT) {
+        if (!FindGameObject(parentId) || WouldCreateCycle(childId, parentId)) return false;
+    }
+    float savedWorldMatrix[16];
+    float parentWorldInverse[16];
+    std::memcpy(parentWorldInverse, glm::value_ptr(glm::mat4(1.0f)), sizeof(parentWorldInverse));
+    if (preserveWorldPosition) {
+        ComputeWorldMatrixForObject(this, childId);
+        std::memcpy(savedWorldMatrix, pChildTransform->worldMatrix, sizeof(savedWorldMatrix));
+        if (parentId != NO_PARENT) {
+            ComputeWorldMatrixForObject(this, parentId);
+            const Transform* pParentTransform = GetTransform(parentId);
+            if (pParentTransform) {
+                glm::mat4 parentMat = glm::make_mat4(pParentTransform->worldMatrix);
+                std::memcpy(parentWorldInverse, glm::value_ptr(glm::inverse(parentMat)), sizeof(parentWorldInverse));
+            }
+        }
+    }
+    uint32_t oldParentId = pChildTransform->parentId;
+    if (oldParentId != NO_PARENT) {
+        GameObject* pOldParent = FindGameObject(oldParentId);
+        if (pOldParent) {
+            auto& siblings = pOldParent->children;
+            siblings.erase(std::remove(siblings.begin(), siblings.end(), childId), siblings.end());
+        }
+    }
+    pChildTransform->parentId = parentId;
+    if (parentId != NO_PARENT) {
+        GameObject* pNewParent = FindGameObject(parentId);
+        if (pNewParent) pNewParent->children.push_back(childId);
+    }
+    if (preserveWorldPosition) {
+        float newLocalMatrix[16];
+        if (parentId != NO_PARENT)
+            TransformMultiplyMatrices(parentWorldInverse, savedWorldMatrix, newLocalMatrix);
+        else
+            std::memcpy(newLocalMatrix, savedWorldMatrix, sizeof(newLocalMatrix));
+        TransformFromMatrix(newLocalMatrix, *pChildTransform);
+        std::memcpy(pChildTransform->modelMatrix, newLocalMatrix, sizeof(pChildTransform->modelMatrix));
+        std::memcpy(pChildTransform->worldMatrix, savedWorldMatrix, sizeof(pChildTransform->worldMatrix));
+        pChildTransform->bDirty = false;
+    } else {
+        pChildTransform->bDirty = true;
+    }
+    MarkDirty(SceneDirtyFlags::Transforms);
+    return true;
+}
+
+uint32_t Scene::GetParent(uint32_t gameObjectId) const {
+    const Transform* p = GetTransform(gameObjectId);
+    return p ? p->parentId : NO_PARENT;
+}
+
+std::vector<uint32_t> Scene::GetRootObjects() const {
+    std::vector<uint32_t> roots;
+    for (const auto& go : m_gameObjects) {
+        const Transform* p = GetTransform(go.id);
+        if (p && p->parentId == NO_PARENT) roots.push_back(go.id);
+    }
+    return roots;
+}
+
+const std::vector<uint32_t>* Scene::GetChildren(uint32_t gameObjectId) const {
+    const GameObject* pGO = FindGameObject(gameObjectId);
+    return pGO ? &pGO->children : nullptr;
+}
+
+bool Scene::WouldCreateCycle(uint32_t childId, uint32_t parentId) const {
+    uint32_t current = parentId;
+    while (current != NO_PARENT) {
+        if (current == childId) return true;
+        const Transform* p = GetTransform(current);
+        if (!p) break;
+        current = p->parentId;
+    }
+    return false;
 }
 
 /* ======== Render List Building ======== */
@@ -346,16 +513,28 @@ std::vector<RenderObject> Scene::BuildRenderList(const float* viewProj,
         ro.pRenderer = pRenderer;
         ro.objectIndex = objectIndex++;
         
-        // Copy resource handles from RendererComponent
+        // Copy resource handles and PBR data from RendererComponent
         ro.mesh = pRenderer->mesh;
         ro.material = pRenderer->material;
         ro.texture = pRenderer->texture;
+        ro.pMetallicRoughnessTexture = pRenderer->pMetallicRoughnessTexture;
+        ro.pEmissiveTexture = pRenderer->pEmissiveTexture;
+        ro.pNormalTexture = pRenderer->pNormalTexture;
+        ro.pOcclusionTexture = pRenderer->pOcclusionTexture;
+        ro.color[0] = pRenderer->matProps.baseColor[0];
+        ro.color[1] = pRenderer->matProps.baseColor[1];
+        ro.color[2] = pRenderer->matProps.baseColor[2];
+        ro.color[3] = pRenderer->matProps.baseColor[3];
+        ro.emissive[0] = pRenderer->matProps.emissive[0];
+        ro.emissive[1] = pRenderer->matProps.emissive[1];
+        ro.emissive[2] = pRenderer->matProps.emissive[2];
+        ro.emissive[3] = pRenderer->matProps.emissive[3];
+        ro.instanceTier = pRenderer->instanceTier;
         
-        // Get world matrix
+        // Get world matrix (use worldMatrix after hierarchy update)
         if (pTransform != nullptr) {
-            // Ensure matrix is up to date
             TransformBuildModelMatrix(*const_cast<Transform*>(pTransform));
-            std::memcpy(ro.worldMatrix, pTransform->modelMatrix, sizeof(float) * 16);
+            std::memcpy(ro.worldMatrix, pTransform->worldMatrix, sizeof(float) * 16);
             
             // Position from matrix (translation column)
             ro.boundsCenterX = ro.worldMatrix[12];

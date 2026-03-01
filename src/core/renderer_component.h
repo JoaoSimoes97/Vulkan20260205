@@ -61,8 +61,22 @@ struct RendererComponent {
     /** Optional per-object texture. nullptr = use default white. */
     std::shared_ptr<TextureHandle> texture;
 
+    /** PBR textures (nullptr = use factors only or default). */
+    std::shared_ptr<TextureHandle> pMetallicRoughnessTexture;
+    std::shared_ptr<TextureHandle> pEmissiveTexture;
+    std::shared_ptr<TextureHandle> pNormalTexture;
+    std::shared_ptr<TextureHandle> pOcclusionTexture;
+
     /** Material properties for PBR shading. */
     MaterialProperties matProps;
+
+    /** Emissive as light: create a point light for this object. */
+    bool emitsLight = false;
+    float emissiveLightRadius = 15.f;
+    float emissiveLightIntensity = 5.f;
+
+    /** Instance tier for batching (see object.h InstanceTier). */
+    uint8_t instanceTier = 0;  // 0 = Static
 
     /** Render layer for sorting. */
     RenderLayer layer = RenderLayer::Default;

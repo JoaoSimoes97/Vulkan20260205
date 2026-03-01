@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VulkanApp VERSION 1.0.0 LANGUAGES CXX)
+project(VulkanApp VERSION 0.1.0 LANGUAGES CXX)
 
 # So clangd (and other tools) can find includes and definitions.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -194,7 +194,6 @@ set(SOURCES
     src/loaders/gltf_mesh_utils.cpp
     src/loaders/procedural_mesh_factory.cpp
     src/render/batched_draw_list.cpp
-    src/render/render_list_builder.cpp
     src/render/viewport_manager.cpp
     src/render/gpu_buffer.cpp
     src/render/renderer.cpp
@@ -203,7 +202,6 @@ set(SOURCES
     src/render/gpu_culler.cpp
     src/core/light_manager.cpp
     src/core/light_debug_renderer.cpp
-    src/core/scene_new.cpp
     src/core/frame_context.cpp
     src/core/engine.cpp
     src/scene/scene_unified.cpp
@@ -240,9 +238,7 @@ set(HEADERS
     src/managers/resource_cleanup_manager.h
     src/loaders/gltf_loader.h
     src/loaders/procedural_mesh_factory.h
-    src/scene/scene.h
     src/scene/scene_unified.h
-    src/render/render_list_builder.h
     src/render/viewport_config.h
     src/render/viewport_manager.h
     src/thread/job_queue.h
@@ -272,7 +268,6 @@ set(HEADERS
     src/core/light_manager.h
     src/core/physics_component.h
     src/core/renderer_component.h
-    src/core/scene_new.h
     src/core/script_component.h
     src/core/subsystem.h
     src/core/frame_context.h

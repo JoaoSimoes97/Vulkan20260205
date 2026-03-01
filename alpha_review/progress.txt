@@ -1,0 +1,56 @@
+# Alpha review progress
+
+Updated as we go. Build/clean/setup: use only project scripts (see ALPHA_REVIEW_CHECKLIST.txt).
+
+## Done
+- Obligatory rule: use only project scripts (in checklist header).
+- alpha_review/ folder + progress.txt + questions.txt.
+- transform.h: added #include <cstdint> (scene_unified build fix).
+- Verified: scripts/linux/clean.sh, scripts/linux/build.sh --debug, install_local.
+- resource_manager_thread.cpp: TrimShaders and TrimAll now run callback (TrimAll was no-op before).
+- vulkan_app: init list order fixed; OnCompletedLoadJob handles LoadFile; removed 4 unused constants.
+- light_debug_renderer: transformIndex vs INVALID_COMPONENT_INDEX; switch handles Area, COUNT.
+- main_menu: removed unused 'center' variable.
+- batched_draw_list: removed unused MaxPushConstantSize().
+- README: Alpha status, known limitations, install path, script-only note.
+- Checklist: marked completed items (SceneNew/Scene flow, frame flow, ResourceCleanupManager, fences/semaphores, README/ROADMAP/version question).
+- questions.txt: user answered; decisions applied (SceneUnified keep, umbrella, culler on, v0.1.0, editor red+tooltip, scalability = Alpha test level, deprecated = migrate then remove).
+
+## Applied from user answers
+- main.cpp: include core/core.h and managers/managers.h (umbrella).
+- managers.h: added #includes for all manager headers (umbrella).
+- ROADMAP: SceneUnified note "Kept in tree for future migration".
+- CMakeLists.txt: VERSION 0.1.0.
+- README: v0.1.0; Alpha validation paragraph; editor placeholders = red + tooltip.
+- editor_layer.cpp: PlaceholderMenuItem shows "Not implemented yet" tooltip on hover.
+- shaders/SHADER_LIST.md: current shaders, binding table, planned shaders, C++ todos.
+- ALPHA_REVIEW_CHECKLIST.txt: sections 1–2, 6, 8, 10, 12, 14, quick reference updated; review log extended.
+
+## In progress
+- Continue checklist: efficiency, Vulkan barriers, shader layout verification, guidelines, dead code, cursor rule, scalability audit; Q10 shader tasks (global UBO, time_demo, descriptor writes 6–8).
+
+## Build warnings
+- Addressed. Build (scripts/linux/build.sh --debug) completes with no warnings.
+
+## SceneUnified migration (user: use unified only, clean up rest)
+- questions.txt + checklist + ROADMAP: (C) Use SceneUnified; migrate app; remove scene.h and SceneNew.
+- RendererComponent: extended with pMetallicRoughnessTexture, pEmissiveTexture, pNormalTexture, pOcclusionTexture, emitsLight, emissiveLightRadius/Intensity, instanceTier.
+- RenderObject: extended with same texture ptrs, color[4], emissive[4], instanceTier; BuildRenderList fills them from RendererComponent.
+- SceneUnified: added SetParent, GetParent, GetRootObjects, GetChildren, WouldCreateCycle; UpdateTransformHierarchy now propagates world matrices; SetChangeCallback alias for API compatibility.
+- SceneManager: loads into unified Scene only; ObjectToTransform/ObjectToRenderer; no SceneNew; LoadLightsFromJson uses m_currentScene; stress test uses AddObject().
+- BatchedDrawList: takes unified Scene*; RebuildIfDirty uses BuildRenderList(); BuildBatches(vector<RenderObject>); UpdateVisibility uses m_lastRenderObjects; GetLastRenderObjects().
+- TieredInstanceManager: UpdateSSBO(vector<RenderObject>); WriteObjectToSSBO(RenderObject).
+- VulkanApp: UpdateTransformHierarchy(); LightManager.SetScene(Scene*); no SyncTransformsToScene/SyncEmissiveLights; GPU culler uses GetLastRenderObjects(); stats/CleanupUnused use render list.
+- Editor, ViewportManager, LightDebug: all take Scene* (unified); Editor emissive/gizmo use GetRenderer/BuildRenderList.
+- Unified Scene: added Clear(), AddObject(Object), MarkDirty() for stress_test_generator.
+- Build: debug build succeeds. Old scene.h/scene_new still in tree; can be removed in cleanup pass (m6).
+
+## Leftovers
+- questions.txt Q10 tasks: global UBO, time_demo shader, fix descriptor writes 6–8.
+- Cleanup (m6) done: scene_new.cpp, render_list_builder.cpp removed from CMake; scene.h, scene_new.h, render_list_builder.h removed from HEADERS. core.h includes scene/scene_unified.h. VulkanApp no longer has RenderListBuilder. Deleted from repo: src/scene/scene.h, src/core/scene_new.h, src/core/scene_new.cpp, src/render/render_list_builder.h, src/render/render_list_builder.cpp.
+- Section 2 done: physics/script "Not in alpha" in headers; camera, RingBuffer, FrameContext/offset, TieredInstanceManager, LevelSelector, StressTest verified. Section 6: object.h rationale, scene_unified TODOs resolved, dead code item checked.
+- Remaining checklist: efficiency (3), Vulkan correctness (4), shader/data layout (5), code correctness (6 remainder), guidelines (7), build/install (9), docs (10), cursor rule (11), improvements (12), scalability (13).
+
+## Notes
+- Shaders already have normal transform (vert) and emissive (frag); engine-design “bugs” may be fixed — confirm and doc.
+- Single run: fixed what was clear; deferred all “choose A or B” to questions.txt.

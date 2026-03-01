@@ -3,59 +3,47 @@
  */
 #include "tiered_instance_manager.h"
 #include "batched_draw_list.h"
-#include "scene/scene.h"
-#include "app/vulkan_app.h"  // For ObjectData struct
+#include "app/vulkan_app.h"
 
 TierUpdateStats TieredInstanceManager::UpdateSSBO(
     ObjectData* pObjectData,
     uint32_t maxObjects,
-    Scene* pScene,
+    const std::vector<RenderObject>& renderObjects,
     const std::vector<DrawBatch>& opaqueBatches,
     const std::vector<DrawBatch>& transparentBatches,
     bool bSceneRebuilt
 ) {
     TierUpdateStats stats;
-    
-    if (!pObjectData || !pScene) {
+    if (!pObjectData || renderObjects.empty()) {
         m_lastStats = stats;
         return stats;
     }
-    
-    // Track rebuild across multiple frames for triple buffering.
-    // When scene rebuilds, we need to upload static data to all 3 frame regions.
+
     if (bSceneRebuilt) {
         m_rebuildFramesRemaining = kFramesInFlight;
     }
-    
-    // Force full upload on first call, after invalidation, or while filling all frame buffers
     bool bFullUpload = m_bForceFullUpload || (m_rebuildFramesRemaining > 0);
     m_bForceFullUpload = false;
-    
-    // Decrement rebuild counter (if active)
     if (m_rebuildFramesRemaining > 0) {
         --m_rebuildFramesRemaining;
     }
-    
-    const auto& objects = pScene->GetObjects();
-    
-    // Count objects per tier
-    for (const auto& obj : objects) {
-        switch (obj.instanceTier) {
+
+    for (const auto& ro : renderObjects) {
+        InstanceTier tier = static_cast<InstanceTier>(ro.instanceTier);
+        switch (tier) {
             case InstanceTier::Static:      ++stats.staticCount; break;
             case InstanceTier::SemiStatic:  ++stats.semiStaticCount; break;
             case InstanceTier::Dynamic:     ++stats.dynamicCount; break;
             case InstanceTier::Procedural:  ++stats.proceduralCount; break;
         }
     }
-    
-    // Process all batches
+
     for (const auto& batch : opaqueBatches) {
-        ProcessBatch(pObjectData, maxObjects, objects, batch, bFullUpload, stats);
+        ProcessBatch(pObjectData, maxObjects, renderObjects, batch, bFullUpload, stats);
     }
     for (const auto& batch : transparentBatches) {
-        ProcessBatch(pObjectData, maxObjects, objects, batch, bFullUpload, stats);
+        ProcessBatch(pObjectData, maxObjects, renderObjects, batch, bFullUpload, stats);
     }
-    
     m_lastStats = stats;
     return stats;
 }
@@ -63,7 +51,7 @@ TierUpdateStats TieredInstanceManager::UpdateSSBO(
 void TieredInstanceManager::ProcessBatch(
     ObjectData* pObjectData,
     uint32_t maxObjects,
-    const std::vector<Object>& objects,
+    const std::vector<RenderObject>& renderObjects,
     const DrawBatch& batch,
     bool bFullUpload,
     TierUpdateStats& stats
@@ -72,84 +60,37 @@ void TieredInstanceManager::ProcessBatch(
     uint32_t ssboOffset = batch.firstInstanceIndex;
     
     for (uint32_t objIdx : batch.objectIndices) {
-        if (objIdx >= objects.size() || ssboOffset >= maxObjects) continue;
-        
-        const Object& obj = objects[objIdx];
+        if (objIdx >= renderObjects.size() || ssboOffset >= maxObjects) continue;
+
+        const RenderObject& ro = renderObjects[objIdx];
         
         bool needsUpload = false;
         
         switch (tier) {
-            case InstanceTier::Static:
-#if EDITOR_BUILD
-                // In editor: Static acts like SemiStatic (upload when dirty or full upload)
-                // This allows editing any object's transform in the editor
-                needsUpload = bFullUpload || obj.IsDirty();
-                if (needsUpload) {
-                    ++stats.staticUploaded;
-                    obj.ClearDirty();
-                }
-#else
-                // Runtime: Only upload on full upload (scene rebuilt + all frames-in-flight)
-                needsUpload = bFullUpload;
-                if (needsUpload) {
-                    ++stats.staticUploaded;
-                    obj.ClearDirty();
-                }
-#endif
-                break;
-                
-            case InstanceTier::SemiStatic:
-                // Upload on full upload OR when object is dirty
-                needsUpload = bFullUpload || obj.IsDirty();
-                if (needsUpload) {
-                    ++stats.semiStaticUploaded;
-                    obj.ClearDirty();
-                }
-                break;
-                
-            case InstanceTier::Dynamic:
-                // Always upload every frame
-                needsUpload = true;
-                ++stats.dynamicUploaded;
-                break;
-                
-            case InstanceTier::Procedural:
-#if EDITOR_BUILD
-                // In editor: Procedural acts like SemiStatic (upload when dirty or full upload)
-                // This allows editing procedural object transforms in the editor
-                needsUpload = bFullUpload || obj.IsDirty();
-                if (needsUpload) {
-                    ++stats.proceduralUploaded;
-                    obj.ClearDirty();
-                }
-#else
-                // Runtime: Compute shader handles this - placeholder upload on full upload only
-                needsUpload = bFullUpload;
-                if (needsUpload) {
-                    ++stats.proceduralUploaded;
-                }
-#endif
-                break;
+            case InstanceTier::Static:    needsUpload = bFullUpload; if (needsUpload) ++stats.staticUploaded; break;
+            case InstanceTier::SemiStatic: needsUpload = bFullUpload; if (needsUpload) ++stats.semiStaticUploaded; break;
+            case InstanceTier::Dynamic:   needsUpload = true; ++stats.dynamicUploaded; break;
+            case InstanceTier::Procedural: needsUpload = bFullUpload; if (needsUpload) ++stats.proceduralUploaded; break;
         }
-        
-        if (needsUpload) {
-            WriteObjectToSSBO(pObjectData[ssboOffset], obj);
-        }
+        if (needsUpload)
+            WriteObjectToSSBO(pObjectData[ssboOffset], ro);
         
         ++ssboOffset;
     }
 }
 
-void TieredInstanceManager::WriteObjectToSSBO(ObjectData& od, const Object& obj) {
-    const float* m = obj.localTransform;
-    od.model = glm::mat4(
-        m[0], m[1], m[2], m[3],
-        m[4], m[5], m[6], m[7],
-        m[8], m[9], m[10], m[11],
-        m[12], m[13], m[14], m[15]
-    );
-    od.emissive = glm::vec4(obj.emissive[0], obj.emissive[1], obj.emissive[2], obj.emissive[3]);
-    od.matProps = glm::vec4(obj.metallicFactor, obj.roughnessFactor, obj.normalScale, obj.occlusionStrength);
-    od.baseColor = glm::vec4(obj.color[0], obj.color[1], obj.color[2], obj.color[3]);
-    // Reserved fields stay as-is (zeroed on allocation)
+void TieredInstanceManager::WriteObjectToSSBO(ObjectData& od, const RenderObject& ro) {
+    const float* m = ro.worldMatrix;
+    od.model = glm::mat4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
+                         m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
+    od.emissive = glm::vec4(ro.emissive[0], ro.emissive[1], ro.emissive[2], ro.emissive[3]);
+    float metallic = 0.f, roughness = 1.f, normalScale = 1.f, occlusionStrength = 1.f;
+    if (ro.pRenderer) {
+        metallic = ro.pRenderer->matProps.metallic;
+        roughness = ro.pRenderer->matProps.roughness;
+        normalScale = ro.pRenderer->matProps.normalScale;
+        occlusionStrength = ro.pRenderer->matProps.occlusionStrength;
+    }
+    od.matProps = glm::vec4(metallic, roughness, normalScale, occlusionStrength);
+    od.baseColor = glm::vec4(ro.color[0], ro.color[1], ro.color[2], ro.color[3]);
 }

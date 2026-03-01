@@ -2,7 +2,7 @@
  * LightDebugRenderer — Full implementation.
  */
 #include "light_debug_renderer.h"
-#include "scene_new.h"
+#include "scene/scene_unified.h"
 #include "light_component.h"
 #include "transform.h"
 #include "../vulkan/vulkan_utils.h"
@@ -447,7 +447,7 @@ void LightDebugRenderer::GenerateDirectionalLightGeometry(std::vector<DebugLineV
 }
 
 /* ---- Draw ---- */
-void LightDebugRenderer::Draw(VkCommandBuffer cmd, const SceneNew* pScene, const float* viewProjMatrix) {
+void LightDebugRenderer::Draw(VkCommandBuffer cmd, const Scene* pScene, const float* viewProjMatrix) {
     if (!m_bReady || pScene == nullptr) return;
 
     std::vector<DebugLineVertex> vertices;
@@ -465,7 +465,7 @@ void LightDebugRenderer::Draw(VkCommandBuffer cmd, const SceneNew* pScene, const
         float dir[3] = { 0.f, -1.f, 0.f };
 
         for (const auto& go : gameObjects) {
-            if (go.lightIndex == static_cast<int32_t>(li) && go.transformIndex >= 0) {
+            if ((go.lightIndex == li) && (go.transformIndex != INVALID_COMPONENT_INDEX)) {
                 const Transform& xf = transforms[static_cast<size_t>(go.transformIndex)];
                 pos[0] = xf.position[0]; pos[1] = xf.position[1]; pos[2] = xf.position[2];
                 /* Derive direction from transform rotation (forward = -Z local axis). */
@@ -483,6 +483,12 @@ void LightDebugRenderer::Draw(VkCommandBuffer cmd, const SceneNew* pScene, const
                 break;
             case LightType::Directional:
                 GenerateDirectionalLightGeometry(vertices, pos, dir, light.color);
+                break;
+            case LightType::Area:
+                /* Area lights: draw as point for now (no geometry yet). */
+                GeneratePointLightGeometry(vertices, pos, light.range, light.color);
+                break;
+            case LightType::COUNT:
                 break;
         }
     }

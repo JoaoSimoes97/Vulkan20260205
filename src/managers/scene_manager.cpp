@@ -6,6 +6,7 @@
 #include "mesh_manager.h"
 #include "texture_manager.h"
 #include "scene/object.h"
+#include "core/transform.h"
 #include "gltf_mesh_utils.h"
 #include "procedural_mesh_factory.h"
 #include "vulkan/vulkan_utils.h"
@@ -526,20 +527,12 @@ void SceneManager::SetDependencies(MaterialManager* pMaterialManager_ic, MeshMan
 
 void SceneManager::UnloadScene() {
     m_currentScene.reset();
-    m_sceneNew.reset();
-    // Clear procedural mesh cache to release all mesh handles
     m_proceduralMeshCache.clear();
-    // Clear glTF model cache (will be reloaded on next level load)
     ClearGltfCache();
 }
 
 void SceneManager::SetCurrentScene(std::unique_ptr<Scene> scene) {
     m_currentScene = std::move(scene);
-    
-    // Also create a matching SceneNew if we don't have one (for empty scenes)
-    if (m_currentScene && !m_sceneNew) {
-        m_sceneNew = std::make_unique<SceneNew>(m_currentScene->GetName());
-    }
 }
 
 void SceneManager::EnsureDefaultLevelFile(const std::string& path) {
@@ -588,14 +581,9 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
     if (j.contains("name") && j["name"].is_string())
         sceneName = j["name"].get<std::string>();
 
-    auto scene = std::make_unique<Scene>(sceneName);
-    std::vector<Object>& objs = scene->GetObjects();
+    std::vector<Object> objs;
 
-    // Track parent relationships for hierarchy (parsed from JSON, resolved after GameObjects created)
-    // Key: object index in objs vector, Value: parent object name (string reference)
     std::vector<std::string> instanceParentNames;
-    
-    // Track glTF internal hierarchy: (childObjIndex, parentObjIndex) pairs
     std::vector<std::pair<size_t, size_t>> gltfHierarchyPairs;
 
     // ========================================================================
@@ -632,7 +620,7 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
     }
 
     if (!j.contains("instances") || !j["instances"].is_array()) {
-        SetCurrentScene(std::move(scene));
+        SetCurrentScene(std::make_unique<Scene>(sceneName));
         VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" (no instances)", path);
         return true;
     }
@@ -900,148 +888,61 @@ bool SceneManager::LoadLevelFromFile(const std::string& path) {
         }
     }
 
-    // Create SceneNew for ECS components (lights, meshes, etc.)
-    m_sceneNew = std::make_unique<SceneNew>(sceneName);
-    
-    // Create GameObjects in SceneNew for each mesh Object
-    // This allows the editor hierarchy to show all objects
+    // Build unified Scene from parsed Objects
+    auto scene = std::make_unique<Scene>(sceneName);
+    std::vector<uint32_t> goIds(objs.size(), UINT32_MAX);
+
     for (size_t i = 0; i < objs.size(); ++i) {
         Object& obj = objs[i];
-        
-        // Generate a name for the object
-        std::string goName = obj.name.empty() 
-            ? ("Object_" + std::to_string(i)) 
-            : obj.name;
-        
-        uint32_t goId = m_sceneNew->CreateGameObject(goName);
-        obj.gameObjectId = goId;
-        
-        // Decompose the object's localTransform matrix into position/rotation/scale
-        Transform* t = m_sceneNew->GetTransform(goId);
-        if (t) {
-            TransformFromMatrix(obj.localTransform, *t);
-        }
-        
-        // Add a RendererComponent to mark this as a mesh object
+        std::string goName = obj.name.empty() ? ("Object_" + std::to_string(i)) : obj.name;
+        uint32_t goId = scene->CreateGameObject(goName);
+        goIds[i] = goId;
+
+        Transform t;
+        ObjectToTransform(obj, t);
+        scene->AddTransform(goId, t);
+
         RendererComponent renderer;
-        renderer.mesh = obj.pMesh;
-        renderer.material = obj.pMaterial;
-        renderer.texture = obj.pTexture;
-        renderer.bVisible = true;
-        renderer.matProps.baseColor[0] = obj.color[0];
-        renderer.matProps.baseColor[1] = obj.color[1];
-        renderer.matProps.baseColor[2] = obj.color[2];
-        renderer.matProps.baseColor[3] = obj.color[3];
-        renderer.matProps.metallic = obj.metallicFactor;
-        renderer.matProps.roughness = obj.roughnessFactor;
-        m_sceneNew->AddRenderer(goId, renderer);
+        ObjectToRenderer(obj, renderer);
+        scene->AddRenderer(goId, renderer);
     }
-    
-    // Resolve parent-child relationships from JSON "parent" fields
-    // Build name -> gameObjectId map for resolution
+
+    // Resolve parent-child from JSON "parent" names
     std::unordered_map<std::string, uint32_t> nameToId;
-    for (const auto& obj : objs) {
-        if (!obj.name.empty() && obj.gameObjectId != UINT32_MAX) {
-            nameToId[obj.name] = obj.gameObjectId;
-        }
+    for (size_t i = 0; i < objs.size(); ++i) {
+        if (!objs[i].name.empty() && goIds[i] != UINT32_MAX)
+            nameToId[objs[i].name] = goIds[i];
     }
-    
-    // Set parents based on parsed parent names
-    size_t parentSetCount = 0;
     for (size_t i = 0; i < objs.size() && i < instanceParentNames.size(); ++i) {
         const std::string& parentName = instanceParentNames[i];
         if (parentName.empty()) continue;
-        
         auto it = nameToId.find(parentName);
         if (it != nameToId.end()) {
-            uint32_t childId = objs[i].gameObjectId;
-            uint32_t parentId = it->second;
-            // Use preserveWorldPosition = false; we compute local transforms manually below
-            if (m_sceneNew->SetParent(childId, parentId, false)) {
-                ++parentSetCount;
-            } else {
-                VulkanUtils::LogErr("SceneManager: failed to set parent \"{}\" for object \"{}\" (cycle or invalid)",
-                                   parentName, objs[i].name);
-            }
+            uint32_t childId = goIds[i], parentId = it->second;
+            if (!scene->SetParent(childId, parentId, true))
+                VulkanUtils::LogErr("SceneManager: failed to set parent \"{}\" for object \"{}\"", parentName, objs[i].name);
         } else {
-            VulkanUtils::LogErr("SceneManager: parent \"{}\" not found for object \"{}\"",
-                               parentName, objs[i].name);
+            VulkanUtils::LogErr("SceneManager: parent \"{}\" not found for object \"{}\"", parentName, objs[i].name);
         }
     }
-    
-    // Set parents based on glTF internal node hierarchy
-    size_t gltfParentSetCount = 0;
+
+    // Set parents from glTF internal hierarchy
     for (const auto& pair : gltfHierarchyPairs) {
-        size_t childObjIdx = pair.first;
-        size_t parentObjIdx = pair.second;
-        
-        if (childObjIdx < objs.size() && parentObjIdx < objs.size()) {
-            uint32_t childId = objs[childObjIdx].gameObjectId;
-            uint32_t parentId = objs[parentObjIdx].gameObjectId;
-            
-            if (childId != UINT32_MAX && parentId != UINT32_MAX) {
-                // Only set if not already parented (JSON parent takes precedence)
-                Transform* pChildTransform = m_sceneNew->GetTransform(childId);
-                if (pChildTransform && pChildTransform->parentId == NO_PARENT) {
-                    // Use preserveWorldPosition = false; we compute local transforms manually below
-                    if (m_sceneNew->SetParent(childId, parentId, false)) {
-                        ++gltfParentSetCount;
-                    }
-                }
-            }
-        }
+        size_t childObjIdx = pair.first, parentObjIdx = pair.second;
+        if (childObjIdx >= goIds.size() || parentObjIdx >= goIds.size()) continue;
+        uint32_t childId = goIds[childObjIdx], parentId = goIds[parentObjIdx];
+        if (childId == UINT32_MAX || parentId == UINT32_MAX) continue;
+        const Transform* pChild = scene->GetTransform(childId);
+        if (pChild && pChild->parentId == NO_PARENT)
+            scene->SetParent(childId, parentId, true);
     }
-    
-    if (gltfParentSetCount > 0) {
-        VulkanUtils::LogInfo("SceneManager: set {} glTF internal parent-child relationships", gltfParentSetCount);
-    }
-    
-    // For objects with parents, recompute local transforms from world transforms
-    // Currently transforms are decomposed from baked world matrices, but hierarchy
-    // expects local transforms (relative to parent)
-    for (auto& obj : objs) {
-        if (obj.gameObjectId == UINT32_MAX) continue;
-        
-        Transform* pTransform = m_sceneNew->GetTransform(obj.gameObjectId);
-        if (!pTransform || pTransform->parentId == NO_PARENT) continue;
-        
-        // Child has a parent - we need to compute local transform
-        Transform* pParentTransform = m_sceneNew->GetTransform(pTransform->parentId);
-        if (!pParentTransform) continue;
-        
-        // Get child's current world matrix (stored in obj.localTransform, which is actually baked world)
-        glm::mat4 childWorld = glm::make_mat4(obj.localTransform);
-        
-        // Get parent's world matrix (also baked in their localTransform)
-        const GameObject* pParentGO = m_sceneNew->FindGameObject(pTransform->parentId);
-        if (!pParentGO) continue;
-        
-        // Find parent's Object to get its world matrix
-        glm::mat4 parentWorld = glm::mat4(1.0f);
-        for (const auto& parentObj : objs) {
-            if (parentObj.gameObjectId == pTransform->parentId) {
-                parentWorld = glm::make_mat4(parentObj.localTransform);
-                break;
-            }
-        }
-        
-        // Compute local: local = inverse(parentWorld) * childWorld
-        glm::mat4 localMatrix = glm::inverse(parentWorld) * childWorld;
-        
-        // Decompose local matrix into position/rotation/scale
-        float localMatrixArr[16];
-        std::memcpy(localMatrixArr, glm::value_ptr(localMatrix), sizeof(localMatrixArr));
-        TransformFromMatrix(localMatrixArr, *pTransform);
-    }
-    
+
     const size_t objectCount = objs.size();
     SetCurrentScene(std::move(scene));
-    
-    // Load lights from JSON
     LoadLightsFromJson(j);
-    
-    VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" ({} objects, {} lights)", 
-                         path, objectCount, m_sceneNew->GetLights().size());
+
+    VulkanUtils::LogInfo("SceneManager: loaded level \"{}\" ({} objects, {} lights)",
+                         path, objectCount, m_currentScene ? m_currentScene->GetLights().size() : 0u);
     return true;
 }
 
@@ -1055,181 +956,57 @@ bool SceneManager::LoadDefaultLevelOrCreate(const std::string& defaultLevelPath)
 }
 
 void SceneManager::AddObject(Object obj) {
-    if (m_currentScene)
-        m_currentScene->GetObjects().push_back(std::move(obj));
+    if (!m_currentScene) return;
+    uint32_t goId = m_currentScene->CreateGameObject(obj.name.empty() ? "Object" : obj.name);
+    Transform t;
+    ObjectToTransform(obj, t);
+    m_currentScene->AddTransform(goId, t);
+    RendererComponent r;
+    ObjectToRenderer(obj, r);
+    m_currentScene->AddRenderer(goId, r);
 }
 
 void SceneManager::RemoveObject(size_t index) {
     if (!m_currentScene) return;
-    auto& objs = m_currentScene->GetObjects();
-    if (index < objs.size())
-        objs.erase(objs.begin() + static_cast<std::ptrdiff_t>(index));
-}
-
-void SceneManager::SyncTransformsToScene() {
-    if (!m_currentScene || !m_sceneNew) return;
-    
-    // First, update all world matrices respecting hierarchy
-    m_sceneNew->UpdateWorldMatrices();
-    
-    auto& objs = m_currentScene->GetObjects();
-    const auto& transforms = m_sceneNew->GetTransforms();
-    
-    // Sync transforms from SceneNew GameObjects back to Scene Objects
-    for (auto& obj : objs) {
-        if (obj.gameObjectId == UINT32_MAX) continue;
-        
-#if !EDITOR_BUILD
-        // Runtime optimization: Static tier objects never move, skip sync
-        // In editor builds, always sync (user may move any object)
-        if (obj.instanceTier == InstanceTier::Static) continue;
-#endif
-        
-        // Find the GameObject
-        const GameObject* go = m_sceneNew->FindGameObject(obj.gameObjectId);
-        if (!go || go->transformIndex >= transforms.size()) continue;
-        
-        const Transform& t = transforms[go->transformIndex];
-        
-        // Save old matrix for change detection
-        float oldMatrix[16];
-        std::memcpy(oldMatrix, obj.localTransform, sizeof(oldMatrix));
-        
-        // Copy the WORLD matrix to obj.localTransform (used for rendering)
-        // This handles hierarchy: child objects use their world transform for GPU
-        std::memcpy(obj.localTransform, t.worldMatrix, sizeof(obj.localTransform));
-        
-#if EDITOR_BUILD
-        // In editor: mark dirty if ANY matrix element changed (position, rotation, or scale)
-        // This ensures gizmo rotation/scale operations update the GPU buffer
-        bool changed = false;
-        for (int i = 0; i < 16 && !changed; ++i) {
-            if (obj.localTransform[i] != oldMatrix[i]) changed = true;
+    const auto& gameObjects = m_currentScene->GetGameObjects();
+    size_t renderableIdx = 0;
+    for (const auto& go : gameObjects) {
+        if (!go.HasRenderer()) continue;
+        if (renderableIdx == index) {
+            m_currentScene->DestroyGameObject(go.id);
+            return;
         }
-        if (changed) {
-            obj.MarkDirty();
-        }
-#else
-        // Runtime: For SemiStatic tier, mark dirty if transform changed
-        // Dynamic tier doesn't need dirty tracking (always uploads)
-        if (obj.instanceTier == InstanceTier::SemiStatic) {
-            // Quick check: did translation change? (most common case)
-            if (obj.localTransform[12] != oldMatrix[12] ||
-                obj.localTransform[13] != oldMatrix[13] ||
-                obj.localTransform[14] != oldMatrix[14]) {
-                obj.MarkDirty();
-            }
-            // Note: Full rotation/scale change detection could compare all 16 floats,
-            // but translation check catches most movement. ECS can also explicitly mark dirty.
-        }
-#endif
+        ++renderableIdx;
     }
 }
 
-void SceneManager::SyncEmissiveLights() {
-    if (!m_currentScene || !m_sceneNew) return;
-    
-    auto& objs = m_currentScene->GetObjects();
-    auto& lights = m_sceneNew->GetLights();
-    
-    for (auto& obj : objs) {
-        // Calculate emissive intensity
-        float emissiveIntensity = std::sqrt(
-            obj.emissive[0] * obj.emissive[0] +
-            obj.emissive[1] * obj.emissive[1] +
-            obj.emissive[2] * obj.emissive[2]
-        ) * obj.emissive[3] * obj.emissiveLightIntensity;
-        
-        const bool shouldHaveLight = obj.emitsLight && (emissiveIntensity >= 0.001f);
-        const bool hasLight = (obj.emissiveLightId != UINT32_MAX);
-        
-        if (shouldHaveLight && !hasLight) {
-            // Create new light for this emissive object
-            std::string lightName = obj.name.empty() ? "EmissiveLight" : (obj.name + "_Light");
-            uint32_t lightGoId = m_sceneNew->CreateGameObject(lightName);
-            
-            // Set light position from object's world center
-            Transform* lightTransform = m_sceneNew->GetTransform(lightGoId);
-            if (lightTransform) {
-                // Compute world position from object transform
-                const float* m = obj.localTransform;
-                float cx = m[12], cy = m[13], cz = m[14]; // Default: translation
-                
-                if (obj.pMesh != nullptr) {
-                    const MeshAABB& aabb = obj.pMesh->GetAABB();
-                    if (aabb.IsValid()) {
-                        float localCx, localCy, localCz;
-                        aabb.GetCenter(localCx, localCy, localCz);
-                        // Transform center to world space
-                        cx = m[0]*localCx + m[4]*localCy + m[8]*localCz + m[12];
-                        cy = m[1]*localCx + m[5]*localCy + m[9]*localCz + m[13];
-                        cz = m[2]*localCx + m[6]*localCy + m[10]*localCz + m[14];
-                    }
-                }
-                
-                TransformSetPosition(*lightTransform, cx, cy, cz);
-            }
-            
-            // Create light component
-            LightComponent light;
-            light.type = LightType::Point;
-            light.color[0] = obj.emissive[0];
-            light.color[1] = obj.emissive[1];
-            light.color[2] = obj.emissive[2];
-            light.intensity = obj.emissive[3] * obj.emissiveLightIntensity;
-            light.range = obj.emissiveLightRadius;
-            light.falloffExponent = 2.0f;  // Physically correct inverse square
-            light.bActive = true;
-            
-            m_sceneNew->AddLight(lightGoId, light);
-            obj.emissiveLightId = lightGoId;
-            
-            VulkanUtils::LogTrace("SyncEmissiveLights: Created light for object '{}' (lightGoId={})", 
-                                  obj.name, lightGoId);
-            
-        } else if (shouldHaveLight && hasLight) {
-            // Update existing light
-            GameObject* lightGo = m_sceneNew->FindGameObject(obj.emissiveLightId);
-            if (lightGo && lightGo->lightIndex < lights.size()) {
-                LightComponent& light = lights[lightGo->lightIndex];
-                
-                // Update light properties
-                light.color[0] = obj.emissive[0];
-                light.color[1] = obj.emissive[1];
-                light.color[2] = obj.emissive[2];
-                light.intensity = obj.emissive[3] * obj.emissiveLightIntensity;
-                light.range = obj.emissiveLightRadius;
-                
-                // Update position from object's world center
-                Transform* lightTransform = m_sceneNew->GetTransform(obj.emissiveLightId);
-                if (lightTransform) {
-                    const float* m = obj.localTransform;
-                    float cx = m[12], cy = m[13], cz = m[14];
-                    
-                    if (obj.pMesh != nullptr) {
-                        const MeshAABB& aabb = obj.pMesh->GetAABB();
-                        if (aabb.IsValid()) {
-                            float localCx, localCy, localCz;
-                            aabb.GetCenter(localCx, localCy, localCz);
-                            cx = m[0]*localCx + m[4]*localCy + m[8]*localCz + m[12];
-                            cy = m[1]*localCx + m[5]*localCy + m[9]*localCz + m[13];
-                            cz = m[2]*localCx + m[6]*localCy + m[10]*localCz + m[14];
-                        }
-                    }
-                    
-                    TransformSetPosition(*lightTransform, cx, cy, cz);
-                }
-            }
-            
-        } else if (!shouldHaveLight && hasLight) {
-            // Remove light (object no longer emits light)
-            m_sceneNew->DestroyGameObject(obj.emissiveLightId);
-            obj.emissiveLightId = UINT32_MAX;
-            
-            VulkanUtils::LogTrace("SyncEmissiveLights: Removed light for object '{}'", obj.name);
-        }
-        // else: !shouldHaveLight && !hasLight - nothing to do
-    }
+void SceneManager::ObjectToTransform(const Object& obj, Transform& out) {
+    TransformFromMatrix(obj.localTransform, out);
+}
+
+void SceneManager::ObjectToRenderer(const Object& obj, RendererComponent& out) {
+    out.mesh = obj.pMesh;
+    out.material = obj.pMaterial;
+    out.texture = obj.pTexture;
+    out.pMetallicRoughnessTexture = obj.pMetallicRoughnessTexture;
+    out.pEmissiveTexture = obj.pEmissiveTexture;
+    out.pNormalTexture = obj.pNormalTexture;
+    out.pOcclusionTexture = obj.pOcclusionTexture;
+    out.matProps.baseColor[0] = obj.color[0];
+    out.matProps.baseColor[1] = obj.color[1];
+    out.matProps.baseColor[2] = obj.color[2];
+    out.matProps.baseColor[3] = obj.color[3];
+    out.matProps.emissive[0] = obj.emissive[0];
+    out.matProps.emissive[1] = obj.emissive[1];
+    out.matProps.emissive[2] = obj.emissive[2];
+    out.matProps.emissive[3] = obj.emissive[3];
+    out.matProps.metallic = obj.metallicFactor;
+    out.matProps.roughness = obj.roughnessFactor;
+    out.bVisible = true;
+    out.emitsLight = obj.emitsLight;
+    out.emissiveLightRadius = obj.emissiveLightRadius;
+    out.emissiveLightIntensity = obj.emissiveLightIntensity;
+    out.instanceTier = static_cast<uint8_t>(static_cast<std::underlying_type_t<InstanceTier>>(obj.instanceTier));
 }
 
 std::shared_ptr<MeshHandle> SceneManager::LoadProceduralMesh(const std::string& source) {
@@ -1292,57 +1069,52 @@ void SceneManager::ClearGltfCache() {
 }
 
 void SceneManager::LoadLightsFromJson(const nlohmann::json& j) {
-    if (!m_sceneNew) return;
-    
+    if (!m_currentScene) return;
+
     if (!j.contains("lights") || !j["lights"].is_array()) {
-        // No lights in the level - add a default ambient-ish directional light
-        uint32_t goId = m_sceneNew->CreateGameObject("DefaultSun");
-        Transform* t = m_sceneNew->GetTransform(goId);
-        if (t) {
-            TransformSetPosition(*t, 0.f, 10.f, 0.f);
-            // Point slightly downward (rotation around X axis by ~30 degrees)
-            TransformSetRotation(*t, 0.259f, 0.f, 0.f, 0.966f);
-        }
-        
+        uint32_t goId = m_currentScene->CreateGameObject("DefaultSun");
+        Transform t;
+        TransformSetPosition(t, 0.f, 10.f, 0.f);
+        TransformSetRotation(t, 0.259f, 0.f, 0.f, 0.966f);
+        m_currentScene->AddTransform(goId, t);
+
         LightComponent light;
         light.type = LightType::Directional;
         light.color[0] = 1.f; light.color[1] = 1.f; light.color[2] = 1.f;
         light.intensity = 1.5f;
-        m_sceneNew->AddLight(goId, light);
-        
+        m_currentScene->AddLight(goId, light);
+
         VulkanUtils::LogInfo("SceneManager: no lights in level, created default directional light");
         return;
     }
-    
+
     for (const auto& jLight : j["lights"]) {
         if (!jLight.is_object()) continue;
-        
-        // Get light name
+
         std::string name = "Light";
         if (jLight.contains("name") && jLight["name"].is_string()) {
             name = jLight["name"].get<std::string>();
         }
-        
-        // Create GameObject for this light
-        uint32_t goId = m_sceneNew->CreateGameObject(name);
-        Transform* t = m_sceneNew->GetTransform(goId);
-        
+
+        uint32_t goId = m_currentScene->CreateGameObject(name);
+        Transform t;
+
         // Parse position
-        if (t && jLight.contains("position") && jLight["position"].is_array() && jLight["position"].size() >= 3) {
+        if (jLight.contains("position") && jLight["position"].is_array() && jLight["position"].size() >= 3) {
             float px = static_cast<float>(jLight["position"][0].get<double>());
             float py = static_cast<float>(jLight["position"][1].get<double>());
             float pz = static_cast<float>(jLight["position"][2].get<double>());
-            TransformSetPosition(*t, px, py, pz);
+            TransformSetPosition(t, px, py, pz);
         }
-        
-        // Parse rotation (quaternion: x, y, z, w)
-        if (t && jLight.contains("rotation") && jLight["rotation"].is_array() && jLight["rotation"].size() >= 4) {
+
+        if (jLight.contains("rotation") && jLight["rotation"].is_array() && jLight["rotation"].size() >= 4) {
             float qx = static_cast<float>(jLight["rotation"][0].get<double>());
             float qy = static_cast<float>(jLight["rotation"][1].get<double>());
             float qz = static_cast<float>(jLight["rotation"][2].get<double>());
             float qw = static_cast<float>(jLight["rotation"][3].get<double>());
-            TransformSetRotation(*t, qx, qy, qz, qw);
+            TransformSetRotation(t, qx, qy, qz, qw);
         }
+        m_currentScene->AddTransform(goId, t);
         
         // Parse light properties
         LightComponent light;
@@ -1403,22 +1175,19 @@ void SceneManager::LoadLightsFromJson(const nlohmann::json& j) {
             light.bCastShadows = jLight["castShadows"].get<bool>();
         }
         
-        m_sceneNew->AddLight(goId, light);
-        
+        m_currentScene->AddLight(goId, light);
+
         const char* typeStr = (light.type == LightType::Directional) ? "Directional" :
                               (light.type == LightType::Point) ? "Point" :
                               (light.type == LightType::Spot) ? "Spot" : "Unknown";
         VulkanUtils::LogInfo("Light[{}]: {} \"{}\" pos=({:.1f}, {:.1f}, {:.1f}) color=({:.2f}, {:.2f}, {:.2f}) intensity={:.2f} range={:.1f}",
                              goId, typeStr, name,
-                             t ? t->position[0] : 0.f,
-                             t ? t->position[1] : 0.f,
-                             t ? t->position[2] : 0.f,
+                             t.position[0], t.position[1], t.position[2],
                              light.color[0], light.color[1], light.color[2],
                              light.intensity, light.range);
     }
-    
-    // Summary
-    const auto& lights = m_sceneNew->GetLights();
+
+    const auto& lights = m_currentScene->GetLights();
     uint32_t pointCount = 0, spotCount = 0, dirCount = 0;
     for (const auto& l : lights) {
         if (!l.bActive) continue;
@@ -1439,11 +1208,8 @@ uint32_t SceneManager::GenerateStressTestScene(const StressTestParams& params, c
         return 0;
     }
     
-    // Create new scene first (clears cache), then load model
     UnloadScene();
-    m_currentScene = std::make_unique<Scene>();
-    m_currentScene->SetName("Stress Test");
-    m_sceneNew = std::make_unique<SceneNew>();
+    m_currentScene = std::make_unique<Scene>("Stress Test");
     
     // Load the glTF model (uses cache)
     const tinygltf::Model* pModel = GetOrLoadGltfModel(modelPath);
@@ -1574,7 +1340,7 @@ uint32_t SceneManager::GenerateStressTestScene(const StressTestParams& params, c
             }
             
             ObjectSetFromPositionRotationScale(obj.localTransform, px, py, pz, qx, qy, qz, qw, scale, scale, scale);
-            m_currentScene->AddObject(std::move(obj));
+            AddObject(std::move(obj));
             ++created;
         }
     };

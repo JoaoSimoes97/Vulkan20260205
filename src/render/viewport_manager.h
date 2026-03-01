@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vulkan/vulkan.h>
 
-class SceneNew;
+class Scene;  // unified scene
 struct VulkanConfig;
 
 /**
@@ -108,8 +108,8 @@ public:
     /** End rendering to a viewport. */
     void EndViewportRender(uint32_t id, VkCommandBuffer cmd);
     
-    /** Get camera for a viewport (from SceneNew camera components or main camera). */
-    Camera* GetCameraForViewport(const Viewport& viewport, SceneNew* pScene, Camera* pMainCamera);
+    /** Get camera for a viewport (from scene camera components or main camera). */
+    Camera* GetCameraForViewport(const Viewport& viewport, Scene* pScene, Camera* pMainCamera);
     
     /** Get next available viewport ID. */
     uint32_t GetNextId() const { return m_nextId; }

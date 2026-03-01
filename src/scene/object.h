@@ -115,7 +115,7 @@ struct Object {
     /** Light intensity multiplier for emissive objects. */
     float                    emissiveLightIntensity = 5.f;
     /** 
-     * Associated emissive light's GameObject ID in SceneNew.
+     * Associated emissive light's GameObject ID (unified scene).
      * UINT32_MAX means no light exists yet. Set by SceneManager::SyncEmissiveLights().
      * This creates a proper parent-child relationship: mesh object → light entity.
      */
@@ -139,7 +139,7 @@ struct Object {
     uint32_t                 pushDataSize  = 0u;
     /** Optional name for editor display. */
     std::string              name;
-    /** Link to corresponding GameObject in SceneNew. UINT32_MAX = no link. */
+    /** Link to corresponding GameObject in unified scene. UINT32_MAX = no link. */
     uint32_t                 gameObjectId  = UINT32_MAX;
     /** Instance tier for GPU buffer management. Determines update frequency and culling strategy. */
     InstanceTier             instanceTier  = InstanceTier::Static;

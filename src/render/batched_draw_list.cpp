@@ -7,7 +7,6 @@
 #include "managers/pipeline_manager.h"
 #include "managers/texture_manager.h"
 #include "scene/object.h"
-#include "scene/scene.h"
 #include "vulkan/vulkan_shader_manager.h"
 #include "vulkan/vulkan_utils.h"
 #include <algorithm>
@@ -72,38 +71,10 @@ namespace {
         }
     };
     
-    void ComputeWorldBoundingSphere(const Object& obj, float& cx, float& cy, float& cz, float& radius) {
-        const float* m = obj.localTransform;
-        cx = m[12]; cy = m[13]; cz = m[14];
-        
-        if (obj.pMesh && obj.pMesh->GetAABB().IsValid()) {
-            const MeshAABB& aabb = obj.pMesh->GetAABB();
-            float localCx, localCy, localCz;
-            aabb.GetCenter(localCx, localCy, localCz);
-            cx = m[0]*localCx + m[4]*localCy + m[8]*localCz + m[12];
-            cy = m[1]*localCx + m[5]*localCy + m[9]*localCz + m[13];
-            cz = m[2]*localCx + m[6]*localCy + m[10]*localCz + m[14];
-            
-            float scaleX = std::sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
-            float scaleY = std::sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
-            float scaleZ = std::sqrt(m[8]*m[8] + m[9]*m[9] + m[10]*m[10]);
-            radius = aabb.GetBoundingSphereRadius() * std::max({scaleX, scaleY, scaleZ}) + 0.01f;
-        } else {
-            radius = 2.0f;
-        }
-    }
-    
     bool IsTransparentPipelineKey(const std::string& key) {
         return key.find("transparent") != std::string::npos;
     }
-    
-    uint32_t MaxPushConstantSize(const PipelineLayoutDescriptor& layout) {
-        uint32_t maxEnd = 0;
-        for (const auto& r : layout.pushConstantRanges)
-            maxEnd = std::max(maxEnd, r.offset + r.size);
-        return maxEnd;
-    }
-    
+
     // Sort batches by pipeline/mesh to minimize state changes
     bool BatchOrder(const DrawBatch& a, const DrawBatch& b) {
         if (a.pipeline != b.pipeline) return a.pipeline < b.pipeline;
@@ -137,28 +108,29 @@ bool BatchedDrawList::RebuildIfDirty(
     const std::map<std::string, std::vector<VkDescriptorSet>>* pPipelineDescriptorSets,
     GetTextureDescriptorSetFunc getTextureDescriptorSet
 ) {
-    // Check for automatic dirty detection
-    if (pScene != m_pLastScene || (pScene && pScene->GetObjects().size() != m_lastObjectCount)) {
+    size_t renderableCount = pScene ? pScene->GetRenderableCount() : 0;
+    if (pScene != m_pLastScene || (pScene && renderableCount != m_lastObjectCount)) {
         m_bDirty = true;
     }
-    
+
     if (!m_bDirty) return false;
-    
-    BuildBatches(pScene, device, renderPass, hasDepth, pPipelineManager, 
+
+    m_lastRenderObjects = pScene ? pScene->BuildRenderList(nullptr, false) : std::vector<RenderObject>();
+    BuildBatches(m_lastRenderObjects, device, renderPass, hasDepth, pPipelineManager,
                  pMaterialManager, pShaderManager, pPipelineDescriptorSets, getTextureDescriptorSet);
-    
+
     m_pLastScene = pScene;
-    m_lastObjectCount = pScene ? pScene->GetObjects().size() : 0;
+    m_lastObjectCount = renderableCount;
     m_bDirty = false;
-    
+
     VulkanUtils::LogTrace("BatchedDrawList rebuilt: {} opaque batches, {} transparent batches, {} total instances",
         m_opaqueBatches.size(), m_transparentBatches.size(), GetTotalInstanceCount());
-    
+
     return true;
 }
 
 void BatchedDrawList::BuildBatches(
-    const Scene* pScene,
+    const std::vector<RenderObject>& renderObjects,
     VkDevice device,
     VkRenderPass renderPass,
     bool hasDepth,
@@ -171,30 +143,27 @@ void BatchedDrawList::BuildBatches(
     m_opaqueBatches.clear();
     m_transparentBatches.clear();
     m_visibleObjectIndices.clear();
-    
-    if (!pScene || !pPipelineManager || !pMaterialManager || !pShaderManager) return;
+
+    if (!pPipelineManager || !pMaterialManager || !pShaderManager) return;
     if (device == VK_NULL_HANDLE || renderPass == VK_NULL_HANDLE) return;
-    
-    const auto& objects = pScene->GetObjects();
-    if (objects.empty()) return;
-    
-    // Group objects by BatchKey
+    if (renderObjects.empty()) return;
+
     std::map<BatchKey, std::vector<uint32_t>> batchGroups;
-    
-    for (size_t i = 0; i < objects.size(); ++i) {
-        const auto& obj = objects[i];
-        if (!obj.pMaterial || !obj.pMesh || !obj.pMesh->HasValidBuffer()) continue;
-        
+
+    for (size_t i = 0; i < renderObjects.size(); ++i) {
+        const auto& ro = renderObjects[i];
+        if (!ro.material || !ro.mesh || !ro.mesh->HasValidBuffer()) continue;
+
         BatchKey key;
-        key.mesh = obj.pMesh;
-        key.material = obj.pMaterial;
-        key.baseColorTexture = obj.pTexture;
-        key.metallicRoughnessTexture = obj.pMetallicRoughnessTexture;
-        key.emissiveTexture = obj.pEmissiveTexture;
-        key.normalTexture = obj.pNormalTexture;
-        key.occlusionTexture = obj.pOcclusionTexture;
-        key.tier = obj.instanceTier;  // Batch only with same tier
-        
+        key.mesh = ro.mesh;
+        key.material = ro.material;
+        key.baseColorTexture = ro.texture;
+        key.metallicRoughnessTexture = ro.pMetallicRoughnessTexture;
+        key.emissiveTexture = ro.pEmissiveTexture;
+        key.normalTexture = ro.pNormalTexture;
+        key.occlusionTexture = ro.pOcclusionTexture;
+        key.tier = static_cast<InstanceTier>(ro.instanceTier);
+
         batchGroups[key].push_back(static_cast<uint32_t>(i));
     }
     
@@ -227,7 +196,6 @@ void BatchedDrawList::BuildBatches(
         
         if (batch.vertexBuffer == VK_NULL_HANDLE || batch.vertexCount == 0) continue;
         
-        // Get descriptor set for textures
         if (getTextureDescriptorSet && key.baseColorTexture && key.baseColorTexture->IsValid()) {
             VkDescriptorSet texDescSet = getTextureDescriptorSet(
                 key.baseColorTexture, key.metallicRoughnessTexture,
@@ -294,59 +262,40 @@ void BatchedDrawList::SortBatches() {
     // Transparent batches sorted by depth in UpdateVisibility()
 }
 
-size_t BatchedDrawList::UpdateVisibility(const float* pViewProj, const Scene* pScene) {
-    if (!pViewProj || !pScene) {
-        // No frustum - all visible
+size_t BatchedDrawList::UpdateVisibility(const float* pViewProj, const Scene* /*pScene*/) {
+    if (!pViewProj) {
         m_visibleObjectIndices.clear();
         for (const auto& batch : m_opaqueBatches) {
-            for (uint32_t objIdx : batch.objectIndices) {
+            for (uint32_t objIdx : batch.objectIndices)
                 m_visibleObjectIndices.push_back(objIdx);
-            }
         }
         for (const auto& batch : m_transparentBatches) {
-            for (uint32_t objIdx : batch.objectIndices) {
+            for (uint32_t objIdx : batch.objectIndices)
                 m_visibleObjectIndices.push_back(objIdx);
-            }
         }
         return m_visibleObjectIndices.size();
     }
-    
+
     FrustumPlanes frustum;
     frustum.ExtractFromViewProj(pViewProj);
-    
-    const auto& objects = pScene->GetObjects();
     m_visibleObjectIndices.clear();
-    m_visibleObjectIndices.reserve(objects.size());
-    
-    // Collect visible objects from all batches WITHOUT modifying the batches.
-    // The batches keep ALL objects; visibility is per-frame.
+    m_visibleObjectIndices.reserve(m_lastRenderObjects.size());
+
     for (const auto& batch : m_opaqueBatches) {
         for (uint32_t objIdx : batch.objectIndices) {
-            if (objIdx >= objects.size()) continue;
-            
-            const auto& obj = objects[objIdx];
-            float cx, cy, cz, radius;
-            ComputeWorldBoundingSphere(obj, cx, cy, cz, radius);
-            
-            if (frustum.IsSphereVisible(cx, cy, cz, radius)) {
+            if (objIdx >= m_lastRenderObjects.size()) continue;
+            const auto& ro = m_lastRenderObjects[objIdx];
+            if (frustum.IsSphereVisible(ro.boundsCenterX, ro.boundsCenterY, ro.boundsCenterZ, ro.boundsRadius))
                 m_visibleObjectIndices.push_back(objIdx);
-            }
         }
     }
-    
     for (const auto& batch : m_transparentBatches) {
         for (uint32_t objIdx : batch.objectIndices) {
-            if (objIdx >= objects.size()) continue;
-            
-            const auto& obj = objects[objIdx];
-            float cx, cy, cz, radius;
-            ComputeWorldBoundingSphere(obj, cx, cy, cz, radius);
-            
-            if (frustum.IsSphereVisible(cx, cy, cz, radius)) {
+            if (objIdx >= m_lastRenderObjects.size()) continue;
+            const auto& ro = m_lastRenderObjects[objIdx];
+            if (frustum.IsSphereVisible(ro.boundsCenterX, ro.boundsCenterY, ro.boundsCenterZ, ro.boundsRadius))
                 m_visibleObjectIndices.push_back(objIdx);
-            }
         }
     }
-    
     return m_visibleObjectIndices.size();
 }

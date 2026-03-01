@@ -2,6 +2,8 @@
  * StressTestGenerator - Implementation
  */
 #include "stress_test_generator.h"
+#include "scene_unified.h"
+#include "object.h"
 #include "managers/mesh_manager.h"
 #include "managers/material_manager.h"
 #include <cmath>

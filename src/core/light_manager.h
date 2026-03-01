@@ -7,7 +7,7 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 
-class SceneNew;
+class Scene;  // scene_unified.h
 
 /**
  * Emissive light data for injection from emissive objects.
@@ -33,8 +33,8 @@ public:
     /** Destroy Vulkan resources. */
     void Destroy();
 
-    /** Set the scene to read lights from. */
-    void SetScene(SceneNew* pScene) { m_pScene = pScene; }
+    /** Set the scene to read lights from (unified Scene). */
+    void SetScene(class Scene* pScene) { m_pScene = pScene; }
 
     /** Update GPU light buffer from scene lights. Call each frame before rendering. */
     void UpdateLightBuffer();
@@ -57,7 +57,7 @@ public:
 private:
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
-    SceneNew* m_pScene = nullptr;
+    class Scene* m_pScene = nullptr;
 
     VkBuffer m_lightBuffer = VK_NULL_HANDLE;
     VkDeviceMemory m_lightBufferMemory = VK_NULL_HANDLE;

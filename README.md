@@ -2,6 +2,8 @@
 
 A modular, component-based game engine built on Vulkan with PBR rendering.
 
+**Status: Alpha (v0.1.0).** Build and run with the project scripts (see Quick Start). For known limitations and roadmap see [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## Features
 
 - **Entity-Component System** — GameObjects with modular components (Transform, Renderer, Light, Physics, Script)
@@ -17,15 +19,16 @@ A modular, component-based game engine built on Vulkan with PBR rendering.
 ```powershell
 scripts\windows\setup_windows.bat
 scripts\windows\build.bat --debug
-build\Debug\VulkanApp.exe levels/default/level.json
+install\Debug\bin\VulkanApp.exe levels/default/level.json
 ```
 
 **Linux / macOS**
 ```bash
 ./setup.sh
 scripts/linux/build.sh --debug
-./build/Debug/VulkanApp levels/default/level.json
+./install/Debug/bin/VulkanApp levels/default/level.json
 ```
+(Use only project scripts: `scripts/linux/build.sh`, `scripts/linux/clean.sh`, `scripts/linux/setup_linux.sh`; same for `scripts/windows/` and `scripts/macos/`.)
 
 ## Documentation
 
@@ -60,9 +63,18 @@ The engine uses a **component-based architecture**:
 - **Transform** — Position, rotation, scale, cached model matrix
 - **RendererComponent** — Mesh + texture + PBR material properties
 - **LightComponent** — Point/Spot/Directional with intensity, range, cones
-- **SceneNew** — SoA component pools for cache efficiency
+- **Scene** (unified) — SoA component pools, hierarchy, BuildRenderList for rendering
 
 See [docs/architecture.md](docs/architecture.md) for details.
+
+## Alpha — known limitations
+
+- Animation and skinning: not implemented (stubs in scene manager).
+- Some editor menu items are placeholders (shown in red with tooltip).
+- Physics and script components: stubs only.
+- See [docs/ROADMAP.md](docs/ROADMAP.md) for full status.
+
+**Alpha validation:** Run the app with the Alpha test level (e.g. `levels/alpha_test/level.json` when available) and confirm it loads, runs at acceptable FPS, and all features (lights, materials, editor) work. See [alpha_review/questions.txt](alpha_review/questions.txt) Section 7 for what the Alpha test level must cover.
 
 ## License
 

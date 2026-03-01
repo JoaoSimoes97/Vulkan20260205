@@ -3,7 +3,7 @@
  * Stores rigid body state, collider, and physics material properties.
  * 
  * FUTURE: Will integrate with physics engine (Jolt, Bullet, custom).
- * Current implementation is a stub for the component system.
+ * Not in alpha: stub only; no creation or simulation path.
  */
 #pragma once
 

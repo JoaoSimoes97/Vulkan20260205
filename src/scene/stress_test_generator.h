@@ -6,7 +6,7 @@
  */
 #pragma once
 
-#include "scene.h"
+class Scene;  // unified (scene_unified.h)
 #include <cstdint>
 #include <functional>
 

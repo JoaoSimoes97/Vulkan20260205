@@ -113,6 +113,8 @@ void ResourceManagerThread::ExecuteCommand(const Command& cmd) {
     case CommandType::TrimMeshes:
     case CommandType::TrimTextures:
     case CommandType::TrimPipelines:
+    case CommandType::TrimShaders:
+    case CommandType::TrimAll:
     case CommandType::ProcessDestroys:
         if (cmd.callback)
             cmd.callback();

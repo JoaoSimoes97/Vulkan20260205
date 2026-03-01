@@ -1,6 +1,8 @@
 /*
  * Entry point. Configures logging (Debug = all levels, Release = Warn+Error), runs VulkanApp, exits.
  */
+#include "core/core.h"
+#include "managers/managers.h"
 #include "vulkan_app.h"
 #include "vulkan_utils.h"
 #include "config/config_loader.h"

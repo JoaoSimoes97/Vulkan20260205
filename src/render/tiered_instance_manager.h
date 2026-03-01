@@ -24,11 +24,11 @@
 #pragma once
 
 #include "scene/object.h"
+#include "scene/scene_unified.h"
 #include <glm/glm.hpp>
 #include <cstdint>
 #include <vector>
 
-class Scene;
 struct DrawBatch;
 
 /**
@@ -78,20 +78,12 @@ public:
     TieredInstanceManager() = default;
     
     /**
-     * Update SSBO with object data based on tier rules.
-     * 
-     * @param pObjectData    Mapped SSBO pointer for this frame
-     * @param maxObjects     Maximum objects SSBO can hold
-     * @param pScene         Current scene with objects
-     * @param opaqueBatches  Opaque batches from BatchedDrawList
-     * @param transparentBatches Transparent batches from BatchedDrawList
-     * @param bSceneRebuilt  True if batches were just rebuilt (upload static)
-     * @return Stats for this frame's uploads
+     * Update SSBO with object data from render list (unified Scene path).
      */
     TierUpdateStats UpdateSSBO(
         ObjectData* pObjectData,
         uint32_t maxObjects,
-        Scene* pScene,
+        const std::vector<RenderObject>& renderObjects,
         const std::vector<DrawBatch>& opaqueBatches,
         const std::vector<DrawBatch>& transparentBatches,
         bool bSceneRebuilt
@@ -108,19 +100,12 @@ public:
     void InvalidateAll() { m_bForceFullUpload = true; }
     
 private:
-    /**
-     * Write a single object to SSBO slot.
-     */
-    void WriteObjectToSSBO(ObjectData& od, const Object& obj);
-    
-    /**
-     * Process a batch, uploading objects based on tier.
-     * @param bFullUpload True if all objects should upload (rebuild + frames-in-flight).
-     */
+    void WriteObjectToSSBO(ObjectData& od, const RenderObject& ro);
+
     void ProcessBatch(
         ObjectData* pObjectData,
         uint32_t maxObjects,
-        const std::vector<Object>& objects,
+        const std::vector<RenderObject>& renderObjects,
         const DrawBatch& batch,
         bool bFullUpload,
         TierUpdateStats& stats

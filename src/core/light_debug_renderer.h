@@ -16,8 +16,7 @@
 #include <vulkan/vulkan.h>
 #include <cstdint>
 
-// Forward declarations
-class SceneNew;
+class Scene;  // unified scene
 
 /**
  * Debug vertex: position (vec3) + color (vec3).
@@ -56,7 +55,7 @@ public:
      * @param pScene Scene containing lights.
      * @param viewProjMatrix 4x4 view-projection matrix (column-major float[16]).
      */
-    void Draw(VkCommandBuffer cmd, const SceneNew* pScene, const float* viewProjMatrix);
+    void Draw(VkCommandBuffer cmd, const Scene* pScene, const float* viewProjMatrix);
 
     /**
      * Set emissive lights for debug visualization.

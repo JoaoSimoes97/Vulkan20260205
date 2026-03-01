@@ -1,0 +1,99 @@
+# Questions for user (leftovers to decide together)
+
+Decisions needed before or during alpha lock. When in doubt we skipped and listed here.
+
+--------------------------------------------------------------------------------
+1. SCENE MODEL
+--------------------------------------------------------------------------------
+- Scene (scene.h) is used; SceneUnified (scene_unified.h/cpp) is built but never referenced. For alpha: (A) Remove scene_unified.* as dead code, or (B) Keep as "future" and document in ROADMAP, or (C) Migrate app to SceneUnified and deprecate scene.h? Which do you want?
+
+Ans: (C) Use the updated version — SceneUnified. Migrate app to SceneUnified; remove scene.h and SceneNew (single unified scene in code). Everything else cleaned up.
+
+--------------------------------------------------------------------------------
+2. UMBRELLA HEADERS
+--------------------------------------------------------------------------------
+- core.h and managers.h are never included. (A) Add one include in vulkan_app or main so they are the single ECS/managers entry point, or (B) Remove them?
+
+Ans: go with umbrella
+
+--------------------------------------------------------------------------------
+3. BINDING 8 / GPU CULLER
+--------------------------------------------------------------------------------
+- Visible indices SSBO (binding 8) is prepared; GPU culler exists but is it active in the draw path for alpha? Ship with culler on or off? If off, document and stub cleanly.
+
+Ans: We should always have GPU culling, I think it is the final version correct?
+
+--------------------------------------------------------------------------------
+4. NORMALS / EMISSIVE / MATERIAL PROPS
+--------------------------------------------------------------------------------
+- Shaders already have: normal transform in vert (mat3(model)), emissive in frag, matProps. engine-design.md listed these as bugs — confirm they are fixed or list as alpha limitations in README.
+
+Ans: Confirm they are fixed, maybe something needs to be complete or improved.
+
+--------------------------------------------------------------------------------
+5. VERSION NUMBER
+--------------------------------------------------------------------------------
+- Alpha version: keep 1.0.0 or set to 0.1.0 / 0.9.0? Document in README.
+
+Ans: v0.1.0
+
+--------------------------------------------------------------------------------
+6. EDITOR MENUS
+--------------------------------------------------------------------------------
+- Many editor menu items are placeholders (not implemented). Which must work for alpha demo? Rest: disable with "Coming later" tooltip or leave as no-op?
+
+Ans: All not implemented buttons, etc, shall be in red for now until we implement them. Add also a Tooltip.
+
+--------------------------------------------------------------------------------
+7. SCALABILITY TARGETS
+--------------------------------------------------------------------------------
+- Any specific numbers to validate against (e.g. "must support 10k objects", "50 lights") for alpha?
+
+Ans: We do not define separate numeric targets. We use a single Alpha test level as the validation target. "Alpha validated" means: this level loads, runs, and behaves correctly (no crash, acceptable FPS, correct visuals). Scalability "numbers" are whatever that level contains (e.g. object/light counts in the level); no separate "10k objects" target unless we add one later for stress testing beyond alpha.
+
+Alpha test level — what it must cover:
+- Objects: Several hundred or a few thousand drawable objects (mix of meshes) so batching/instancing and GPU culling are exercised.
+- Lights: Range of types (directional, point, spot) and a decent count (e.g. 16–32+) so the light path and binding are used.
+- Materials: Both textured and untextured; opaque and transparent (if in alpha scope).
+- PBR: Metallic/roughness variation; at least one emissive object.
+- Viewports: Level viewable in multiple editor viewports (no crash, correct culling).
+- Editor: Load level, move camera, select in hierarchy, use transform gizmo, save (if in alpha scope).
+
+Implementation:
+- Add levels/alpha_test/level.json (or equivalent) with the above mix; or extend StressTestGenerator to output a fixed "alpha test" preset and save it as the official level for reproducibility.
+- In README or alpha checklist: "Alpha validation: run the app with levels/alpha_test/level.json; confirm it loads, runs at acceptable FPS, and all features (lights, materials, editor) work."
+
+--------------------------------------------------------------------------------
+8. DEPRECATED API (object.h)
+--------------------------------------------------------------------------------
+- Old push-constant helpers (kObjectPushConstantSize, FillObjectPushConstants, etc.): remove once all call sites use instanced path, or keep and document as legacy? Need to confirm no call site still uses the deprecated path before removing.
+
+Ans: Remove once all call sites use instanced path. Need to confirm no call site still uses the deprecated path before removing.
+--------------------------------------------------------------------------------
+9. OBJECT.H DEPRECATED USAGE
+--------------------------------------------------------------------------------
+- Grep for FillObjectPushData / kObjectPushConstantSize: if none, safe to remove deprecated block from object.h. Else migrate then remove.
+
+Ans: Ok
+
+--------------------------------------------------------------------------------
+10. SHADER APPROACH & TASKS (RESOLVED)
+--------------------------------------------------------------------------------
+- Current: 5 shaders (vert.vert, frag.frag, debug_line.vert/frag, gpu_cull.comp). One main PBR program for all materials.
+- Layout: Set 0, bindings 0–8. Binding 1 = reserved global UBO (future: time, viewport, exposure). Keep it; do not remove.
+- C++: Single descriptor write path must write all bindings 0–8. Fix: EnsureMainDescriptorSetWritten and GetOrCreateDescriptorSetForTexture (or retire single-texture path) must write 1, 6, 7, 8.
+
+Binding table (main PBR, set 0):
+  0 = base color tex (frag); 1 = global UBO (reserved, vert+frag); 2 = object SSBO dynamic (vert+frag); 3 = light SSBO (frag); 4–7 = MR, emissive, normal, occlusion (frag); 8 = visible indices (vert).
+
+Global UBO + time-demo (proof of work):
+- Add global UBO buffer (e.g. 64 B: time, deltaTime, padding). Create at init, update each frame. Write to binding 1 in every descriptor set that uses main layout.
+- Time-demo shader: Option C — new shader (time_demo.vert + time_demo.frag) reading only binding 1 (UBO). Draw cube in the scene; color or scale driven by time (e.g. pulse). Reuse main descriptor layout for this pass so binding 1 is proven for both main and extra pass.
+
+Planned shaders (later): Unlit, Shadow, Sky, Post. See shaders/SHADER_LIST.md.
+
+Tasks:
+- [x] Add shaders/SHADER_LIST.md (current list, binding table, planned unlit/shadow/sky/post, C++ todos).
+- [ ] Add global UBO; write binding 1 in all main-layout descriptor write paths.
+- [ ] Add time_demo.vert + time_demo.frag; one scene quad/cube; integrate pass in render loop.
+- [ ] Fix descriptor writes for 6, 7, 8 (default tex + visible-indices buffer) where still missing.

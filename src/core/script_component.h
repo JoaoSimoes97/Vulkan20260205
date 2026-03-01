@@ -3,6 +3,7 @@
  * Supports both native C++ callbacks and Lua scripts.
  * 
  * Scripts provide custom game logic: AI, player control, gameplay mechanics.
+ * Not in alpha: stub only; no script execution or creation path.
  */
 #pragma once
 

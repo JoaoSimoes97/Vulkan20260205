@@ -11,6 +11,7 @@
 
 #include "vulkan/vulkan_command_buffers.h"
 #include "scene/object.h"
+#include "scene/scene_unified.h"
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -18,8 +19,6 @@
 #include <string>
 #include <vector>
 #include <tuple>
-
-class Scene;
 class MaterialManager;
 class MeshManager;
 class PipelineManager;
@@ -127,7 +126,7 @@ public:
     bool IsDirty() const { return m_bDirty; }
     
     /**
-     * Rebuild batches if dirty. Call once per frame.
+     * Rebuild batches if dirty. Uses scene->BuildRenderList() (unified Scene).
      * Returns true if rebuild occurred.
      */
     bool RebuildIfDirty(
@@ -157,6 +156,9 @@ public:
      * Indices are in batch order: [batch0.objects..., batch1.objects..., ...]
      */
     const std::vector<uint32_t>& GetVisibleObjectIndices() const { return m_visibleObjectIndices; }
+
+    /** Last render list from BuildRenderList (for SSBO upload / GPU culler). Call after RebuildIfDirty. */
+    const std::vector<RenderObject>& GetLastRenderObjects() const { return m_lastRenderObjects; }
     
     /**
      * Get the batch for a given object index. Returns nullptr if not found.
@@ -185,8 +187,7 @@ public:
     
     /**
      * Update visible objects based on frustum culling.
-     * Call each frame with current viewProj. Fast - only filters existing batches.
-     * Returns number of visible instances.
+     * Uses last built render list (m_lastRenderObjects). Call after RebuildIfDirty.
      */
     size_t UpdateVisibility(const float* pViewProj, const Scene* pScene);
     
@@ -197,7 +198,7 @@ public:
     
 private:
     void BuildBatches(
-        const Scene* pScene,
+        const std::vector<RenderObject>& renderObjects,
         VkDevice device,
         VkRenderPass renderPass,
         bool hasDepth,
@@ -207,19 +208,18 @@ private:
         const std::map<std::string, std::vector<VkDescriptorSet>>* pPipelineDescriptorSets,
         GetTextureDescriptorSetFunc getTextureDescriptorSet
     );
-    
+
     void SortBatches();
-    
+
     bool m_bDirty = true;
     std::vector<DrawBatch> m_opaqueBatches;
     std::vector<DrawBatch> m_transparentBatches;
     std::vector<uint32_t> m_visibleObjectIndices;
-    
-    // Map from object index to opaque batch index (-1 for transparent)
+
     std::map<uint32_t, size_t> m_objToBatchIdxOpaque;
     std::map<uint32_t, size_t> m_objToBatchIdxTransparent;
-    
-    // Cache scene pointer for dirty detection
+
     const Scene* m_pLastScene = nullptr;
     size_t m_lastObjectCount = 0;
+    std::vector<RenderObject> m_lastRenderObjects;
 };

@@ -35,6 +35,7 @@ class MeshHandle;
 class TextureHandle;
 struct AABB;
 struct BoundingSphere;
+struct Object;
 
 /**
  * RenderObject — Render-time view of a renderable entity.
@@ -51,6 +52,15 @@ struct RenderObject {
     std::shared_ptr<MeshHandle>     mesh;
     std::shared_ptr<MaterialHandle> material;
     std::shared_ptr<TextureHandle>  texture;  // Base color texture
+    std::shared_ptr<TextureHandle>  pMetallicRoughnessTexture;
+    std::shared_ptr<TextureHandle>  pEmissiveTexture;
+    std::shared_ptr<TextureHandle>  pNormalTexture;
+    std::shared_ptr<TextureHandle>  pOcclusionTexture;
+    
+    // PBR / color (for batching and GPU upload)
+    float color[4] = {1.f, 1.f, 1.f, 1.f};
+    float emissive[4] = {0.f, 0.f, 0.f, 1.f};
+    uint8_t instanceTier = 0;  // matches object.h InstanceTier
     
     // Cached world transform (computed from Transform hierarchy)
     float worldMatrix[16];
@@ -128,6 +138,12 @@ public:
 
     const std::string& GetName() const { return m_name; }
     void SetName(const std::string& name) { m_name = name; }
+
+    /** Clear all GameObjects and components. */
+    void Clear();
+
+    /** Add a renderable from Object (e.g. stress test generator). Converts to GameObject + Transform + Renderer. */
+    void AddObject(const Object& obj);
 
     /* ======== GameObject Management ======== */
 
@@ -225,10 +241,25 @@ public:
     /* ======== Transform Hierarchy ======== */
 
     /**
-     * Update all transform matrices.
+     * Update all transform matrices (local + world propagation).
      * Call once per frame before rendering.
      */
     void UpdateTransformHierarchy();
+
+    /** Set parent for a GameObject. preserveWorldPosition: recalc local to keep world position. */
+    bool SetParent(uint32_t childId, uint32_t parentId, bool preserveWorldPosition = true);
+
+    /** Get parent ID (NO_PARENT if root). */
+    uint32_t GetParent(uint32_t gameObjectId) const;
+
+    /** Get root GameObjects (no parent). */
+    std::vector<uint32_t> GetRootObjects() const;
+
+    /** Get children of a GameObject. Returns nullptr if not found. */
+    const std::vector<uint32_t>* GetChildren(uint32_t gameObjectId) const;
+
+    /** True if setting parentId as parent of childId would create a cycle. */
+    bool WouldCreateCycle(uint32_t childId, uint32_t parentId) const;
 
     /* ======== Render List Building ======== */
 
@@ -256,6 +287,9 @@ public:
     /** Mark specific dirty flags. */
     void MarkDirty(SceneDirtyFlags flags) { m_dirtyFlags = m_dirtyFlags | flags; }
 
+    /** Mark scene dirty (transforms + renderers). For compatibility with stress test generator. */
+    void MarkDirty() { MarkDirty(SceneDirtyFlags::Transforms | SceneDirtyFlags::Renderers); }
+
     /** Clear specific dirty flags. */
     void ClearDirty(SceneDirtyFlags flags) {
         m_dirtyFlags = static_cast<SceneDirtyFlags>(
@@ -278,6 +312,9 @@ public:
 
     /** Set callback for scene changes (called after any modification). */
     void SetOnChangeCallback(SceneChangeCallback callback) { m_onChangeCallback = std::move(callback); }
+
+    /** Compatibility alias for old Scene API. */
+    void SetChangeCallback(SceneChangeCallback callback) { SetOnChangeCallback(std::move(callback)); }
 
 private:
     void NotifyChange() {

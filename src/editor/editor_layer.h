@@ -15,8 +15,7 @@
 #include <functional>
 
 struct SDL_Window;
-class SceneNew;
-class Scene;
+class Scene;  // unified scene (scene_unified.h)
 class Camera;
 struct Transform;
 class LevelSelector;
@@ -91,7 +90,7 @@ public:
      * Draw editor panels and gizmos.
      * Call after BeginFrame(), before EndFrame().
      */
-    void DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager = nullptr, Scene* pRenderScene = nullptr);
+    void DrawEditor(Scene* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager = nullptr);
 
     /**
      * End ImGui frame and prepare for rendering.
@@ -124,7 +123,7 @@ public:
     uint32_t GetSelectedObject() const { return m_selectedObjectId; }
 
     /** Perform ray cast selection from screen position. */
-    void SelectAtScreenPos(SceneNew* pScene, Camera* pCamera, float screenX, float screenY, uint32_t viewportW, uint32_t viewportH);
+    void SelectAtScreenPos(Scene* pScene, Camera* pCamera, float screenX, float screenY, uint32_t viewportW, uint32_t viewportH);
 
     /* ---- Gizmo ---- */
 
@@ -170,17 +169,17 @@ public:
     bool WantCaptureKeyboard() const;
 
 private:
-    void DrawHierarchyPanel(SceneNew* pScene);
-    void DrawInspectorPanel(SceneNew* pScene);
-    void DrawViewportPanel(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager);
-    void DrawViewportsPanel(ViewportManager* pViewportManager, SceneNew* pScene);
-    void DrawCamerasPanel(SceneNew* pScene);
-    void DrawGizmo(SceneNew* pScene, Camera* pCamera);
+    void DrawHierarchyPanel(Scene* pScene);
+    void DrawInspectorPanel(Scene* pScene);
+    void DrawViewportPanel(Scene* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager);
+    void DrawViewportsPanel(ViewportManager* pViewportManager, Scene* pScene);
+    void DrawCamerasPanel(Scene* pScene);
+    void DrawGizmo(Scene* pScene, Camera* pCamera);
     void DrawToolbar();
     void DrawMenuBar();
     void DrawFileMenu();
     void DrawEditMenu();
-    void DrawSelectionMenu(SceneNew* pScene);
+    void DrawSelectionMenu(Scene* pScene);
     void DrawViewMenu();
     void DrawLayoutMenu();
     void DrawHelpMenu();
@@ -192,7 +191,7 @@ private:
     void CreateDescriptorPool();
 
     /** Save modified scene/level to disk. */
-    void SaveCurrentLevel(SceneNew* pScene);
+    void SaveCurrentLevel(Scene* pScene);
     
     /** Reset layout to default. */
     void ResetLayoutToDefault();

@@ -2,7 +2,7 @@
  * LightManager — Implementation.
  */
 #include "light_manager.h"
-#include "scene_new.h"
+#include "scene/scene_unified.h"
 #include "vulkan/vulkan_utils.h"
 #include <cstring>
 #include <cstdio>
@@ -59,7 +59,6 @@ void LightManager::UpdateLightBuffer() {
 
     // Count active lights and write to buffer
     const auto& gameObjects = m_pScene->GetGameObjects();
-    const auto& transforms = m_pScene->GetTransforms();
     const auto& lights = m_pScene->GetLights();
 
     // Debug: log counts once at startup
@@ -83,13 +82,15 @@ void LightManager::UpdateLightBuffer() {
         if (lightCount >= kMaxLights)
             break;
 
-        // Get world position and direction from transform
-        const Transform& t = transforms[go.transformIndex];
+        const Transform* pT = m_pScene->GetTransform(go.id);
+        if (!pT) continue;
+        const Transform& t = *pT;
 
         float worldDir[3];
         TransformGetForward(t, worldDir[0], worldDir[1], worldDir[2]);
+        float worldPos[3] = { t.worldMatrix[12], t.worldMatrix[13], t.worldMatrix[14] };
 
-        LightFillGpuData(light, t.position, worldDir, pLights[lightCount]);
+        LightFillGpuData(light, worldPos, worldDir, pLights[lightCount]);
         ++lightCount;
     }
 

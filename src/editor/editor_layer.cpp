@@ -4,13 +4,11 @@
 #if EDITOR_BUILD  // Editor only in Debug/Editor builds
 
 #include "editor_layer.h"
-#include "core/scene_new.h"
 #include "core/transform.h"
 #include "core/renderer_component.h"
 #include "core/camera_component.h"
 #include "managers/mesh_manager.h"
-#include "scene/scene.h"
-#include "scene/object.h"
+#include "scene/scene_unified.h"
 #include "scene/level_selector.h"
 #include "camera/camera.h"
 #include "config/vulkan_config.h"
@@ -251,11 +249,11 @@ bool EditorLayer::WantCaptureKeyboard() const {
     return ImGui::GetIO().WantCaptureKeyboard;
 }
 
-void EditorLayer::DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager, Scene* pRenderScene) {
+void EditorLayer::DrawEditor(Scene* pScene, Camera* pCamera, const VulkanConfig& config, ViewportManager* pViewportManager) {
     if (!m_bInitialized || !m_bEnabled) return;
     
     // Store render scene for inspector access (emissive light editing)
-    m_pRenderScene = pRenderScene;
+    m_pRenderScene = pScene;
 
     // Setup dockspace over the entire viewport
     ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -305,11 +303,14 @@ void EditorLayer::DrawEditor(SceneNew* pScene, Camera* pCamera, const VulkanConf
     if (m_bShowDemo) ImGui::ShowDemoWindow(&m_bShowDemo);
 }
 
-// Helper to draw a placeholder menu item in red (not yet implemented)
+// Helper to draw a placeholder menu item in red with "Not implemented yet" tooltip
 bool EditorLayer::PlaceholderMenuItem(const char* label, const char* shortcut) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));  // Red text
     bool clicked = ImGui::MenuItem(label, shortcut);
     ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Not implemented yet");
+    }
     return clicked;
 }
 
@@ -439,7 +440,7 @@ void EditorLayer::DrawEditMenu() {
     }
 }
 
-void EditorLayer::DrawSelectionMenu(SceneNew* pScene) {
+void EditorLayer::DrawSelectionMenu(Scene* pScene) {
     (void)pScene;  // TODO: use for operations
     if (ImGui::BeginMenu("Selection")) {
         PlaceholderMenuItem("Select All", "Ctrl+A");
@@ -587,7 +588,7 @@ void EditorLayer::DrawToolbar() {
     ImGui::End();
 }
 
-void EditorLayer::DrawHierarchyPanel(SceneNew* pScene) {
+void EditorLayer::DrawHierarchyPanel(Scene* pScene) {
     ImGui::Begin("Hierarchy");
 
     if (pScene) {
@@ -675,7 +676,7 @@ void EditorLayer::DrawHierarchyPanel(SceneNew* pScene) {
     ImGui::End();
 }
 
-void EditorLayer::DrawInspectorPanel(SceneNew* pScene) {
+void EditorLayer::DrawInspectorPanel(Scene* pScene) {
     ImGui::Begin("Inspector");
 
     if (pScene && m_selectedObjectId != UINT32_MAX) {
@@ -873,32 +874,17 @@ void EditorLayer::DrawInspectorPanel(SceneNew* pScene) {
                 }
             }
             
-            // Emissive Light properties (from render Scene Objects)
-            // Find the Object in the render scene that corresponds to this GameObject
             if (m_pRenderScene && pGO->HasRenderer()) {
-                Object* pObj = nullptr;
-                auto& renderObjects = m_pRenderScene->GetObjects();
-                for (size_t objIdx = 0; objIdx < renderObjects.size(); ++objIdx) {
-                    if (renderObjects[objIdx].gameObjectId == m_selectedObjectId) {
-                        pObj = &const_cast<Object&>(renderObjects[objIdx]);
-                        break;
-                    }
-                }
-                
-                if (pObj) {
-                    if (ImGui::CollapsingHeader("Emissive Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-                        ImGui::Checkbox("Emits Light", &pObj->emitsLight);
-                        
-                        if (pObj->emitsLight) {
-                            ImGui::ColorEdit3("Light Color", pObj->emissive);
-                            ImGui::DragFloat("Emissive Strength", &pObj->emissive[3], 0.1f, 0.0f, 100.0f);
-                            ImGui::DragFloat("Light Radius", &pObj->emissiveLightRadius, 0.5f, 0.1f, 100.0f);
-                            ImGui::DragFloat("Light Intensity", &pObj->emissiveLightIntensity, 0.1f, 0.0f, 100.0f);
-                            
-                            ImGui::Separator();
-                            ImGui::TextDisabled("Emissive objects create point lights");
-                            ImGui::TextDisabled("at their center to illuminate the scene.");
-                        }
+                RendererComponent* pRend = m_pRenderScene->GetRenderer(m_selectedObjectId);
+                if (pRend && ImGui::CollapsingHeader("Emissive Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Checkbox("Emits Light", &pRend->emitsLight);
+                    if (pRend->emitsLight) {
+                        ImGui::ColorEdit3("Light Color", pRend->matProps.emissive);
+                        ImGui::DragFloat("Emissive Strength", &pRend->matProps.emissive[3], 0.1f, 0.0f, 100.0f);
+                        ImGui::DragFloat("Light Radius", &pRend->emissiveLightRadius, 0.5f, 0.1f, 100.0f);
+                        ImGui::DragFloat("Light Intensity", &pRend->emissiveLightIntensity, 0.1f, 0.0f, 100.0f);
+                        ImGui::Separator();
+                        ImGui::TextDisabled("Emissive objects create point lights at their center.");
                     }
                 }
             }
@@ -910,7 +896,7 @@ void EditorLayer::DrawInspectorPanel(SceneNew* pScene) {
     ImGui::End();
 }
 
-void EditorLayer::DrawViewportPanel(SceneNew* pScene, Camera* pCamera, [[maybe_unused]] const VulkanConfig& config, ViewportManager* pViewportManager) {
+void EditorLayer::DrawViewportPanel(Scene* pScene, Camera* pCamera, [[maybe_unused]] const VulkanConfig& config, ViewportManager* pViewportManager) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     
     // Use NoScrollbar to fit the image properly
@@ -978,7 +964,7 @@ void EditorLayer::DrawViewportPanel(SceneNew* pScene, Camera* pCamera, [[maybe_u
     ImGui::PopStyleVar();
 }
 
-void EditorLayer::DrawGizmo(SceneNew* pScene, Camera* pCamera) {
+void EditorLayer::DrawGizmo(Scene* pScene, Camera* pCamera) {
     if (!pScene || !pCamera || m_selectedObjectId == UINT32_MAX) {
         m_bGizmoUsing = false;
         return;
@@ -1014,26 +1000,19 @@ void EditorLayer::DrawGizmo(SceneNew* pScene, Camera* pCamera) {
         proj[0][0] = proj[1][1] / viewportAspect;
     }
 
-    // Get object model matrix from the RENDER scene (Object.localTransform)
-    // This ensures the gizmo is positioned exactly where the object is rendered.
-    // The ECS Transform may be out of sync initially - we use the actual render transform.
     glm::mat4 model = glm::mat4(1.0f);
     if (m_pRenderScene) {
-        auto& objs = m_pRenderScene->GetObjects();
-        for (const auto& obj : objs) {
-            if (obj.gameObjectId == m_selectedObjectId) {
-                const float* m = obj.localTransform;
-                model = glm::mat4(
-                    m[0], m[1], m[2], m[3],
-                    m[4], m[5], m[6], m[7],
-                    m[8], m[9], m[10], m[11],
-                    m[12], m[13], m[14], m[15]
-                );
+        auto renderList = m_pRenderScene->BuildRenderList(nullptr, false);
+        for (const auto& ro : renderList) {
+            if (ro.gameObjectId == m_selectedObjectId) {
+                const float* m = ro.worldMatrix;
+                model = glm::mat4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
+                                  m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
                 break;
             }
         }
-    } else {
-        // Fallback to ECS transform if render scene not available
+    }
+    if (model == glm::mat4(1.0f) && pTransform) {
         TransformBuildModelMatrix(*pTransform);
         model = glm::make_mat4(pTransform->modelMatrix);
     }
@@ -1134,7 +1113,7 @@ void EditorLayer::SetSelectedObject(uint32_t gameObjectId) {
     m_selectedObjectId = gameObjectId;
 }
 
-void EditorLayer::SelectAtScreenPos(SceneNew* pScene, Camera* pCamera, float screenX, float screenY, uint32_t viewportW, uint32_t viewportH) {
+void EditorLayer::SelectAtScreenPos(Scene* pScene, Camera* pCamera, float screenX, float screenY, uint32_t viewportW, uint32_t viewportH) {
     if (!pScene || !pCamera || viewportW == 0 || viewportH == 0) return;
 
     // Convert screen coords to NDC
@@ -1187,7 +1166,7 @@ void EditorLayer::SelectAtScreenPos(SceneNew* pScene, Camera* pCamera, float scr
     SetSelectedObject(closestId);
 }
 
-void EditorLayer::SaveCurrentLevel(SceneNew* pScene) {
+void EditorLayer::SaveCurrentLevel(Scene* pScene) {
     if (!pScene || m_currentLevelPath.empty()) {
         VulkanUtils::LogWarn("Cannot save: no scene or level path not set");
         return;
@@ -1287,7 +1266,7 @@ void EditorLayer::SaveCurrentLevel(SceneNew* pScene) {
     }
 }
 
-void EditorLayer::DrawCamerasPanel(SceneNew* pScene) {
+void EditorLayer::DrawCamerasPanel(Scene* pScene) {
     if (!pScene) return;
     
     ImGui::Begin("Cameras");
@@ -1480,7 +1459,7 @@ void EditorLayer::DrawCamerasPanel(SceneNew* pScene) {
     ImGui::End();
 }
 
-void EditorLayer::DrawViewportsPanel(ViewportManager* pViewportManager, SceneNew* pScene) {
+void EditorLayer::DrawViewportsPanel(ViewportManager* pViewportManager, Scene* pScene) {
     if (!pViewportManager) return;
     
     ImGui::Begin("Viewports");

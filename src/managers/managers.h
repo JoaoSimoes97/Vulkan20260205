@@ -12,4 +12,14 @@
  * TextureManager:  get-or-load texture by path; VkImage + view + sampler; optional async via JobQueue.
  *
  * Dependency: Shaders (shared_ptr) -> Pipeline -> Material -> Scene. Draw list holds raw VkPipeline/layout. Descriptor sets per pipeline via map (pipelineKey -> sets).
+ *
+ * Umbrella: include this to pull in all manager headers.
  */
+#include "descriptor_set_layout_manager.h"
+#include "descriptor_pool_manager.h"
+#include "texture_manager.h"
+#include "mesh_manager.h"
+#include "pipeline_manager.h"
+#include "material_manager.h"
+#include "scene_manager.h"
+#include "resource_cleanup_manager.h"
